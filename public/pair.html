@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>CONNECT AI HQ · 폰 연결</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <main class="pair">
+    <h1><b>폰 연결</b></h1>
+    <p class="sub">맥 화면의 내 리소스 &gt; 폰에서 보기에 뜬 6자리 코드를 넣어 주세요. 한 번 연결하면 30일 동안 이 폰에서 열립니다.</p>
+    <form id="pair-form">
+      <input class="in big" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="6자리 코드" aria-label="6자리 코드">
+      <button class="btn dark big" type="submit">연결</button>
+    </form>
+    <p class="small muted" id="msg" role="status"></p>
+    <p class="small muted">같은 와이파이에서만 열립니다. 인터넷으로는 열리지 않아요.</p>
+  </main>
+  <script src="/pair.js"></script>
+</body>
+</html>

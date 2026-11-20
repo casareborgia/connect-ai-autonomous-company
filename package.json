@@ -1,0 +1,41 @@
+{
+  "name": "connect-ai-hq",
+  "version": "0.1.0",
+  "description": "AI Autonomous Company · 나의 AI 자율 회사 본사. A routine tool for building an AI autonomous company: AI staff, offices, tasks and daily routines in one local HQ.",
+  "type": "module",
+  "bin": {
+    "connect-ai-hq": "bin/connect-ai-hq.mjs"
+  },
+  "files": [
+    "server.mjs",
+    "bin/",
+    "lib/",
+    "mcp/",
+    "public/",
+    "remote/",
+    "skills/",
+    "README.md",
+    "README.en.md",
+    "LICENSE.md",
+    "LICENSE.ko.md"
+  ],
+  "scripts": {
+    "start": "node bin/connect-ai-hq.mjs",
+    "test": "node --test qa/"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "ai-agents",
+    "autonomous-company",
+    "mcp",
+    "routines",
+    "claude-code",
+    "codex",
+    "ollama"
+  ],
+  "license": "SEE LICENSE IN LICENSE.md",
+  "author": "CONNECT AI LAB",
+  "private": true
+}

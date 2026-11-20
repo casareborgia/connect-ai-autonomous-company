@@ -1,0 +1,8 @@
+# 내 회사 데이터 (할 일, 대화, 세션 키, 백업) 는 저장소에 올리지 않는다
+data/
+workspaces/
+*.tgz
+node_modules/
+.DS_Store
+# 시험 중 찍은 화면 (개인 데이터가 보일 수 있음). README 용 예시 화면은 docs/ 에 둔다
+qa/*.png
