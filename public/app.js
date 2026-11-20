@@ -6,8 +6,8 @@
 const C = window.Charts;
 let S = null;
 const ui = {
-  route: 'home', param: '', open: null, picking: null, editingEmp: null, drag: false, office: null,
-  models: null, listening: false, lastThread: null, handout: {}, ob: null, lan: null,
+  route: 'home', param: '', open: null, picking: null, editingEmp: null, openAccount: null, drag: false, office: null,
+  tools: null, briefOpen: false, models: null, listening: false, lastThread: null, handout: {}, ob: null, lan: null,
 };
 
 // 같은 요청을 두 번 보내지 않는다 (엔터 두 번, 빠른 두 번 클릭)
@@ -168,7 +168,7 @@ async function load() {
 function snapshotInputs() {
   const snap = new Map();
   for (const el of document.querySelectorAll('[data-k]')) {
-    snap.set(el.dataset.k, { value: el.value, open: el.open, focused: document.activeElement === el, s: el.selectionStart, e: el.selectionEnd });
+    snap.set(el.dataset.k, { value: el.value, checked: el.checked, open: el.open, focused: document.activeElement === el, s: el.selectionStart, e: el.selectionEnd });
   }
   return snap;
 }
@@ -177,7 +177,7 @@ function restoreInputs(snap) {
     const v = snap.get(el.dataset.k);
     if (!v) continue;
     if (el.tagName === 'DETAILS') { el.open = v.open; continue; }
-    if (el.type === 'checkbox') continue;
+    if (el.type === 'checkbox') { el.checked = v.checked; continue; }
     if (el.dataset.fresh !== '1') el.value = v.value;
     if (v.focused) { el.focus(); try { el.setSelectionRange(v.s, v.e); } catch { /* select */ } }
   }
@@ -269,14 +269,19 @@ function taskRow(t, { draggable = true } = {}) {
     onclick: (ev) => { ev.stopPropagation(); ui.picking = ui.picking === t.id ? null : t.id; render(); },
   }, t.assignee ? shortName(t.assignee) : '담당 미정');
   const msgs = S.data.messages.filter((m) => m.thread === `task:${t.id}` && m.fromKind !== 'system').length;
+  const stLen = (t.steps || []).length;
+  const stDone = stLen ? t.steps.filter((s) => s.status === '완료').length : 0;
   const right = h('div', { class: 'right' },
     gated ? h('button', { class: 'btn sm dark', onclick: (ev) => { ev.stopPropagation(); if (confirm(`"${t.title}" 에 ${gateK(t.gate)} 들어 있습니다. AI가 진행해도 될까요?`)) act('POST', `/api/ui/tasks/${t.id}/approve-gate`, {}, `${gateO(t.gate)} 확인했습니다`); } }, `${t.gate} 확인`) : null,
+    stLen ? h('span', { class: 'tag', title: '팀 협업 워크플로우' }, `${t.stepMode === 'parallel' ? '동시' : '협업'} ${stDone}/${stLen}`) : null,
     t.status === '진행' || t.status === '막힘' ? h('span', { class: `stat-pill ${t.status}` }, officeOf(t) && t.status === '진행' ? `${officeOf(t).name}에서 실행 중` : isWorking(t.assignee) && t.status === '진행' ? '일하는 중' : t.status) : null,
     msgs ? h('span', { class: 'small muted', title: '스레드 메시지' }, `대화 ${msgs}`) : null,
     who);
   const meta = [];
   if (t.reason) meta.push(thinking ? `${t.reason} · 다시 보는 중` : t.reason);
   if (t.resource && res(t.resource) && !(t.reason || '').includes(res(t.resource).name)) meta.push(res(t.resource).name);
+  if (t.browser && res(t.browser) && !(t.reason || '').includes(res(t.browser).name)) meta.push(res(t.browser).name);
+  for (const tid of t.tools || []) if (res(tid) && !(t.reason || '').includes(res(tid).name)) meta.push(res(tid).name);
   if (t.routineId) meta.push('매일');
   if (t.date !== S.today) meta.push(dateK(t.date));
 
@@ -293,25 +298,144 @@ function taskRow(t, { draggable = true } = {}) {
   return li;
 }
 
+function stepsEditor(kind, item) {
+  const isTask = kind === 'tasks';
+  const steps = item.steps || [];
+  const mode = item.stepMode === 'parallel' ? 'parallel' : 'serial';
+  const machines = S.data.resources.filter((r) => r.kind === '기계' && r.status !== '꺼짐');
+  const browsers = S.data.resources.filter((r) => r.kind === '브라우저' && r.status !== '꺼짐');
+  const ossList = S.data.resources.filter((r) => r.kind === '오픈소스' && r.status !== '꺼짐');
+  const doneCount = steps.filter((s) => s.status === '완료').length;
+  const activeSet = new Set(
+    mode === 'parallel'
+      ? steps.filter((s) => s.status !== '완료').map((s) => s.id)
+      : [steps.find((s) => s.status !== '완료')?.id].filter(Boolean),
+  );
+  const base = `/api/ui/${kind}/${item.id}`;
+  const stepInput = h('input', { class: 'in sm', 'data-k': `wf-add-${kind}-${item.id}`, placeholder: '단계 추가 (예: 블렌더 3D 모델링 — AI·사무실·도구 자동 추천)', 'aria-label': '새 협업 단계' });
+  const addStep = () => submitInput(stepInput, `wf-add-${kind}-${item.id}`, (v) => act('POST', `${base}/steps`, { title: v }, '단계를 추가했어요'));
+  stepInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) addStep(); });
+  const folderInput = h('input', { class: 'in sm', value: item.sharedFolder || '', 'data-k': `wf-dir-${kind}-${item.id}`, placeholder: '공유 폴더 (선택, 예: ~/iCloud/영상편집)', 'aria-label': '공유 폴더' });
+  const saveFolder = () => act('PATCH', base, { sharedFolder: folderInput.value.trim() }, '공유 폴더를 저장했어요');
+  folderInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) saveFolder(); });
+
+  const moveStep = (idx, dir) => {
+    const next = [...steps];
+    const j = idx + dir;
+    if (j < 0 || j >= next.length) return;
+    [next[idx], next[j]] = [next[j], next[idx]];
+    act('PATCH', base, { steps: next }, '단계 순서를 바꿨어요');
+  };
+
+  const renderStep = (s, idx) => {
+    const isAct = isTask && activeSet.has(s.id);
+    const isDone = isTask && s.status === '완료';
+    const patchStep = (patch, msg) => act('PATCH', `${base}/steps/${s.id}`, patch, msg);
+    return h('li', { class: `wf-step${isDone ? ' done' : ''}${isAct ? ' active' : ''}`, 'data-step': s.id },
+      h('div', { class: 'wf-top' },
+        isTask ? h('input', { type: 'checkbox', class: 'chk', checked: isDone, 'aria-label': `${s.title} 완료`, onchange: (ev) => patchStep({ status: ev.target.checked ? '완료' : '대기' }, ev.target.checked ? `${idx + 1}단계 완료` : '대기로 되돌렸어요') }) : null,
+        h('span', { class: `wf-num${isAct ? ' on' : ''}` }, String(idx + 1)),
+        h('span', { class: 'wf-title' }, s.title),
+        isAct ? h('span', { class: 'tag solid' }, mode === 'parallel' ? '동시 진행' : '지금 차례') : null,
+        h('div', { class: 'wf-ord' },
+          idx > 0 ? h('button', { type: 'button', class: 'btn link', 'aria-label': '위로', onclick: () => moveStep(idx, -1) }, '↑') : null,
+          idx < steps.length - 1 ? h('button', { type: 'button', class: 'btn link', 'aria-label': '아래로', onclick: () => moveStep(idx, 1) }, '↓') : null,
+          h('button', { type: 'button', class: 'x', 'aria-label': `${s.title} 지우기`, onclick: () => act('DELETE', `${base}/steps/${s.id}`, undefined, '단계를 지웠어요') }, '×'))),
+      h('div', { class: 'wf-ctl' },
+        h('select', { class: 'in sm', 'aria-label': `${s.title} 담당`, onchange: (ev) => patchStep({ assignee: ev.target.value || null }, '담당을 바꿨어요') },
+          h('option', { value: '', selected: !s.assignee }, '담당 미정'),
+          h('option', { value: 'jay', selected: s.assignee === 'jay' }, '나 (대표)'),
+          S.data.employees.map((e) => h('option', { value: e.id, selected: s.assignee === e.id }, shortName(e.id)))),
+        machines.length ? h('select', { class: 'in sm', 'aria-label': `${s.title} 사무실`, onchange: (ev) => patchStep({ resource: ev.target.value || null }, '사무실을 바꿨어요') },
+          h('option', { value: '', selected: !s.resource }, '사무실 자동'),
+          machines.map((m) => h('option', { value: m.id, selected: s.resource === m.id }, m.name))) : null,
+        browsers.length ? h('select', { class: 'in sm', 'aria-label': `${s.title} 브라우저`, onchange: (ev) => patchStep({ browser: ev.target.value || null }, '브라우저를 바꿨어요') },
+          h('option', { value: '', selected: !s.browser }, '브라우저 없음'),
+          browsers.map((b) => h('option', { value: b.id, selected: s.browser === b.id }, b.name))) : null),
+      ossList.length ? h('div', { class: 'wf-tools' }, ossList.map((o) => {
+        const has = (s.tools || []).includes(o.id);
+        return h('button', {
+          type: 'button', class: `chip sm${has ? ' on' : ''}`,
+          onclick: () => {
+            const next = has ? (s.tools || []).filter((x) => x !== o.id) : [...(s.tools || []), o.id];
+            patchStep({ tools: next });
+          },
+        }, o.name);
+      })) : null,
+      s.note ? h('div', { class: 'small muted wf-note' }, s.note) : null,
+      s.output ? h('div', { class: 'small wf-out' }, `결과: ${s.output}`) : null);
+  };
+
+  const sumText = steps.length
+    ? `팀 분업 워크플로우 · ${isTask ? `${doneCount}/${steps.length} 완료` : `${steps.length}단계`} · ${mode === 'parallel' ? '동시에 함께' : '순서대로'}`
+    : '팀으로 나눠 하기 (여러 AI · 사무실이 단계별 협업)';
+
+  return h('details', { class: 'wf-box', 'data-k': `wf-${kind}-${item.id}`, open: steps.length > 0 ? true : undefined },
+    h('summary', null, sumText),
+    h('div', { class: 'wf-body' },
+      h('div', { class: 'wf-bar' },
+        h('div', { class: 'seg', role: 'group', 'aria-label': '협업 방식' },
+          h('button', { type: 'button', class: mode === 'serial' ? 'on' : '', onclick: () => mode !== 'serial' && act('PATCH', base, { stepMode: 'serial' }, '순서대로(릴레이)로 바꿨어요') }, '순서대로'),
+          h('button', { type: 'button', class: mode === 'parallel' ? 'on' : '', onclick: () => mode !== 'parallel' && act('PATCH', base, { stepMode: 'parallel' }, '동시에 함께(병렬)로 바꿨어요') }, '동시에 함께')),
+        h('div', { class: 'wf-dir' }, folderInput, h('button', { type: 'button', class: 'btn sm', onclick: saveFolder }, '저장'))),
+      !steps.length && (S.options.stepTemplates || []).length ? h('div', { class: 'wf-tpls' },
+        h('span', { class: 'small muted' }, '예시로 채우기'),
+        S.options.stepTemplates.map((tpl) => h('button', {
+          type: 'button', class: 'chip',
+          onclick: () => once(`tpl-${kind}-${item.id}-${tpl.key}`, () => act('POST', `${base}/steps/template`, { key: tpl.key }, `${tpl.label}을 채웠어요`)),
+        }, tpl.label))) : null,
+      steps.length ? h('ul', { class: 'wf-steps' }, steps.map(renderStep)) : null,
+      h('div', { class: 'wf-add' }, stepInput, h('button', { type: 'button', class: 'btn sm dark', onclick: addStep }, '+ 추가'))));
+}
+
 function taskDetail(t, e) {
+  const browsers = S.data.resources.filter((r) => r.kind === '브라우저' && r.status !== '꺼짐');
+  const ossList = S.data.resources.filter((r) => r.kind === '오픈소스' && r.status !== '꺼짐');
+  const accList = S.data.resources.filter((r) => r.kind === '계정' && r.status !== '꺼짐');
+  const activeAcc = t.account ? accList.find((a) => a.id === t.account) : null;
   const f = {
     title: h('input', { class: 'in sm', value: t.title, 'data-k': `e-title-${t.id}`, 'aria-label': '제목' }),
     time: h('input', { class: 'in sm', type: 'time', value: t.time || '', 'data-k': `e-time-${t.id}`, 'aria-label': '시간' }),
     date: h('input', { class: 'in sm', type: 'date', value: t.date, 'data-k': `e-date-${t.id}`, 'aria-label': '날짜' }),
     note: h('textarea', { class: 'in', rows: 2, placeholder: '메모', 'data-k': `e-note-${t.id}`, 'aria-label': '메모' }, t.note || ''),
     resource: h('select', { class: 'in sm', 'data-k': `e-res-${t.id}`, 'aria-label': '리소스' }, h('option', { value: '' }, '리소스 없음'),
-      S.data.resources.map((r) => h('option', { value: r.id, selected: t.resource === r.id }, `${r.name} · ${r.status}`))),
+      S.data.resources.filter((r) => !['브라우저', '오픈소스'].includes(r.kind)).map((r) => h('option', { value: r.id, selected: t.resource === r.id }, `${r.name} · ${r.status}`))),
     gate: h('select', { class: 'in sm', 'data-k': `e-gate-${t.id}`, 'aria-label': '대표 확인' }, h('option', { value: '' }, '확인 필요 없음'),
       S.options.gates.map((g) => h('option', { value: g, selected: t.gate === g }, `${g} · 대표 확인 필요`))),
   };
   const save = () => act('PATCH', `/api/ui/tasks/${t.id}`, { title: f.title.value, time: f.time.value, date: f.date.value, note: f.note.value, resource: f.resource.value || null, ...(f.gate.value !== (t.gate || '') ? { gate: f.gate.value || null } : {}) }, '저장했습니다');
   f.title.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) save(); });
+  const accountPicker = accList.length ? h('div', { class: 'd-tools' }, h('span', { class: 'small muted' }, '연결 계정'),
+    h('div', { class: 'picker' },
+      h('button', { type: 'button', class: `chip${!t.account ? ' on' : ''}`, onclick: () => act('PATCH', `/api/ui/tasks/${t.id}`, { account: null }) }, '없음'),
+      accList.map((a) => h('button', { type: 'button', class: `chip${t.account === a.id ? ' on' : ''}`, onclick: () => act('PATCH', `/api/ui/tasks/${t.id}`, { account: a.id, ...(a.browser && !t.browser ? { browser: a.browser } : {}) }, `${a.name} 연결됨`) }, a.name)))) : null;
+  const browserPicker = browsers.length ? h('div', { class: 'd-tools' }, h('span', { class: 'small muted' }, '브라우저'),
+    h('div', { class: 'picker' },
+      h('button', { type: 'button', class: `chip${!t.browser ? ' on' : ''}`, onclick: () => act('PATCH', `/api/ui/tasks/${t.id}`, { browser: null }) }, '안 씀'),
+      browsers.map((b) => h('button', { type: 'button', class: `chip${t.browser === b.id ? ' on' : ''}`, onclick: () => act('PATCH', `/api/ui/tasks/${t.id}`, { browser: b.id }, `${b.name}로 정했어요`) }, b.name)))) : null;
+  const ossPicker = ossList.length ? h('div', { class: 'd-tools' }, h('span', { class: 'small muted' }, '오픈소스'),
+    h('div', { class: 'picker' }, ossList.map((o) => {
+      const has = (t.tools || []).includes(o.id);
+      return h('button', {
+        type: 'button', class: `chip${has ? ' on' : ''}`,
+        onclick: () => {
+          const next = has ? (t.tools || []).filter((x) => x !== o.id) : [...(t.tools || []), o.id];
+          act('PATCH', `/api/ui/tasks/${t.id}`, { tools: next });
+        },
+      }, o.name);
+    }))) : null;
   return h('div', { class: 'detail' },
     h('div', { class: 'd-grid' }, h('div', { class: 'span2' }, f.title), f.time, f.date, h('div', { class: 'span2' }, f.note), f.resource, f.gate),
     h('div', { class: 'd-who' }, h('span', { class: 'small muted' }, '담당'), assigneePicker(t.assignee, (id) => act('PATCH', `/api/ui/tasks/${t.id}`, { assignee: id }, `${shortName(id)}에게 맡겼습니다`))),
+    accountPicker,
+    activeAcc ? h('div', { class: 'small muted', style: 'margin-top:4px' }, `계정 권한 · ${accountSummaryText(activeAcc)}`) : null,
+    browserPicker,
+    ossPicker,
+    stepsEditor('tasks', t),
     h('div', { class: 'd-bar' },
       h('div', { class: 'row' },
         h('button', { class: 'btn sm', onclick: () => { if (confirm(`이 할 일을 지울까요?\n${t.title}`)) { ui.open = null; act('DELETE', `/api/ui/tasks/${t.id}`, undefined, '지웠습니다'); } } }, '지우기'),
+        !t.routineId ? h('button', { class: 'btn sm', onclick: () => once(`tor-${t.id}`, () => act('POST', `/api/ui/tasks/${t.id}/to-routine`, {}, '매일 할 일에 넣었어요')) }, '매일 루틴으로') : null,
         h('select', { class: 'in sm', style: 'width:96px', 'aria-label': '상태', onchange: (ev) => act('PATCH', `/api/ui/tasks/${t.id}`, { status: ev.target.value }) },
           S.options.statuses.map((s) => h('option', { value: s, selected: s === t.status }, s)))),
       h('div', { class: 'row' },
@@ -383,7 +507,7 @@ function workBox(t, e) {
   const ho = ui.handout[t.id];
   const url = ho?.url || e.webUrl || '';
   const paste = h('textarea', { class: 'in', rows: 4, 'data-k': `paste-${t.id}`, placeholder: `${shortName(e.id)}에게 받은 답을 여기에 붙여 넣으세요`, 'aria-label': '받은 답' });
-  const doneBox = h('input', { type: 'checkbox', checked: true, 'aria-label': '끝난 일로 표시' });
+  const doneBox = h('input', { type: 'checkbox', checked: true, 'data-k': `paste-done-${t.id}`, 'aria-label': '끝난 일로 표시' });
   const getPrompt = () => once(`ho-${t.id}`, async () => {
     try {
       const r = await api('POST', `/api/ui/tasks/${t.id}/handout`, {});
@@ -645,6 +769,50 @@ function todayList(today) {
     doneBox);
 }
 
+// 아침/오늘 보고 1줄 띠: AI 완료·확인 대기·막힘이 있을 때만 조용히 표시, 확인 누르면 사라짐
+function morningBriefing(today) {
+  const d = S.data;
+  const aiDone = today.filter((t) => t.assignee !== 'jay' && t.status === '완료');
+  const waiting = d.tasks.filter((t) => t.gate && !t.gateApprovedAt && t.status !== '완료' && t.assignee !== 'jay');
+  const stuck = d.tasks.filter((t) => t.status === '막힘' && t.assignee !== 'jay');
+  const total = aiDone.length + waiting.length + stuck.length;
+  if (!total) return null;
+  const sig = `${S.today}:${aiDone.map((x) => x.id).join(',')}:${waiting.map((x) => x.id).join(',')}:${stuck.map((x) => x.id).join(',')}`;
+  try { if (localStorage.getItem('aihq_brief_ack') === sig) return null; } catch { /* ignore */ }
+  const parts = [];
+  if (aiDone.length) parts.push(`AI 완료 ${aiDone.length}`);
+  if (waiting.length) parts.push(`확인 대기 ${waiting.length}`);
+  if (stuck.length) parts.push(`막힘 ${stuck.length}`);
+  const items = [...waiting.map((t) => ({ tag: `${t.gate} 확인`, t })), ...stuck.map((t) => ({ tag: '막힘', t })), ...aiDone.map((t) => ({ tag: '완료', t }))];
+  return h('div', { class: 'briefing' },
+    h('div', { class: 'briefing-bar' },
+      h('div', { class: 'small' }, h('b', null, '오늘 AI 보고'), ' · ', parts.join(' · ')),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn sm', onclick: () => { ui.briefOpen = !ui.briefOpen; render(); } }, ui.briefOpen ? '접기' : '보기'),
+        h('button', { class: 'btn sm dark', onclick: () => { try { localStorage.setItem('aihq_brief_ack', sig); } catch { /* ignore */ } ui.briefOpen = false; render(); } }, '확인'))),
+    ui.briefOpen ? h('ul', { class: 'briefing-list' }, items.map(({ tag, t }) => h('li', { class: 'row', style: 'justify-content:space-between' },
+      h('span', null, h('span', { class: 'tag', style: 'margin-right:8px' }, tag), t.title, ' ', h('span', { class: 'small muted' }, shortName(t.assignee))),
+      h('button', { class: 'btn link', onclick: () => { ui.open = t.id; render(); document.querySelector(`li[data-id="${t.id}"]`)?.scrollIntoView({ block: 'center' }); } }, '열기')))) : null);
+}
+
+async function openDailyReport() {
+  const dlg = document.getElementById('dlg');
+  dlg.replaceChildren(h('h3', null, '오늘의 자율 회사 리포트'), h('div', { class: 'small muted' }, '정리하는 중…'));
+  dlg.showModal();
+  try {
+    const rep = await api('GET', '/api/ui/report/daily');
+    dlg.replaceChildren(
+      h('h3', null, '오늘의 자율 회사 리포트'),
+      h('p', { class: 'small muted', style: 'margin:-8px 0 14px' }, '매출 금액·계정 정보는 빼고 오늘 AI가 일한 숫자만 담았어요. 방송 오프닝이나 커뮤니티 인증에 바로 붙여 넣으세요.'),
+      h('pre', { class: 'report-pre' }, rep.text),
+      h('div', { class: 'bar' },
+        h('button', { class: 'btn', onclick: () => dlg.close() }, '닫기'),
+        h('button', { class: 'btn dark', onclick: () => copyText(rep.text) }, '리포트 복사')));
+  } catch {
+    dlg.close();
+  }
+}
+
 function pageHome() {
   const d = S.data;
   const day = new Date(`${S.today}T12:00:00`);
@@ -658,14 +826,18 @@ function pageHome() {
   return h('div', null,
     h('div', { class: 'head' }, h('div', null,
       h('h1', null, `${greeting()}, `, h('b', null, `${d.owner.name} 대표님`)),
-      h('div', { class: 'sub' }, `${day.getMonth() + 1}월 ${day.getDate()}일 ${WD[day.getDay()]}요일 · 내가 할 일 ${mine.filter((t) => t.status !== '완료').length} · AI 직원이 할 일 ${ai.filter((t) => t.status !== '완료').length}`))),
+      h('div', { class: 'sub' }, `${day.getMonth() + 1}월 ${day.getDate()}일 ${WD[day.getDay()]}요일 · 내가 할 일 ${mine.filter((t) => t.status !== '완료').length} · AI 직원이 할 일 ${ai.filter((t) => t.status !== '완료').length}`)),
+    h('button', { class: 'btn sm', onclick: openDailyReport }, '오늘 리포트')),
+    morningBriefing(today),
     addBar(),
     h('p', { class: 'rule' }, '결제, 업로드, 게시, 삭제, 메시지 발송이 들어간 일은 대표가 누를 때까지 AI가 시작하지 못합니다.'),
     !d.employees.length ? h('div', { class: 'callout' },
       h('div', null, h('b', null, '먼저 쓰는 AI를 직원으로 추가하세요.'), h('div', { class: 'small muted' }, 'ChatGPT, Claude, Gemini 처럼 이미 쓰는 AI를 고르면, 적은 일을 알맞은 AI에게 나눠 줍니다.')),
       h('button', { class: 'btn dark', onclick: openAddEmployee }, '직원 추가')) : null,
     freeAppr.length ? h('section', { class: 'sec' }, secHead('대표 확인 대기', `${freeAppr.length}건`),
-      h('ul', { class: 'list' }, freeAppr.map((a) => h('li', null, h('div', { class: 'main' }, h('div', { class: 't' }, a.what), h('div', { class: 's' }, `${a.kind} · ${nameOf(a.from)} · ${stamp(a.requestedAt)}`)),
+      h('ul', { class: 'list' }, freeAppr.map((a) => h('li', null, h('div', { class: 'main' },
+        h('div', { class: 't' }, a.accountName ? h('span', { class: 'tag', style: 'margin-right:8px' }, `${a.accountName}${a.accountAction ? ` · ${a.accountAction}` : ''}`) : null, a.what),
+        h('div', { class: 's' }, `${a.kind} · ${nameOf(a.from)} · ${stamp(a.requestedAt)}`)),
         h('div', { class: 'row' },
           h('button', { class: 'btn sm', onclick: () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '반려' }, '반려했습니다') }, '반려'),
           h('button', { class: 'btn sm dark', onclick: () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인' }, '승인했습니다') }, '승인')))))) : null,
@@ -697,6 +869,20 @@ function daysText(days) {
   return days.map((x) => WD[x]).join(' ');
 }
 
+function dots7(r) {
+  const today = new Date(`${S.today}T12:00:00`);
+  const items = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const done = r.log?.[key] === '완료';
+    const sched = (r.days || []).includes(d.getDay());
+    items.push(h('i', { class: done ? 'ok' : sched ? 'miss' : '', title: `${key} ${done ? '완료' : sched ? '기록 없음' : '쉬는 날'}` }));
+  }
+  return h('span', { class: 'dots7', 'aria-label': '최근 7일 기록' }, items);
+}
+
 function pageDaily() {
   const d = S.data;
   const visible = d.routines.filter((r) => !r.feature || features()[r.feature]);
@@ -716,32 +902,70 @@ function pageDaily() {
     const autoText = human ? null : !e ? '담당을 고르면 매일 아침 그 직원의 할 일로 들어갑니다'
       : e.runMode === 'auto' && canRun(e) ? '자동 실행 · 시간이 되면 혼자 시작합니다'
         : `할 일로만 들어감 · ${e.name} 자동 실행 ${RUN_LABEL[e.runMode]}`;
-    const ins = h('textarea', { class: 'in', rows: 6, 'data-k': `rt-ins-${r.id}`, placeholder: 'AI 직원이 따를 지시서', 'aria-label': '지시서' }, r.instruction || '');
+    const ins = h('textarea', { class: 'in', rows: 5, 'data-k': `rt-ins-${r.id}`, placeholder: 'AI 직원이 따를 지시서', 'aria-label': '지시서' }, r.instruction || '');
+    const relay = !human ? h('div', { class: 'r-relay' },
+      h('span', null, '끝나면 넘기기'),
+      h('select', { class: 'in sm', 'aria-label': '끝나면 넘기기', onchange: (ev) => act('PATCH', `/api/ui/routines/${r.id}`, { nextAssignee: ev.target.value || null }, '바꿨어요') },
+        h('option', { value: '' }, '넘기지 않음'),
+        h('option', { value: 'jay', selected: r.nextAssignee === 'jay' }, '나 (대표 확인)'),
+        d.employees.filter((x) => x.id !== r.assignee).map((x) => h('option', { value: x.id, selected: r.nextAssignee === x.id }, x.name)))) : null;
+    const toolNames = [res(r.resource)?.name, res(r.browser)?.name, ...(r.tools || []).map((id) => res(id)?.name)].filter(Boolean);
+    const stepOffices = [...new Set((r.steps || []).map((s) => res(s.resource)?.name).filter(Boolean))];
+    const stepSummary = (r.steps || []).length ? `${r.steps.length}단계 협업${stepOffices.length ? ` (${stepOffices.join(' · ')})` : ''}` : '';
+    const foldLabel = human ? '8주 기록' : [
+      (r.steps || []).length ? `팀 분업 ${r.steps.length}단계` : '팀으로 나눠 하기',
+      r.instruction ? '지시서' : '지시서 쓰기',
+      r.nextAssignee ? `끝나면 → ${shortName(r.nextAssignee)}` : '',
+      '8주 기록',
+    ].filter(Boolean).join(' · ');
     return h('li', { class: `routine${r.enabled === false ? ' off' : ''}` },
       h('div', { class: 'r-top' },
         h('div', { class: 'r-main' },
           h('div', { class: 'r-title' }, r.title),
-          h('div', { class: 'small muted' }, [daysText(r.days), r.time || '시간 없음', r.where, res(r.resource)?.name].filter(Boolean).join(' · '))),
+          h('div', { class: 'small muted' }, [daysText(r.days), r.time || '시간 없음', r.where, stepSummary, ...toolNames].filter(Boolean).join(' · '))),
         h('div', { class: 'r-ctl' },
+          dots7(r),
           human ? h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: r.alarm, onchange: (ev) => act('PATCH', `/api/ui/routines/${r.id}`, { alarm: ev.target.checked }) }), h('span', { class: 'tr' }), '알람') : null,
           h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: r.enabled !== false, onchange: (ev) => act('PATCH', `/api/ui/routines/${r.id}`, { enabled: ev.target.checked }) }), h('span', { class: 'tr' }), '켜짐'),
           h('button', { class: 'x', 'aria-label': `${r.title} 지우기`, onclick: () => { if (confirm(`이 매일 할 일을 지울까요?\n${r.title}`)) act('DELETE', `/api/ui/routines/${r.id}`, undefined, '지웠습니다'); } }, '×'))),
       h('div', { class: 'r-who' }, assigneePicker(r.assignee, (id) => act('PATCH', `/api/ui/routines/${r.id}`, { assignee: id }, `${shortName(id)}에게 맡겼습니다`))),
       h('div', { class: 'small muted', style: 'margin-top:6px' }, [r.reason, autoText].filter(Boolean).join(' · ')),
-      !human ? h('details', { 'data-k': `rt-d-${r.id}`, style: 'margin-top:10px' }, h('summary', null, r.instruction ? '지시서' : '지시서 쓰기'), ins,
-        h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:8px' }, h('button', { class: 'btn sm dark', onclick: () => act('PATCH', `/api/ui/routines/${r.id}`, { instruction: ins.value }, '지시서를 저장했습니다') }, '저장'))) : null);
+      h('details', { 'data-k': `rt-d-${r.id}`, style: 'margin-top:10px' }, h('summary', null, foldLabel),
+        h('div', { class: 'r-fold' },
+          !human ? stepsEditor('routines', r) : null,
+          !human ? h('div', null, ins, h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:8px' }, h('button', { class: 'btn sm dark', onclick: () => act('PATCH', `/api/ui/routines/${r.id}`, { instruction: ins.value }, '지시서를 저장했습니다') }, '저장'))) : null,
+          relay,
+          C.habitGrid(r, S.today))));
   };
   const people = visible.filter((r) => r.assignee === 'jay');
   const ais = visible.filter((r) => r.assignee !== 'jay');
+  const packs = S.options.routinePacks || [];
+  const haveTitles = new Set(d.routines.map((r) => r.title));
+  const packBox = packs.length ? h('details', { class: 'pack-box', 'data-k': 'rt-packs' },
+    h('summary', null, 'THE FOUNDER 실습 루틴 팩 담아오기 (EP.2 아침 브리핑 · EP.3 리버스 비즈니스 · 6채널 홍보)'),
+    h('div', { class: 'pack-grid' }, packs.map((p) => {
+      const doneAll = p.titles.every((tt) => haveTitles.has(tt));
+      return h('div', { class: 'pack-card' },
+        h('div', { class: 'top' }, h('span', { class: 'tag' }, p.badge), h('b', null, p.title)),
+        h('p', { class: 'small muted', style: 'margin:6px 0 8px' }, p.summary),
+        h('ul', { class: 'pack-list' }, p.titles.map((tt) => h('li', null, tt))),
+        h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:10px' },
+          doneAll ? h('span', { class: 'tag solid' }, '담김')
+            : h('button', { type: 'button', class: 'btn sm dark', onclick: () => once(`pack-${p.key}`, async () => {
+              const r = await act('POST', '/api/ui/routines/pack', { key: p.key });
+              if (r) toast(r.added ? `${p.title} ${r.added}개를 담았어요` : '이미 모두 담겨 있어요');
+            }) }, '이 팩 담기')));
+    }))) : null;
   return h('div', null,
     h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, '매일 할 일')),
-      h('div', { class: 'sub' }, '켜 둔 매일 할 일은 매일 아침 담당이 정해진 채 오늘 할 일로 들어갑니다.')),
+      h('div', { class: 'sub' }, '사람의 하루 루틴처럼, 켜 둔 일은 매일 아침 담당과 도구가 정해진 채 오늘 할 일로 들어갑니다.')),
     h('div', { class: 'row' },
-      h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: d.settings.alarmsEnabled, onchange: (ev) => act('PATCH', '/api/ui/settings', { alarmsEnabled: ev.target.checked }, ev.target.checked ? '알람을 켰습니다' : '알람을 껐습니다') }), h('span', { class: 'tr' }), h('b', null, '맥 알람')),
+      h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: d.settings.alarmsEnabled, onchange: (ev) => act('PATCH', '/api/ui/settings', { alarmsEnabled: ev.target.checked }, ev.target.checked ? '알람을 켰습니다' : '알람을 껐습니다') }), h('span', { class: 'tr' }), h('b', null, '알람')),
       h('button', { class: 'btn sm', onclick: () => act('POST', '/api/ui/alarms/test', {}, '시험 알림을 보냈습니다') }, '알림 시험'))),
     h('div', { class: 'addbar slim' }, title, time, h('button', { class: 'btn dark', onclick: add }, '추가')),
     h('div', { style: 'margin-top:10px' }, days),
-    h('section', { class: 'sec' }, secHead('내가 매일 할 일', `${people.length}개 · 알람은 정한 시각에 이 맥에 뜹니다`), people.length ? h('ul', { class: 'routines' }, people.map(row)) : h('div', { class: 'empty' }, '없습니다')),
+    packBox,
+    h('section', { class: 'sec' }, secHead('내가 매일 할 일', `${people.length}개 · 알람은 정한 시각에 이 컴퓨터에 뜹니다`), people.length ? h('ul', { class: 'routines' }, people.map(row)) : h('div', { class: 'empty' }, '없습니다')),
     h('section', { class: 'sec' }, secHead('AI 직원이 매일 할 일', `${ais.length}개`), ais.length ? h('ul', { class: 'routines' }, ais.map(row)) : h('div', { class: 'empty' }, '없습니다. 위에 적으면 맞는 AI 직원에게 배분합니다.')));
 }
 
@@ -780,7 +1004,7 @@ function empCard(e) {
   }
   if (e.engine === 'local') ensureModels();
   const k = (f) => `emp-${f}-${e.id}`;
-  const resBoxes = S.data.resources.map((r) => h('label', { class: 'chk-l' }, h('input', { type: 'checkbox', value: r.id, checked: e.resources.includes(r.id), class: 'res-box' }), `${r.name}`));
+  const resBoxes = S.data.resources.map((r) => h('label', { class: 'chk-l' }, h('input', { type: 'checkbox', value: r.id, checked: e.resources.includes(r.id), class: 'res-box', 'data-k': `emp-res-${e.id}-${r.id}` }), `${r.name}`));
   const f = {
     role: h('input', { class: 'in sm', value: e.role, 'data-k': k('role') }),
     tools: h('input', { class: 'in sm', value: e.tools.join(', '), placeholder: '쉼표로 구분', 'data-k': k('tools') }),
@@ -840,14 +1064,15 @@ function openAddEmployee() {
   const role = h('input', { class: 'in', 'aria-label': '역할', placeholder: '예: 글쓰기, 고객 답장' });
   let picked = null;
   const have = new Set(S.data.employees.map((e) => e.catalog).filter(Boolean));
+  const multi = S.data.groups.length > 1;
+  const group = multi ? h('select', { class: 'in', 'aria-label': '근무 형태' }, S.data.groups.map((g) => h('option', { value: g.id }, [g.title, g.subtitle].filter(Boolean).join(' · ')))) : null;
   const quick = h('div', { class: 'picker' }, S.options.catalog.filter((c) => !have.has(c.key) && c.engine !== 'local').map((c) => h('button', {
     type: 'button', class: 'chip', onclick: (ev) => {
       picked = c.key; name.value = c.name; role.value = c.role;
+      if (group && c.group) group.value = c.group;
       for (const b of quick.children) b.classList.toggle('on', b === ev.currentTarget);
     },
   }, c.name)));
-  const multi = S.data.groups.length > 1;
-  const group = multi ? h('select', { class: 'in', 'aria-label': '근무 형태' }, S.data.groups.map((g) => h('option', { value: g.id }, [g.title, g.subtitle].filter(Boolean).join(' · ')))) : null;
   dlg.replaceChildren(h('h3', null, 'AI 직원 추가'),
     h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '이미 쓰는 AI를 고르면 역할이 채워집니다. 역할은 배분할 때 씁니다.'),
     quick,
@@ -883,7 +1108,7 @@ function pageStaff() {
       h('div', { class: 'sub' }, `AI 직원 ${d.employees.length}명 · 월급 합계 월 ${won(total)}${unknown ? ` · 미입력 ${unknown}명` : ''}`)),
     h('button', { class: 'btn', onclick: openAddEmployee }, '직원 추가')),
     !d.employees.length ? h('div', { class: 'empty' }, '아직 직원이 없어요. 직원 추가를 눌러 지금 쓰는 AI를 고르세요.') : null,
-    d.groups.length <= 1 ? h('div', { class: 'cards' }, d.employees.map(empCard)) : d.groups.map((g, i) => {
+    d.groups.length <= 1 ? h('div', { class: 'cards' }, d.employees.map(empCard)) : d.groups.filter((g) => d.employees.some((e) => e.group === g.id)).map((g, i) => {
       const list = d.employees.filter((e) => e.group === g.id);
       return h('section', { class: 'grp' },
         h('div', { class: 'grp-h' }, h('span', { class: 'n0' }, String(i + 1)), h('h2', null, g.title), h('span', null, g.subtitle), h('span', { class: 'n' }, `${list.length}명`)),
@@ -926,7 +1151,7 @@ function resRow(r) {
       : o.state === 'down' ? `안 닿음 · ${o.reason}${o.retryAt ? ` · ${stamp(o.retryAt)}에 다시` : ''}` : `쉬는 중${o.checkedAt ? ` · ${stamp(o.checkedAt)} 확인` : ''}`) : null;
     extra = h('div', null, oLine ? h('div', { class: 'small office-line' }, oLine) : null, h('div', { class: 'row', style: 'margin-top:6px' }, host, alias,
       h('button', { class: 'btn sm', onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { hostname: host.value, sshAlias: alias.value.trim() }, '저장했습니다') }, '저장'),
-      h('button', { class: 'btn sm', disabled: !r.hostname, onclick: () => act('POST', `/api/ui/resources/${r.id}/check`, {}, '확인했습니다') }, '연결 확인'),
+      h('button', { class: 'btn sm', disabled: !r.hostname && !r.sshAlias, onclick: () => act('POST', `/api/ui/resources/${r.id}/check`, {}, '확인했습니다') }, '연결 확인'),
       h('span', { class: 'small muted' }, lc ? `${lc.ok ? '닿음' : '안 닿음'} · ${lc.reason} · ${stamp(lc.checkedAt)}` : r.sshAlias ? '누를 때 ssh 로 한 번 확인 (키로만)' : r.hostname ? '누를 때 한 번만 확인 (로그인 안 함)' : ''),
       h('button', { class: 'btn link', onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { isThisMac: true }, `이 맥으로 지정: ${r.name}`) }, '이 맥으로 지정')));
   } else if (r.kind === '폴더') {
@@ -1001,22 +1226,298 @@ function musePanel() {
       h('p', { class: 'small muted' }, `${how} 앱은 읽기만 하고, 보내거나 누르지 않아요. 가져온 글은 이 맥에만 남아요.`)));
 }
 
+async function loadTools() {
+  try { ui.tools = await (await fetch('/api/tools/detect')).json(); } catch { ui.tools = { browsers: [], openSource: [] }; }
+  render();
+}
+
+function openAddOss() {
+  const dlg = document.getElementById('dlg');
+  const name = h('input', { class: 'in', placeholder: '예: Reverse Business, Blender', 'aria-label': '도구 이름' });
+  const when = h('input', { class: 'in', placeholder: '예: 경쟁사 분석, 3D 영상, 자막 추출', 'aria-label': '언제 쓰나요' });
+  const cmd = h('input', { class: 'in', placeholder: '실행 명령 (선택, 예: blender)', 'aria-label': '실행 명령' });
+  const skillPath = h('input', { class: 'in', placeholder: '스킬 파일 경로 (선택)', 'aria-label': '스킬 파일 경로' });
+  dlg.replaceChildren(
+    h('h3', null, '오픈소스 도구 추가'),
+    h('p', { class: 'small muted', style: 'margin:-8px 0 14px' }, '이름과 언제 쓰는지만 적어 두면, 비슷한 할 일이 들어올 때 AI가 알아서 챙겨 씁니다.'),
+    h('label', { class: 'field' }, '도구 이름', name),
+    h('label', { class: 'field', style: 'margin-top:12px' }, '언제 쓰나요? (쉼표로 구분)', when),
+    h('details', { style: 'margin-top:12px' }, h('summary', null, '고급 설정 (선택)'),
+      h('label', { class: 'field', style: 'margin-top:10px' }, '실행 명령', cmd),
+      h('label', { class: 'field', style: 'margin-top:10px' }, '스킬 파일 경로', skillPath)),
+    h('div', { class: 'bar' },
+      h('button', { class: 'btn', onclick: () => { dlg.close(); render(); } }, '취소'),
+      h('button', { class: 'btn dark', onclick: () => once('add-oss', async () => {
+        if (!name.value.trim()) { name.focus(); return; }
+        dlg.close();
+        await act('POST', '/api/ui/resources', { kind: '오픈소스', name: name.value, when: when.value, note: when.value, command: cmd.value, skillPath: skillPath.value }, '도구를 추가했어요');
+      }) }, '추가')));
+  dlg.showModal();
+  name.focus();
+}
+
+// 내가 쓰는 브라우저 (Ego Lite, Aside 등) — 1클릭 선택 및 기본 지정
+function browserPanel() {
+  const saved = S.data.resources.filter((r) => r.kind === '브라우저');
+  const detected = ui.tools?.browsers || [];
+  const cards = detected.map((b) => {
+    const existing = saved.find((r) => r.preset === b.key || r.name.toLowerCase() === b.name.toLowerCase());
+    const on = Boolean(existing && existing.status !== '꺼짐');
+    const isDef = Boolean(existing?.isDefault);
+    return h('button', {
+      type: 'button', class: `tool-card${on ? ' on' : ''}`, 'aria-pressed': on ? 'true' : 'false',
+      onclick: () => once(`br-${b.key}`, () => {
+        if (!existing) return act('POST', '/api/ui/resources', { kind: '브라우저', name: b.name, preset: b.key, command: b.command, guide: b.guide, note: b.hint, isDefault: true }, `${b.name}을 기본 브라우저로 켰어요`);
+        if (!isDef) return act('PATCH', `/api/ui/resources/${existing.id}`, { status: '사용 가능', isDefault: true }, `${b.name}을 기본 브라우저로 바꿨어요`);
+        return act('DELETE', `/api/ui/resources/${existing.id}`, undefined, `${b.name}을 껐어요`);
+      }),
+    },
+    h('div', { class: 'top' }, h('b', null, b.name),
+      isDef ? h('span', { class: 'tag solid' }, '기본') : on ? h('span', { class: 'tag' }, '켜짐') : b.found ? h('span', { class: 'tag' }, '설치됨') : null),
+    h('span', { class: 'small muted' }, b.hint));
+  });
+  const custom = saved.filter((r) => !detected.some((b) => b.key === r.preset || b.name.toLowerCase() === r.name.toLowerCase()));
+  return h('section', { class: 'sec' }, secHead('내가 쓰는 브라우저', '웹 확인·자동화가 필요할 때 AI가 이 브라우저를 씁니다'),
+    h('div', { class: 'tool-cards' }, cards,
+      custom.map((r) => h('button', {
+        type: 'button', class: `tool-card${r.status !== '꺼짐' ? ' on' : ''}`,
+        onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { isDefault: true, status: '사용 가능' }, `${r.name}을 기본 브라우저로 바꿨어요`),
+      }, h('div', { class: 'top' }, h('b', null, r.name), r.isDefault ? h('span', { class: 'tag solid' }, '기본') : null), h('span', { class: 'small muted' }, r.note || '직접 추가')))));
+}
+
+// 내가 쓰는 오픈소스 도구 — 이 컴퓨터에서 찾은 것부터 원클릭 켜기/끄기
+function ossPanel() {
+  const saved = S.data.resources.filter((r) => r.kind === '오픈소스');
+  const detected = ui.tools?.openSource || [];
+  const sorted = [...detected.filter((x) => x.found), ...detected.filter((x) => !x.found)];
+  const cards = sorted.map((o) => {
+    const existing = saved.find((r) => r.preset === o.key || r.name.toLowerCase() === o.name.toLowerCase());
+    const on = Boolean(existing && existing.status !== '꺼짐');
+    return h('button', {
+      type: 'button', class: `tool-card${on ? ' on' : ''}`, 'aria-pressed': on ? 'true' : 'false',
+      onclick: () => once(`oss-${o.key}`, () => existing
+        ? act('DELETE', `/api/ui/resources/${existing.id}`, undefined, `${o.name}을 뺐어요`)
+        : act('POST', '/api/ui/resources', { kind: '오픈소스', name: o.name, preset: o.key, when: o.when, command: o.command, skillPath: o.skillPath, note: o.hint }, `${o.name}을 도구함에 넣었어요`)),
+    },
+    h('div', { class: 'top' }, h('b', null, o.name),
+      on ? h('span', { class: 'tag solid' }, '사용 중') : o.found ? h('span', { class: 'tag' }, '이 컴퓨터에 있음') : null),
+    h('span', { class: 'small muted' }, o.hint));
+  });
+  const custom = saved.filter((r) => !detected.some((o) => o.key === r.preset || o.name.toLowerCase() === r.name.toLowerCase()));
+  return h('section', { class: 'sec' }, secHead('내가 쓰는 오픈소스 도구', '켜 둔 도구만 AI가 알맞은 일에 알아서 꺼내 씁니다', h('button', { class: 'btn sm', onclick: openAddOss }, '+ 직접 추가')),
+    h('div', { class: 'tool-cards' }, cards,
+      custom.map((r) => h('button', {
+        type: 'button', class: 'tool-card on',
+        onclick: () => { if (confirm(`${r.name}을 도구함에서 뺄까요?`)) act('DELETE', `/api/ui/resources/${r.id}`, undefined, '뺐어요'); },
+      }, h('div', { class: 'top' }, h('b', null, r.name), h('span', { class: 'tag solid' }, '사용 중')), h('span', { class: 'small muted' }, r.when || r.note || '직접 추가')))));
+}
+
+// ───────── 연결 계정 · 컴퓨터 유즈 권한 ─────────
+
+function accountPlatformOf(r) {
+  const list = S.options.accountPlatforms || [];
+  return list.find((p) => p.key === r.platform) || list[list.length - 1] || { key: 'generic', name: '계정', actions: [] };
+}
+
+function defaultBrowser() {
+  const browsers = S.data.resources.filter((x) => x.kind === '브라우저' && x.status !== '꺼짐');
+  return browsers.find((b) => b.isDefault) || browsers[0] || null;
+}
+
+function accountSummaryText(r) {
+  const p = accountPlatformOf(r);
+  const perms = r.permissions || {};
+  const br = (r.browser ? res(r.browser) : null) || defaultBrowser();
+  const pinnedEmp = r.assignee ? emp(r.assignee) : null;
+  const parts = [];
+  if (br && br.kind === '브라우저') parts.push(br.name);
+  if (pinnedEmp) parts.push(`${shortName(pinnedEmp.id)} 전담`);
+  if (r.preset === 'readonly') {
+    parts.push('읽기만 (안전)');
+  } else {
+    const allow = [];
+    const approval = [];
+    const deny = [];
+    for (const a of p.actions) {
+      const lv = perms[a.key] || a.locked || 'deny';
+      const short = a.short || a.label.split(' ')[0].replace(/·.+/, '');
+      if (lv === 'allow') allow.push(short);
+      else if (lv === 'approval') approval.push(short);
+      else deny.push(short);
+    }
+    if (allow.length) parts.push(`${allow.join('·')} 자동`);
+    if (approval.length) parts.push(`${approval.join('·')} 승인 후`);
+    if (deny.length) parts.push(`${deny.join('·')} 금지`);
+  }
+  return parts.join(' · ') || '권한을 정해 주세요';
+}
+
+function openAddAccount() {
+  const dlg = document.getElementById('dlg');
+  const plats = S.options.accountPlatforms || [];
+  const cats = S.options.accountCategories || [{ key: 'media', label: '영상 · 숏폼 · SNS' }, { key: 'business', label: '블로그 · 고객 · 커머스' }, { key: 'ops', label: '개발 · 결제 · 기타' }];
+  const browsers = S.data.resources.filter((r) => r.kind === '브라우저' && r.status !== '꺼짐');
+  const defBr = browsers.find((b) => b.isDefault) || browsers[0] || null;
+  let pickedPlat = plats[0]?.key || 'youtube';
+  let pickedPreset = 'approval';
+  let pickedBr = '';
+  let pickedEmp = '';
+  const name = h('input', { class: 'in', value: plats[0]?.name || '', placeholder: '예: 네이버 블로그, 네이버 클립, YouTube', 'aria-label': '계정 이름' });
+  const note = h('input', { class: 'in', placeholder: '메모 (선택, 예: 검색 유입·숏폼 채널)', 'aria-label': '메모' });
+  const presetRow = h('div', { class: 'picker' });
+  const renderPresets = () => {
+    const curPlat = plats.find((x) => x.key === pickedPlat);
+    const isPay = pickedPlat === 'payment';
+    if (isPay) pickedPreset = 'readonly';
+    else if (pickedPreset === 'draft_auto' && !curPlat?.supportsDraftAuto) pickedPreset = 'approval';
+    const opts = [
+      { key: 'readonly', label: '읽기만 (안전)' },
+      ...(isPay ? [] : [{ key: 'approval', label: '초안·승인 후 (추천)' }]),
+      ...(curPlat?.supportsDraftAuto ? [{ key: 'draft_auto', label: '임시저장만 자동 (크리에이터)' }] : []),
+    ];
+    presetRow.replaceChildren(...opts.map((pr) => h('button', {
+      type: 'button', class: `chip${pickedPreset === pr.key ? ' on' : ''}`,
+      onclick: () => { pickedPreset = pr.key; renderPresets(); },
+    }, pr.label)));
+  };
+  const allChipBtns = [];
+  const platGroups = h('div', { class: 'plat-groups' }, cats.map((cat) => {
+    const items = plats.filter((p) => (p.category || 'ops') === cat.key);
+    if (!items.length) return null;
+    return h('div', { class: 'plat-group' },
+      h('div', { class: 'small muted', style: 'margin-bottom:5px' }, cat.label),
+      h('div', { class: 'picker' }, items.map((p) => {
+        const btn = h('button', {
+          type: 'button', class: `chip${p.key === pickedPlat ? ' on' : ''}`,
+          onclick: () => {
+            const prevPlat = plats.find((x) => x.key === pickedPlat);
+            pickedPlat = p.key;
+            if (!name.value.trim() || name.value === prevPlat?.name) name.value = p.name;
+            for (const b of allChipBtns) b.classList.toggle('on', b === btn);
+            renderPresets();
+          },
+        }, p.name);
+        allChipBtns.push(btn);
+        return btn;
+      })));
+  }));
+  renderPresets();
+  const brSel = browsers.length ? h('select', { class: 'in', 'aria-label': '연결 브라우저', onchange: (ev) => { pickedBr = ev.target.value; } },
+    h('option', { value: '' }, defBr ? `기본 브라우저 자동 사용 (${defBr.name})` : '기본 브라우저 자동 사용'),
+    browsers.map((b) => h('option', { value: b.id, selected: b.id === pickedBr }, `${b.name}${b.isDefault ? ' (기본)' : ''}`))) : null;
+  const empSel = S.data.employees.length ? h('select', { class: 'in', 'aria-label': '담당 AI 모델', onchange: (ev) => { pickedEmp = ev.target.value; } },
+    h('option', { value: '' }, '자동 배정 (할 일에 맞춰 고름)'),
+    S.data.employees.map((e) => h('option', { value: e.id }, `${e.name}${e.role ? ` · ${e.role}` : ''}`))) : null;
+  dlg.replaceChildren(
+    h('h3', null, '연결 계정 추가'),
+    h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '브라우저(Ego Lite 등)로 들어갈 계정을 고르면, 알맞은 안전 권한이 미리 채워집니다.'),
+    platGroups,
+    h('label', { class: 'field', style: 'margin-top:12px' }, '계정 이름', name),
+    brSel ? h('label', { class: 'field', style: 'margin-top:12px' }, '연결 브라우저', brSel) : null,
+    empSel ? h('label', { class: 'field', style: 'margin-top:12px' }, '전담 AI 직원 (선택)', empSel) : null,
+    h('div', { style: 'margin-top:12px' }, h('div', { class: 'small muted', style: 'margin-bottom:6px' }, '처음 권한'), presetRow),
+    h('label', { class: 'field', style: 'margin-top:12px' }, '메모 (선택)', note),
+    h('div', { class: 'bar' },
+      h('button', { class: 'btn', onclick: () => { dlg.close(); render(); } }, '취소'),
+      h('button', { class: 'btn dark', onclick: () => once('add-acc', async () => {
+        if (!name.value.trim()) { name.focus(); return; }
+        dlg.close();
+        const created = await act('POST', '/api/ui/resources', {
+          kind: '계정', name: name.value, platform: pickedPlat, preset: pickedPreset, browser: pickedBr || null, assignee: pickedEmp || null, note: note.value,
+        }, '계정을 추가했어요');
+        if (created?.id) { ui.openAccount = created.id; render(); }
+      }) }, '추가')));
+  dlg.showModal();
+  name.focus();
+}
+
+function accountCard(r) {
+  const p = accountPlatformOf(r);
+  const perms = r.permissions || {};
+  const browsers = S.data.resources.filter((x) => x.kind === '브라우저' && x.status !== '꺼짐');
+  const defBr = defaultBrowser();
+  const activeBr = (r.browser ? res(r.browser) : null) || defBr;
+  const openUrl = r.url || p.url || '';
+  const open = ui.openAccount === r.id;
+  const levels = S.options.permLevels || ['deny', 'approval', 'allow'];
+  const labels = S.options.permLabels || { deny: '금지', approval: '승인 후', allow: '자동' };
+  const toggleOpen = () => { ui.openAccount = open ? null : r.id; render(); };
+  const setPreset = (preset) => act('PATCH', `/api/ui/resources/${r.id}`, { preset },
+    preset === 'readonly' ? '읽기만으로 바꿨어요' : preset === 'draft_auto' ? '임시저장만 자동으로 바꿨어요' : '초안·승인 후로 바꿨어요');
+  const setPerm = (key, lv) => act('PATCH', `/api/ui/resources/${r.id}`, { permissions: { [key]: lv } }, `${p.actions.find((a) => a.key === key)?.label || key}: ${labels[lv]}`);
+  const isPay = p.key === 'payment';
+  return h('li', { class: `acc-item${open ? ' open' : ''}`, 'data-acc': r.id },
+    h('div', { class: 'acc-head' },
+      h('div', { class: 'main', onclick: toggleOpen, style: 'cursor:pointer' },
+        h('div', { class: 't' }, r.name, h('span', { class: 'tag', style: 'margin-left:8px' }, p.name)),
+        h('div', { class: 's' }, accountSummaryText(r))),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: `btn sm${open ? ' dark' : ''}`, 'aria-expanded': open ? 'true' : 'false', onclick: toggleOpen }, open ? '닫기' : '권한 설정'),
+        h('button', { class: 'x', 'aria-label': `${r.name} 지우기`, onclick: () => { if (confirm(`이 계정을 지울까요?\n${r.name}`)) { if (ui.openAccount === r.id) ui.openAccount = null; act('DELETE', `/api/ui/resources/${r.id}`, undefined, '지웠습니다'); } } }, '×'))),
+    open ? h('div', { class: 'acc-body' },
+      h('div', { class: 'acc-row' },
+        h('span', { class: 'small muted' }, '연결 브라우저'),
+        browsers.length ? h('div', { class: 'picker' },
+          h('button', { type: 'button', class: `chip${!r.browser ? ' on' : ''}`, onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { browser: null }, defBr ? `기본 브라우저(${defBr.name})를 씁니다` : '기본 브라우저를 씁니다') }, defBr ? `기본 (${defBr.name})` : '기본 브라우저'),
+          browsers.map((b) => h('button', { type: 'button', class: `chip${r.browser === b.id ? ' on' : ''}`, onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { browser: b.id }, `${b.name}로 고정했어요`) }, b.name)),
+          openUrl ? h('a', { class: 'btn link', href: openUrl, target: '_blank', rel: 'noopener noreferrer', style: 'margin-left:4px' }, '사이트 열기 ↗') : null)
+          : h('span', { class: 'small muted' }, '위에서 Ego Lite를 한 번만 켜 두면 모든 연결 계정이 자동으로 접속돼요')),
+      S.data.employees.length ? h('div', { class: 'acc-row' },
+        h('span', { class: 'small muted' }, '전담 AI'),
+        h('div', { class: 'picker' },
+          h('button', { type: 'button', class: `chip${!r.assignee ? ' on' : ''}`, onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { assignee: null }, '할 일에 맞춰 자동 배정해요') }, '자동 배정'),
+          S.data.employees.map((e) => h('button', { type: 'button', class: `chip${r.assignee === e.id ? ' on' : ''}`, onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { assignee: e.id }, `${shortName(e.id)}을 전담 AI로 연결했어요`) }, shortName(e.id))))) : null,
+      h('div', { class: 'acc-row' },
+        h('span', { class: 'small muted' }, '빠른 설정'),
+        h('div', { class: 'picker' },
+          h('button', { type: 'button', class: `chip${r.preset === 'readonly' ? ' on' : ''}`, onclick: () => setPreset('readonly') }, '읽기만 (안전)'),
+          !isPay ? h('button', { type: 'button', class: `chip${r.preset === 'approval' ? ' on' : ''}`, onclick: () => setPreset('approval') }, '초안·승인 후 (추천)') : null,
+          p.supportsDraftAuto ? h('button', { type: 'button', class: `chip${r.preset === 'draft_auto' ? ' on' : ''}`, onclick: () => setPreset('draft_auto') }, '임시저장만 자동') : null,
+          r.preset === 'custom' ? h('span', { class: 'tag' }, '직접 설정') : null)),
+      h('div', { class: 'perm-list' }, p.actions.map((a) => {
+        const cur = perms[a.key] || a.locked || 'deny';
+        return h('div', { class: 'perm-row' },
+          h('span', { class: 'perm-label' }, a.label),
+          a.locked
+            ? h('span', { class: 'tag' }, '항상 금지 · 대표만')
+            : h('div', { class: 'seg', role: 'group', 'aria-label': `${a.label} 권한` }, levels.map((lv) => h('button', {
+              type: 'button', class: cur === lv ? 'on' : '', 'aria-pressed': cur === lv ? 'true' : 'false',
+              onclick: () => cur !== lv && setPerm(a.key, lv),
+            }, labels[lv]))));
+      })),
+      h('p', { class: 'small muted acc-guard' }, `${activeBr ? `${activeBr.name}에서 처음 한 번만 직접 로그인해 두면 AI가 위 권한 안에서 접속해요. ` : ''}고정 안전선: ${(S.options.hardGuardrails || ['비밀번호 입력', '본인인증', '결제·송금']).join(' · ')}은 대표님만 할 수 있어요.`)) : null);
+}
+
+function accountsPanel() {
+  const list = S.data.resources.filter((r) => r.kind === '계정');
+  return h('section', { class: 'sec' },
+    secHead('연결 계정 · 자동화 권한', 'Ego Lite 같은 브라우저로 들어갈 계정마다 AI에게 어디까지 허용할지 정합니다', h('button', { class: 'btn sm', onclick: openAddAccount }, '+ 계정 추가')),
+    list.length
+      ? h('ul', { class: 'acc-list' }, list.map(accountCard))
+      : h('div', { class: 'empty' }, '아직 연결된 계정이 없어요. YouTube, Instagram 같은 계정을 추가하고 권한을 정해 보세요.'));
+}
+
 function pageResources() {
   if (!ui.office) loadOffice();
+  if (!ui.tools) loadTools();
   const d = S.data;
-  const name = h('input', { class: 'in', placeholder: '새 리소스 (예: Notion 계정, 외장 SSD)', 'data-k': 'rs-name', 'aria-label': '리소스 이름' });
-  const kind = h('select', { class: 'in', style: 'width:110px', 'data-k': 'rs-kind', 'aria-label': '종류' }, S.options.resKinds.map((k) => h('option', { value: k }, k)));
+  const genericKinds = S.options.resKinds.filter((k) => !['브라우저', '오픈소스', '계정'].includes(k));
+  const name = h('input', { class: 'in', placeholder: '새 리소스 (예: 맥 스튜디오, ChatGPT Plus, 외장 SSD)', 'data-k': 'rs-name', 'aria-label': '리소스 이름' });
+  const kind = h('select', { class: 'in', style: 'width:110px', 'data-k': 'rs-kind', 'aria-label': '종류' }, genericKinds.map((k) => h('option', { value: k }, k)));
   const add = () => submitInput(name, 'add-res', (v) => act('POST', '/api/ui/resources', { name: v, kind: kind.value }, '추가했습니다'));
   name.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) add(); });
   return h('div', null,
     h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, '내 리소스')),
-      h('div', { class: 'sub' }, '직원이 쓸 수 있는 기계, 멤버십, 계정, 폴더. 꺼짐으로 두면 배분할 때 빼고 고릅니다.')),
-    h('button', { class: 'btn', onclick: loadOffice }, '이 맥 새로 읽기')),
-    h('div', { class: 'addbar slim' }, kind, name, h('button', { class: 'btn dark', onclick: add }, '추가')),
-    !d.resources.length ? h('div', { class: 'empty' }, '아직 없어요. 예: 맥북 에어 (기계), ChatGPT Plus (멤버십), 스마트스토어 (계정). 할 일 이름에 계정 이름이 나오면 배분할 때 함께 적어 줍니다.') : null,
+      h('div', { class: 'sub' }, '브라우저, 오픈소스, 연결 계정 권한, 사무실 컴퓨터를 한곳에 두면 AI가 규칙 안에서 알아서 일합니다.')),
+    h('button', { class: 'btn', onclick: () => { loadOffice(); loadTools(); } }, '다시 읽기')),
+    browserPanel(),
+    accountsPanel(),
+    ossPanel(),
+    h('section', { class: 'sec' }, secHead('사무실 컴퓨터 · 멤버십 · 폴더 추가'),
+      h('div', { class: 'addbar slim' }, kind, name, h('button', { class: 'btn dark', onclick: add }, '추가'))),
     lanPanel(),
     musePanel(),
-    S.options.resKinds.map((k) => {
+    genericKinds.map((k) => {
       const list = d.resources.filter((r) => r.kind === k);
       return list.length ? h('section', { class: 'sec' }, secHead(k, `${list.length}개`), h('ul', { class: 'list' }, list.map(resRow))) : null;
     }));
@@ -1027,9 +1528,16 @@ function pageResources() {
 
 const OB_STEPS = 6;
 
+const STARTER_ROUTINES = [
+  { key: 'news', title: '아침 업계 소식 3줄 요약', time: '08:30' },
+  { key: 'plan', title: '오늘 할 일 정리와 우선순위 추천', time: '09:00' },
+  { key: 'wrap', title: '오늘 끝난 일 하루 마감 정리', time: '22:00' },
+];
+
 function obState() {
   if (!ui.ob) {
     ui.ob = { step: 1, name: S.data.owner.name || '', company: S.data.settings.companyName || '', ais: new Set(), machines: new Set(), ssh: new Set(),
+      browsers: new Set(), oss: new Set(), routines: new Set(),
       quiet: { from: S.data.settings.quietHours?.from || '23:00', to: S.data.settings.quietHours?.to || '07:00' }, det: null, connect: null, open: {} };
     fetch('/api/onboard/detect').then((r) => r.json()).then((det) => {
       ui.ob.det = det;
@@ -1037,6 +1545,8 @@ function obState() {
       if (det.codex) ui.ob.ais.add('codex');
       if (det.gemini) ui.ob.ais.add('gemini');
       if (det.ollama) ui.ob.ais.add('ollama'); else if (det.lmstudio) ui.ob.ais.add('lmstudio');
+      for (const b of det.browsers || []) if (b.found) ui.ob.browsers.add(b.key);
+      for (const o of det.openSource || []) if (o.found) ui.ob.oss.add(o.key);
       render();
     }).catch(() => { ui.ob.det = {}; render(); });
   }
@@ -1074,7 +1584,7 @@ function pageStart() {
     const company = h('input', { class: 'in big', value: ob.company, placeholder: '예: 민지 스튜디오', 'data-k': 'ob-company', 'aria-label': '회사 이름', oninput: (ev) => { ob.company = ev.target.value; } });
     const go = () => { ob.name = name.value.trim(); ob.company = company.value.trim(); if (!ob.name) { name.focus(); return; } next(2); };
     for (const el of [name, company]) el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) go(); });
-    setTimeout(() => document.querySelector('[data-k="ob-name"]')?.focus(), 0);
+    if (!ob.focused1) { ob.focused1 = true; setTimeout(() => document.querySelector('[data-k="ob-name"]')?.focus(), 0); }
     return obShell(1, '나의 AI 자율 회사 본사를 차려 볼까요?', '1분이면 끝나요. 자세한 건 묻지 않아요. 모든 데이터는 이 컴퓨터 안에만 저장돼요.',
       h('div', { class: 'ob-fields' }, h('label', { class: 'field' }, '대표 이름', name), h('label', { class: 'field' }, '회사 이름 (나중에 정해도 돼요)', company)),
       [skip, h('button', { class: 'btn dark big', 'data-act': 'ob-next', onclick: go }, '시작하기')]);
@@ -1104,16 +1614,22 @@ function pageStart() {
     const det = ob.det || {};
     const M = det.thisMac || {};
     const hosts = det.sshHosts || [];
+    const foundBrowsers = (det.browsers || []).filter((b) => b.found);
+    const foundOss = (det.openSource || []).filter((o) => o.found);
     const chips = ['Mac mini', 'Mac Studio', 'MacBook Pro', 'MacBook Air', 'Windows PC'];
     const toggle = (set, v) => { if (set.has(v)) set.delete(v); else set.add(v); render(); };
-    const done = async () => { const r = await obSend({ machines: [...ob.machines], sshHosts: [...ob.ssh] }); if (r) next(4); };
-    return obShell(3, '사무실을 확인해 주세요.', '컴퓨터 한 대가 사무실 하나예요. 이 컴퓨터는 본사로 자동으로 들어가요. 찾은 컴퓨터는 눌러서 확인만 하면 돼요.',
+    const done = async () => { const r = await obSend({ machines: [...ob.machines], sshHosts: [...ob.ssh], browsers: [...ob.browsers], openSource: [...ob.oss] }); if (r) next(4); };
+    return obShell(3, '컴퓨터와 도구를 확인해 주세요.', '이 컴퓨터는 본사로 자동 등록돼요. 설치된 브라우저나 오픈소스가 있으면 미리 체크해 두었어요 (나중에 내 리소스에서 바꿀 수 있어요).',
       h('div', null,
         h('div', { class: 'card' }, h('div', { class: 'row' }, h('b', null, '이 컴퓨터 · 본사'), h('span', { class: 'tag' }, '자동')),
           h('div', { class: 'small muted' }, [M.chip, M.memoryGB ? `메모리 ${M.memoryGB}GB` : '', M.diskFreeGB ? `여유 ${M.diskFreeGB}GB` : ''].filter(Boolean).join(' · ') || '읽는 중')),
+        foundBrowsers.length ? h('div', { class: 'ob-group' }, h('div', { class: 'small muted' }, '이 컴퓨터에서 찾은 브라우저 (웹 확인·자동화에 씀)'),
+          h('div', { class: 'picker' }, foundBrowsers.map((b) => h('button', { type: 'button', class: `chip${ob.browsers.has(b.key) ? ' on' : ''}`, 'aria-pressed': ob.browsers.has(b.key) ? 'true' : 'false', onclick: () => toggle(ob.browsers, b.key) }, b.name)))) : null,
+        foundOss.length ? h('div', { class: 'ob-group' }, h('div', { class: 'small muted' }, '이 컴퓨터에서 찾은 오픈소스 도구 (알맞은 일에 알아서 씀)'),
+          h('div', { class: 'picker' }, foundOss.map((o) => h('button', { type: 'button', class: `chip${ob.oss.has(o.key) ? ' on' : ''}`, 'aria-pressed': ob.oss.has(o.key) ? 'true' : 'false', onclick: () => toggle(ob.oss, o.key) }, o.name)))) : null,
         hosts.length ? h('div', { class: 'ob-group' }, h('div', { class: 'small muted' }, 'ssh 설정에서 찾은 컴퓨터 (이름만 읽었어요, 접속은 하지 않아요)'),
           h('div', { class: 'picker' }, hosts.map((a) => h('button', { type: 'button', class: `chip${ob.ssh.has(a) ? ' on' : ''}`, 'aria-pressed': ob.ssh.has(a) ? 'true' : 'false', onclick: () => toggle(ob.ssh, a) }, a)))) : null,
-        h('div', { class: 'ob-group' }, h('div', { class: 'small muted' }, '다른 컴퓨터가 있으면 골라 주세요. 연결은 나중에 내 리소스에서 해요.'),
+        h('div', { class: 'ob-group' }, h('div', { class: 'small muted' }, '다른 컴퓨터가 있으면 골라 주세요 (없으면 그대로 확인).'),
           h('div', { class: 'picker' }, chips.map((c) => h('button', { type: 'button', class: `chip${ob.machines.has(c) ? ' on' : ''}`, 'aria-pressed': ob.machines.has(c) ? 'true' : 'false', onclick: () => toggle(ob.machines, c) }, c))))),
       [h('button', { class: 'btn', onclick: () => next(2) }, '이전'), h('button', { class: 'btn dark big', 'data-act': 'ob-next', onclick: done }, '확인')]);
   }
@@ -1151,9 +1667,22 @@ function pageStart() {
       [h('button', { class: 'btn', onclick: () => next(4) }, '이전'), h('button', { class: 'btn dark big', 'data-act': 'ob-next', onclick: () => next(6) }, '다음')]);
   }
 
-  return obShell(6, '돈과 공개는 대표님 손으로만', '결제, 업로드, 게시, 삭제, 메시지 발송이 들어간 일은 대표님이 누를 때까지 AI가 시작하지 못해요. 이제 내 할 일에 오늘 할 일을 적거나, 매일 할 일에 루틴을 넣어 보세요.',
-    h('div', { class: 'ob-assign' }, h('span', { class: 'who-chip ai' }, 'AI'), h('div', null, h('b', null, '광고비 5만원 결제'), h('div', { class: 'small muted' }, '결제가 들어간 일 → 사람')), h('span', { class: 'btn sm dark', 'aria-hidden': 'true' }, '결제 확인')),
-    [h('button', { class: 'btn', onclick: () => next(5) }, '이전'), h('button', { class: 'btn dark big', 'data-act': 'ob-finish', onclick: finishOnboarding }, '알겠어요, 본사 열기')]);
+  const finishWithRoutines = () => once('ob-done', async () => {
+    const picked = STARTER_ROUTINES.filter((x) => ob.routines.has(x.key)).map(({ title, time }) => ({ title, time }));
+    if (picked.length) await obSend({ routines: picked });
+    await act('PATCH', '/api/ui/settings', { onboarded: true }, '본사를 열었어요');
+    ui.ob = null;
+    location.hash = '#home';
+  });
+  return obShell(6, '돈과 공개는 대표님 손으로만', '결제, 업로드, 게시, 삭제, 메시지 발송이 들어간 일은 대표님이 누를 때까지 AI가 시작하지 못해요. 원하시면 첫 매일 루틴도 하나 골라 바로 시작해 보세요.',
+    h('div', null,
+      h('div', { class: 'ob-assign' }, h('span', { class: 'who-chip ai' }, 'AI'), h('div', null, h('b', null, '광고비 5만원 결제'), h('div', { class: 'small muted' }, '결제가 들어간 일 → 사람')), h('span', { class: 'btn sm dark', 'aria-hidden': 'true' }, '결제 확인')),
+      h('div', { class: 'ob-group' }, h('div', { class: 'small muted' }, '첫 매일 루틴 하나 담아 볼까요? (선택, 안 골라도 괜찮아요)'),
+        h('div', { class: 'ob-routines' }, STARTER_ROUTINES.map((rt) => {
+          const on = ob.routines.has(rt.key);
+          return h('button', { type: 'button', class: `chip${on ? ' on' : ''}`, 'aria-pressed': on ? 'true' : 'false', onclick: () => { if (on) ob.routines.delete(rt.key); else ob.routines.add(rt.key); render(); } }, `${rt.time} · ${rt.title}`);
+        })))),
+    [h('button', { class: 'btn', onclick: () => next(5) }, '이전'), h('button', { class: 'btn dark big', 'data-act': 'ob-finish', onclick: finishWithRoutines }, '알겠어요, 본사 열기')]);
 }
 
 // ───────── 라우팅 ─────────

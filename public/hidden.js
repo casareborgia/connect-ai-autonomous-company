@@ -108,7 +108,7 @@ function channelSection() {
       h('div', { class: 'foot' }, m ? [`${stamp(m.readAt)} 읽음 · `, evidenceLink(m.evidence)] : '보고 없음'));
   };
   return h('section', { class: 'sec' },
-    secHead('채널', `${ch ? ch.name : 'CONNECT AI LAB'} · YouTube Studio · 어제`, h('a', { class: 'btn link', href: '#habits' }, '유튜브 확인 업무')),
+    secHead('채널', `${ch ? ch.name : 'CONNECT AI LAB'} · YouTube Studio · 어제`, h('a', { class: 'btn link', href: '#daily' }, '유튜브 확인 업무')),
     h('div', { class: 'chan' },
       cell('조회수', (m) => Number(m.value).toLocaleString('ko-KR')),
       cell('구독자 증감', (m) => `${m.value > 0 ? '+' : ''}${Number(m.value).toLocaleString('ko-KR')}`),
@@ -172,7 +172,7 @@ function pageMessenger() {
     const e = emp(thread.slice(3));
     if (e) {
       if (e.engine === 'local') info = e.model ? `로컬 모델 ${e.model.replace(/^(ollama|lmstudio):/, '')} 이 바로 답합니다` : '로컬 모델을 아직 고르지 않았습니다';
-      else if (e.engine === 'claude' || e.engine === 'codex') info = e.runEnabled ? '메시지 아래 일 시키기를 눌러야 실행됩니다' : '일 시키기 꺼짐 · 에이전트가 hq inbox 로 받아 갑니다';
+      else if (e.engine === 'claude' || e.engine === 'codex') info = e.runMode && e.runMode !== 'off' ? '메시지 아래 일 시키기를 눌러야 실행됩니다' : '일 시키기 꺼짐 · 에이전트가 hq inbox 로 받아 갑니다';
       else info = '에이전트가 hq inbox 로 받아 가서 hq reply 로 답합니다';
     }
   } else if (thread === 'all') info = '@이름 으로 부르면 그 직원의 받은 메시지함에 들어갑니다';

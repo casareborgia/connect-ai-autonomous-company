@@ -28,6 +28,7 @@ const HELP = `CONNECT AI HQ · AI Autonomous Company · 나의 AI 자율 회사 
   npx github:wonseokjung/connect-ai-autonomous-company                 본사를 켜고 브라우저를 엽니다
       --port <번호>                 기본 8790
       --no-open                     브라우저를 열지 않음
+      --example                     데이터가 없을 때 예시 회사로 시작 (AIHQ_SEED=example 과 같음)
   npx github:wonseokjung/connect-ai-autonomous-company connect         AI 도구에 MCP 와 스킬 넣기 (도구마다 먼저 물어봄, 기본은 보여 주기만)
   npx github:wonseokjung/connect-ai-autonomous-company mcp             MCP 서버 (HQ_EMPLOYEE=<직원 아이디>)
   npx github:wonseokjung/connect-ai-autonomous-company <hq 명령>        AI 직원용 보고 명령. 예: task list --mine codex (전체: npx github:wonseokjung/connect-ai-autonomous-company hq help)
@@ -67,6 +68,7 @@ async function start() {
   if (now.up) { console.error(`${port}번 포트를 다른 프로그램이 쓰고 있어요. --port 8791 처럼 다른 번호로 켜 주세요.`); process.exit(1); }
 
   process.env.AIHQ_PORT = String(port);
+  if (flag('example') === true) process.env.AIHQ_SEED = 'example';
   process.env.AIHQ_DATA_DIR = process.env.AIHQ_DATA_DIR || path.join(HOME_DIR, 'data');
   process.env.AIHQ_WORKSPACES = process.env.AIHQ_WORKSPACES || path.join(HOME_DIR, 'workspaces');
   fs.mkdirSync(process.env.AIHQ_DATA_DIR, { recursive: true, mode: 0o700 });
