@@ -495,3 +495,59 @@ test('팀 분업 워크플로우 (단계별 AI·사무실·도구 지정 · 순�
     await srv.stop();
   }
 });
+
+test('프롬프트 중심 자동 연결 (GitHub/npx 오픈소스 · 디자인 스타일 · 5분 반복 이메일 · Ego Lite 스페이스)', async () => {
+  const srv = await startServer({ seed: 'example' });
+  try {
+    // 1. Ego Lite 기본 브라우저 + GitHub 주소 1줄로 오픈소스 자동 인식 추가
+    const br = await srv.ui('POST', '/api/ui/resources', { kind: '브라우저', name: 'Ego Lite', preset: 'ego-lite', isDefault: true });
+    const oss = await srv.ui('POST', '/api/ui/resources', { kind: '오픈소스', sourceInput: 'https://github.com/heygen-com/hyperframes', when: '모션 그래픽' });
+    assert.equal(oss.status, 200);
+    assert.equal(oss.body.name, 'hyperframes');
+    assert.equal(oss.body.repo, 'https://github.com/heygen-com/hyperframes');
+    assert.equal(oss.body.command, 'npx github:heygen-com/hyperframes');
+
+    // 2. 8시 영상 편집 루틴: 프롬프트에 오픈소스·디자인·유튜브만 적으면 전부 자동 연결 + MCP 노출
+    const rtVid = await srv.ui('POST', '/api/ui/routines', {
+      title: '영상 편집',
+      time: '08:00',
+      assignee: 'gemini',
+      instruction: '모션 그래픽은 hyperframes 써서 CONNECT AI 흑백 미니멀 스타일로 만들고, YouTube에 비공개로만 올려둬',
+    });
+    assert.equal(rtVid.status, 200);
+    assert.ok(rtVid.body.tools.includes(oss.body.id));
+    assert.equal(rtVid.body.design, 'd-minimal');
+    assert.equal(rtVid.body.account, 'a-youtube');
+    assert.equal(rtVid.body.browser, br.body.id);
+
+    const st1 = await srv.ui('GET', '/api/state');
+    const vidTask = st1.body.data.tasks.find((x) => x.routineId === rtVid.body.id);
+    assert.ok(vidTask);
+    const gtVid = await srv.agent('GET', `/api/agent/tasks/${vidTask.id}`);
+    assert.equal(gtVid.status, 200);
+    assert.ok(gtVid.body.openSourceTools.some((x) => x.repo === 'https://github.com/heygen-com/hyperframes'));
+    assert.ok(gtVid.body.designs.some((x) => x.name === 'CONNECT AI 흑백 미니멀' && /흰 배경/.test(x.rules)));
+
+    // 3. 5분마다 이메일 체크 루틴: intervalMin=5 + Ego Lite 이메일 스페이스 자동 연결
+    const rtMail = await srv.ui('POST', '/api/ui/routines', {
+      title: '이메일 체크',
+      intervalMin: 5,
+      instruction: 'Ego Lite 이메일 스페이스에서 새 메일과 수강생 영수증 요청 확인하고 답장 초안만 저장해줘',
+    });
+    assert.equal(rtMail.status, 200);
+    assert.equal(rtMail.body.intervalMin, 5);
+    assert.equal(rtMail.body.time, null);
+    assert.equal(rtMail.body.account, 'a-email');
+    assert.equal(rtMail.body.browser, br.body.id);
+
+    const st2 = await srv.ui('GET', '/api/state');
+    const mailTask = st2.body.data.tasks.find((x) => x.routineId === rtMail.body.id);
+    assert.ok(mailTask);
+    assert.equal(mailTask.intervalMin, 5);
+    const gtMail = await srv.agent('GET', `/api/agent/tasks/${mailTask.id}`);
+    assert.equal(gtMail.body.account.spaceName, '이메일');
+    assert.equal(gtMail.body.account.browser, 'Ego Lite');
+  } finally {
+    await srv.stop();
+  }
+});

@@ -21,18 +21,18 @@ import {
 } from './lib/util.mjs';
 import { readConnectors, summarize, normalizeSite } from './lib/revenue.mjs';
 import { splitUtterance, pickOllamaModel } from './lib/llm.mjs';
-import { ruleAssign, aiAssign } from './lib/assign.mjs';
+import { ruleAssign, aiAssign, tokens } from './lib/assign.mjs';
 import { detectGate, GATES } from './lib/gates.mjs';
 import { AI_CATALOG, DEFAULT_GROUPS, webUrlFor } from './lib/catalog.mjs';
 import { localStatus, reach, validHostname } from './lib/machines.mjs';
-import { startScheduler, ensureRoutineTasks, notify, minutes, isQuiet } from './lib/scheduler.mjs';
+import { startScheduler, ensureRoutineTasks, notify, minutes, isQuiet, INTERVAL_MINS } from './lib/scheduler.mjs';
 import { listLocalModels, localReply, runOnce, runnerInfo, systemPrompt, quoteThread, notInstalled, findBin } from './lib/agents.mjs';
 import { connectTargets, sshHosts } from './lib/connect.mjs';
 import { startDispatcher, isOffice, officeName, guessSshAlias, validAlias, ssh, sshWhy, ACTIVE } from './lib/office.mjs';
 import { TEMPLATES, validateJob } from './lib/jobspec.mjs';
 import { MUSE_DEFAULTS, MUSE_HOSTS, runMuseOnce } from './lib/muse.mjs';
 import { modelFor, recordModels, UNKNOWN as MODEL_UNKNOWN } from './lib/models.mjs';
-import { BROWSER_CATALOG, OSS_CATALOG, detectBrowsers, detectOpenSource } from './lib/tools.mjs';
+import { BROWSER_CATALOG, OSS_CATALOG, DESIGN_PRESETS, parseOpenSourceInput, detectBrowsers, detectOpenSource, pickBrowser, pickTools, pickDesigns } from './lib/tools.mjs';
 import {
   ACCOUNT_PLATFORMS, ACCOUNT_CATEGORIES, ACCOUNT_PRESETS, PERM_LEVELS, PERM_LABELS, HARD_GUARDRAILS,
   platformByKey, inferPlatform, presetPermissions, normalizePermissions, detectPreset, accountConfig,
@@ -54,7 +54,7 @@ const HOST = process.env.AIHQ_HOST || '127.0.0.1';
 const LAN = HOST !== '127.0.0.1' && HOST !== 'localhost';
 const ENGINES = ['web', 'none', 'local', 'claude', 'codex', 'agy'];
 const RUN_MODES = ['off', 'manual', 'auto'];
-const RES_KINDS = ['기계', '브라우저', '오픈소스', '멤버십', '계정', '폴더'];
+const RES_KINDS = ['기계', '브라우저', '오픈소스', '디자인', '멤버십', '계정', '폴더'];
 const RES_STATUS = ['사용 가능', '사용 중', '꺼짐', '확인 필요'];
 
 // 데이터 파일이 없으면 빈 회사로 시작한다 (예시 회사는 AIHQ_SEED=jay 또는 example 일 때만, 이미 있는 데이터 파일은 그대로)
@@ -62,7 +62,7 @@ const store = new Store(path.join(DATA_DIR, 'hq.json'), () => (['jay', 'example'
 
 // 예전 데이터에 없는 칸을 채운다
 function migrate(d) {
-  for (const k of ['metrics', 'worklog', 'handoffs', 'approvals', 'messages', 'resources', 'routines']) d[k] = d[k] || [];
+  for (const k of ['metrics', 'worklog', 'handoffs', 'approvals', 'messages', 'resources', 'routines', 'recipes']) d[k] = d[k] || [];
   d.settings.features = d.settings.features || {};
   // 이미 쓰던 데이터는 시작하기를 다시 띄우지 않는다
   if (d.settings.onboarded === undefined) d.settings.onboarded = true;
@@ -82,12 +82,16 @@ function migrate(d) {
   }
   d.tasks.forEach((t, i) => {
     if (typeof t.order !== 'number') t.order = i + 1;
-    for (const [k, v] of Object.entries({ resource: null, account: null, browser: null, tools: [], stepMode: 'serial', sharedFolder: '', steps: [], gate: null, gateApprovedAt: null, reason: '', reasonBy: '', noMatch: false, handedAt: null, assignSource: 'jay', routineId: null, jobId: null, runStartedAt: null, history: [], officeRun: false, officeJob: null, remote: null, relayedAt: null })) if (t[k] === undefined) t[k] = v;
+    for (const [k, v] of Object.entries({ resource: null, account: null, browser: null, design: null, tools: [], estCost: null, intervalMin: null, stepMode: 'serial', sharedFolder: '', steps: [], gate: null, gateApprovedAt: null, reason: '', reasonBy: '', noMatch: false, handedAt: null, assignSource: 'jay', routineId: null, jobId: null, runStartedAt: null, history: [], officeRun: false, officeJob: null, remote: null, relayedAt: null })) if (t[k] === undefined) t[k] = v;
     if (!Array.isArray(t.steps)) t.steps = [];
   });
   for (const r of d.routines) {
     if (r.account === undefined) r.account = null;
     if (r.browser === undefined) r.browser = null;
+    if (r.design === undefined) r.design = null;
+    if (r.estCost === undefined) r.estCost = null;
+    if (r.intervalMin === undefined) r.intervalMin = null;
+    if (r.lastIntervalAt === undefined) r.lastIntervalAt = null;
     if (!Array.isArray(r.tools)) r.tools = [];
     if (r.nextAssignee === undefined) r.nextAssignee = null;
     if (!STEP_MODES.includes(r.stepMode)) r.stepMode = 'serial';
@@ -97,13 +101,17 @@ function migrate(d) {
   // 배차: 본사 아이디 (사무실 작업 폴더에 남겨 내 것인지 알아본다), 기계의 ssh 별칭 (~/.ssh/config 에서 한 번 찾아 둠)
   if (!d.settings.instanceId) d.settings.instanceId = crypto.randomBytes(8).toString('hex');
   for (const r of d.resources) {
-    if (r.kind === '기계' && !r.isThisMac && r.sshAlias === undefined) r.sshAlias = guessSshAlias(r.hostname || '');
+    if (r.kind === '기계') {
+      if (!r.isThisMac && r.sshAlias === undefined) r.sshAlias = guessSshAlias(r.hostname || '');
+      if (!r.deviceKind) r.deviceKind = 'computer';
+    }
     if (r.kind === '계정') {
       const cfg = accountConfig(r);
       r.platform = cfg.platform;
       r.preset = cfg.preset;
       r.permissions = cfg.permissions;
       if (r.browser === undefined) r.browser = null;
+      if (r.spaceName === undefined) r.spaceName = '';
       if (r.assignee === undefined) r.assignee = null;
     }
   }
@@ -319,6 +327,25 @@ function accountRef(d, v) {
   return r.id;
 }
 
+function designRef(d, v) {
+  if (v === null || v === undefined || v === '') return null;
+  const r = d.resources.find((x) => x.id === v && x.kind === '디자인');
+  if (!r) throw new HttpError(400, '디자인 스타일을 찾을 수 없습니다.');
+  return r.id;
+}
+
+function intervalOrNull(v) {
+  if (v === null || v === undefined || v === '' || v === 0 || v === '0') return null;
+  const n = Number(v);
+  return INTERVAL_MINS.includes(n) ? n : null;
+}
+
+function costOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = numberOrNull(v);
+  return n !== null && n >= 0 ? Math.round(n) : null;
+}
+
 function toolRefs(d, v) {
   if (!Array.isArray(v)) return [];
   return [...new Set(v.map(String))].filter((id) => d.resources.some((r) => r.id === id && r.kind === '오픈소스')).slice(0, 6);
@@ -404,7 +431,8 @@ function syncTaskFromSteps(d, t, { prevActiveId = null, actor = 'jay', note = ''
 function syncTodayTasksFromRoutine(d, r) {
   for (const t of d.tasks) {
     if (t.routineId !== r.id || t.date !== ymd() || t.status === '완료' || t.runStartedAt) continue;
-    t.title = r.title; t.time = r.time;
+    t.title = r.title; t.time = r.intervalMin ? t.time : r.time; t.intervalMin = r.intervalMin || null;
+    t.design = r.design || null; t.estCost = r.estCost ?? null;
     t.stepMode = r.stepMode === 'parallel' ? 'parallel' : 'serial';
     t.sharedFolder = r.sharedFolder || '';
     if (Array.isArray(r.steps) && r.steps.length) {
@@ -448,6 +476,7 @@ function applyAssign(t, s, source) {
   t.resource = s.resource || null;
   if (s.account !== undefined) t.account = s.account || null;
   if (s.browser !== undefined) t.browser = s.browser || null;
+  if (s.design !== undefined) t.design = s.design || null;
   if (Array.isArray(s.tools)) t.tools = s.tools;
   if (s.gate && !t.gate) t.gate = s.gate;
   t.reason = s.reason || '';
@@ -536,17 +565,39 @@ function canRun(emp) {
   return emp && emp.runMode !== 'off' && (emp.engine === 'local' ? Boolean(emp.model) : ['claude', 'codex', 'agy'].includes(emp.engine));
 }
 
+function designPromptBlock(designs) {
+  if (!designs || !designs.length) return '';
+  return [
+    '반드시 따를 디자인 스타일:',
+    ...designs.map((x) => [
+      `- ${x.name}${x.note ? ` (${x.note})` : ''}`,
+      x.rules ? `  규칙: ${x.rules}` : '',
+      x.assetPath ? `  에셋/기준 폴더·파일: ${x.assetPath}` : '',
+      x.refUrl ? `  참고 주소: ${x.refUrl}` : '',
+    ].filter(Boolean).join('\n')),
+  ].join('\n');
+}
+
 function taskToolsInfo(d, t) {
+  const routine = t.routineId ? d.routines.find((r) => r.id === t.routineId) : null;
+  const fullText = `${t.title} ${t.note || ''} ${routine?.instruction || ''}`;
   const browsers = d.resources.filter((r) => r.kind === '브라우저');
   const account = (t.account ? d.resources.find((r) => r.id === t.account && r.kind === '계정') : null)
     || (t.resource ? d.resources.find((r) => r.id === t.resource && r.kind === '계정') : null)
-    || pickAccount(`${t.title} ${t.note || ''}`, d.resources);
+    || pickAccount(fullText, d.resources);
   const browser = (t.browser ? d.resources.find((r) => r.id === t.browser && r.kind === '브라우저') : null)
+    || pickBrowser(fullText, d.resources, account ? resolveAccountBrowser(account, browsers)?.id || null : null)
     || (account ? resolveAccountBrowser(account, browsers) : null);
-  const oss = (t.tools || []).map((id) => d.resources.find((r) => r.id === id && r.kind === '오픈소스')).filter(Boolean);
-  const policy = account ? evaluateAccountPolicy(account, `${t.title} ${t.note || ''}`) : null;
+  const explicitOss = (t.tools || []).map((id) => d.resources.find((r) => r.id === id && r.kind === '오픈소스')).filter(Boolean);
+  const detectedOss = pickTools(fullText, d.resources, tokens);
+  const oss = [...new Map([...explicitOss, ...detectedOss].map((x) => [x.id, x])).values()].slice(0, 5);
+  const explicitDesign = t.design ? [d.resources.find((r) => r.id === t.design && r.kind === '디자인')].filter(Boolean) : [];
+  const detectedDesigns = pickDesigns(fullText, d.resources, tokens);
+  const designs = [...new Map([...explicitDesign, ...detectedDesigns].map((x) => [x.id, x])).values()].slice(0, 2);
+  const policy = account ? evaluateAccountPolicy(account, fullText) : null;
   const accountBlock = account ? accountPromptBlock(account, browsers) : '';
-  return { browser, oss, account, policy, accountBlock };
+  const designBlock = designPromptBlock(designs);
+  return { browser, oss, designs, account, policy, accountBlock, designBlock };
 }
 
 function assertAccountAllowed(d, t, extraText = '') {
@@ -559,7 +610,7 @@ function assertAccountAllowed(d, t, extraText = '') {
 function runPrompt(d, emp, t) {
   const routine = t.routineId ? d.routines.find((r) => r.id === t.routineId) : null;
   const res = t.resource ? d.resources.find((r) => r.id === t.resource) : null;
-  const { browser, oss, accountBlock } = taskToolsInfo(d, t);
+  const { browser, oss, accountBlock, designBlock } = taskToolsInfo(d, t);
   return [
     `너는 ${d.owner.name} 대표의 AI 회사 "${d.settings.companyName || 'AI 회사 본사'}"의 AI 직원 "${emp.name}" (아이디 ${emp.id}) 이다.`,
     emp.role ? `역할: ${emp.role}` : '',
@@ -575,12 +626,14 @@ function runPrompt(d, emp, t) {
     '',
     `할 일 ${t.id}: ${t.title}`,
     t.time ? `시간: ${t.time}` : '',
-    t.note ? `메모: ${t.note}` : '',
+    t.intervalMin ? `반복 주기: ${t.intervalMin}분마다` : '',
+    t.note ? `프롬프트(지시 메모):\n${t.note}` : '',
     res ? `쓸 리소스: ${res.name} (${res.kind})` : '',
     browser ? `쓸 브라우저: ${browser.name}${browser.guide ? ` (사용법: ${browser.guide})` : browser.command ? ` (명령: ${browser.command})` : ''}` : '',
     accountBlock,
+    designBlock,
     stepsPromptBlock(d, t, emp.id),
-    oss.length ? `쓸 오픈소스 도구:\n${oss.map((x) => `- ${x.name}${x.skillPath ? ` (스킬: ${x.skillPath})` : x.command ? ` (명령: ${x.command})` : ''}${x.note ? ` · ${x.note}` : ''}`).join('\n')}` : '',
+    oss.length ? `반드시 사용할 오픈소스 도구:\n${oss.map((x) => `- ${x.name}${x.command ? ` · 명령: ${x.command}` : ''}${x.repo ? ` · GitHub: ${x.repo}` : ''}${x.skillPath ? ` · 스킬: ${x.skillPath}` : ''}${x.note ? ` · ${x.note}` : ''}`).join('\n')}` : '',
     routine && routine.instruction ? `지시서:\n${routine.instruction}` : '',
     '',
     '이 할 일의 대화 기록:',
@@ -611,7 +664,7 @@ const modelOf = (emp) => emp?.modelNow?.name || (emp?.engine === 'local' && emp.
 function handoutPrompt(d, emp, t) {
   const routine = t.routineId ? d.routines.find((r) => r.id === t.routineId) : null;
   const owner = d.owner.name ? `${d.owner.name} 대표` : '대표';
-  const { browser, oss, accountBlock } = taskToolsInfo(d, t);
+  const { browser, oss, accountBlock, designBlock } = taskToolsInfo(d, t);
   return [
     `너는 ${owner}의 AI 직원 "${emp.name}" 이다.${emp.role ? ` 역할: ${emp.role}.` : ''}`,
     emp.manual ? `
@@ -620,11 +673,13 @@ ${emp.manual}` : '',
     '',
     `할 일: ${t.title}`,
     t.time ? `시간: ${t.time}` : '',
-    t.note ? `메모: ${t.note}` : '',
+    t.intervalMin ? `반복 주기: ${t.intervalMin}분마다` : '',
+    t.note ? `프롬프트(지시):\n${t.note}` : '',
     browser ? `참고 브라우저: ${browser.name}` : '',
     accountBlock,
+    designBlock,
     stepsPromptBlock(d, t, emp.id),
-    oss.length ? `참고 오픈소스 도구: ${oss.map((x) => x.name).join(', ')}` : '',
+    oss.length ? `반드시 사용할 오픈소스 도구:\n${oss.map((x) => `- ${x.name}${x.command ? ` (${x.command})` : ''}${x.repo ? ` · ${x.repo}` : ''}`).join('\n')}` : '',
     routine && routine.instruction ? `지시서:
 ${routine.instruction}` : '',
     '',
@@ -761,6 +816,8 @@ async function stateView() {
       permLabels: PERM_LABELS, hardGuardrails: HARD_GUARDRAILS,
       stepModes: STEP_MODES, stepModeLabels: STEP_MODE_LABELS,
       stepTemplates: STEP_TEMPLATES.map(({ key, label, mode, steps }) => ({ key, label, mode, count: steps.length })),
+      intervalMins: INTERVAL_MINS,
+      designPresets: DESIGN_PRESETS,
       routinePacks: ROUTINE_PACKS.map(({ key, badge, title, summary, routines }) => ({ key, badge, title, summary, count: routines.length, titles: routines.map((r) => r.title) })),
     },
     working: [...working.values(), ...officeWorking()],
@@ -798,14 +855,18 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
     if (!title) throw new HttpError(400, '할 일 제목이 필요합니다.');
     const t = {
       id: nextId(d, 't'), order: 0, title, kind: 'human', assignee: 'jay', date: dateOrNull(body.date) || ymd(), time: timeOrNull(body.time),
-      status: '대기', note: text(body.note, 2000), resource: null, account: null, browser: null, tools: [],
+      status: '대기', note: text(body.note, 4000), resource: null, account: null, browser: null, design: null, tools: [], estCost: costOrNull(body.estCost), intervalMin: null,
       stepMode: STEP_MODES.includes(body.stepMode) ? body.stepMode : 'serial', sharedFolder: text(body.sharedFolder, 400), steps: [],
       gate: null, gateApprovedAt: null, reason: '', assignSource: 'jay',
       routineId: null, jobId: null, createdAt: nowIso(), createdBy: 'jay', history: [], runStartedAt: null,
     };
     if (body.assignee !== undefined && body.assignee !== 'auto') {
-      const accId = body.account !== undefined ? accountRef(d, body.account) : (pickAccount(`${title} ${t.note}`, d.resources)?.id || null);
-      applyAssign(t, { assignee: assigneeRef(d, body.assignee), resource: resourceRef(d, body.resource), account: accId, browser: browserRef(d, body.browser), tools: body.tools ? toolRefs(d, body.tools) : [], gate: detectGate(`${title} ${t.note}`), reason: '대표가 정함' }, 'jay');
+      const full = `${title} ${t.note}`;
+      const accId = body.account !== undefined ? accountRef(d, body.account) : (pickAccount(full, d.resources)?.id || null);
+      const desId = body.design !== undefined ? designRef(d, body.design) : (pickDesigns(full, d.resources, tokens)[0]?.id || null);
+      const brId = body.browser !== undefined ? browserRef(d, body.browser) : (pickBrowser(full, d.resources)?.id || null);
+      const tIds = body.tools ? toolRefs(d, body.tools) : pickTools(full, d.resources, tokens).map((x) => x.id);
+      applyAssign(t, { assignee: assigneeRef(d, body.assignee), resource: resourceRef(d, body.resource), account: accId, browser: brId, design: desId, tools: tIds, gate: detectGate(full), reason: '대표가 정함' }, 'jay');
     } else {
       applyAssign(t, ruleAssign(title, t.note, d.employees, d.resources), 'rule');
     }
@@ -823,10 +884,32 @@ route('PATCH', '/api/ui/tasks/:id', async ({ params, body }) => store.mutate((d)
   if (body.title !== undefined) { const s = text(body.title, 300); if (s) t.title = s; }
   if (body.time !== undefined) t.time = timeOrNull(body.time);
   if (body.date !== undefined && dateOrNull(body.date)) t.date = dateOrNull(body.date);
-  if (body.note !== undefined) t.note = text(body.note, 2000);
+  if (body.note !== undefined) t.note = text(body.note, 4000);
   if (body.account !== undefined) t.account = accountRef(d, body.account);
   if (body.browser !== undefined) t.browser = browserRef(d, body.browser);
+  if (body.design !== undefined) t.design = designRef(d, body.design);
+  if (body.estCost !== undefined) t.estCost = costOrNull(body.estCost);
   if (body.tools !== undefined) t.tools = toolRefs(d, body.tools);
+  // 프롬프트(제목/지시 메모)가 바뀌면 언급된 오픈소스·디자인·브라우저·계정을 자동 동기화
+  if (`${t.title} ${t.note || ''}` !== before) {
+    const full = `${t.title} ${t.note || ''}`;
+    if (body.tools === undefined) {
+      const autoTools = pickTools(full, d.resources, tokens).map((x) => x.id);
+      if (autoTools.length) t.tools = [...new Set([...(t.tools || []), ...autoTools])].slice(0, 6);
+    }
+    if (body.design === undefined && !t.design) {
+      const autoDes = pickDesigns(full, d.resources, tokens)[0];
+      if (autoDes) t.design = autoDes.id;
+    }
+    if (body.account === undefined && !t.account) {
+      const autoAcc = pickAccount(full, d.resources);
+      if (autoAcc) t.account = autoAcc.id;
+    }
+    if (body.browser === undefined && !t.browser) {
+      const autoBr = pickBrowser(full, d.resources, t.account ? resolveAccountBrowser(d.resources.find((x) => x.id === t.account), d.resources)?.id || null : null);
+      if (autoBr) t.browser = autoBr.id;
+    }
+  }
   const prevActiveId = activeSteps(t)[0]?.id || null;
   let stepsTouched = false;
   if (body.stepMode !== undefined && STEP_MODES.includes(body.stepMode)) { t.stepMode = body.stepMode; stepsTouched = true; }
@@ -1213,14 +1296,22 @@ route('POST', '/api/ui/routines', async ({ body }) => {
     if (!title) throw new HttpError(400, '이름이 필요합니다.');
     const r = {
       id: nextId(d, 'r'), title, where: text(body.where, 100), days: daysOf(body.days), time: timeOrNull(body.time),
-      assignee: 'jay', resource: null, account: null, browser: null, tools: [],
+      intervalMin: intervalOrNull(body.intervalMin), lastIntervalAt: null,
+      assignee: 'jay', resource: null, account: null, browser: null, design: null, tools: [], estCost: costOrNull(body.estCost),
       stepMode: STEP_MODES.includes(body.stepMode) ? body.stepMode : 'serial', sharedFolder: text(body.sharedFolder, 400), steps: [],
       nextAssignee: null, alarm: true, enabled: true, instruction: text(body.instruction, 8000), gate: null, feature: null, log: {}, reason: '', assignSource: 'jay',
     };
-    if (body.assignee !== undefined && body.assignee !== 'auto') { r.assignee = assigneeRef(d, body.assignee); r.reason = '대표가 정함'; r.gate = detectGate(`${title} ${r.instruction}`); }
-    else {
+    if (r.intervalMin) r.time = null;
+    if (body.assignee !== undefined && body.assignee !== 'auto') {
+      const full = `${title} ${r.instruction}`;
+      r.assignee = assigneeRef(d, body.assignee); r.reason = '대표가 정함'; r.gate = detectGate(full);
+      r.account = pickAccount(full, d.resources)?.id || null;
+      r.browser = pickBrowser(full, d.resources, r.account ? resolveAccountBrowser(d.resources.find((x) => x.id === r.account), d.resources)?.id || null : null)?.id || null;
+      r.design = pickDesigns(full, d.resources, tokens)[0]?.id || null;
+      r.tools = pickTools(full, d.resources, tokens).map((x) => x.id);
+    } else {
       const s = ruleAssign(title, r.instruction, d.employees, d.resources);
-      Object.assign(r, { assignee: s.assignee, resource: s.resource, account: s.account || null, browser: s.browser || null, tools: s.tools || [], reason: s.reason, reasonBy: s.engine, noMatch: Boolean(s.noMatch), gate: s.gate, assignSource: 'rule' });
+      Object.assign(r, { assignee: s.assignee, resource: s.resource, account: s.account || null, browser: s.browser || null, design: s.design || null, tools: s.tools || [], reason: s.reason, reasonBy: s.engine, noMatch: Boolean(s.noMatch), gate: s.gate, assignSource: 'rule' });
     }
     d.routines.push(r);
     ensureRoutineTasks(d);
@@ -1270,18 +1361,38 @@ route('PATCH', '/api/ui/routines/:id', async ({ params, body }) => store.mutate(
   const rBefore = `${r.title} ${r.instruction || ''}`;
   if (body.title !== undefined) { const s = text(body.title, 200); if (s) r.title = s; }
   if (body.where !== undefined) r.where = text(body.where, 100);
-  if (body.time !== undefined) r.time = timeOrNull(body.time);
+  if (body.time !== undefined) { r.time = timeOrNull(body.time); if (r.time) r.intervalMin = null; }
+  if (body.intervalMin !== undefined) { r.intervalMin = intervalOrNull(body.intervalMin); if (r.intervalMin) { r.time = null; r.lastIntervalAt = null; } }
   if (body.days !== undefined) r.days = daysOf(body.days);
   if (body.alarm !== undefined) r.alarm = Boolean(body.alarm);
   if (body.enabled !== undefined) r.enabled = Boolean(body.enabled);
   if (body.instruction !== undefined) r.instruction = text(body.instruction, 8000);
   if (`${r.title} ${r.instruction || ''}` !== rBefore) {
-    const g = detectGate(`${r.title} ${r.instruction || ''}`);
+    const full = `${r.title} ${r.instruction || ''}`;
+    const g = detectGate(full);
     if (g && !r.gate) r.gate = g;
+    if (body.tools === undefined) {
+      const autoTools = pickTools(full, d.resources, tokens).map((x) => x.id);
+      if (autoTools.length) r.tools = [...new Set([...(r.tools || []), ...autoTools])].slice(0, 6);
+    }
+    if (body.design === undefined) {
+      const autoDes = pickDesigns(full, d.resources, tokens)[0];
+      if (autoDes) r.design = autoDes.id;
+    }
+    if (body.account === undefined) {
+      const autoAcc = pickAccount(full, d.resources);
+      if (autoAcc) r.account = autoAcc.id;
+    }
+    if (body.browser === undefined) {
+      const autoBr = pickBrowser(full, d.resources, r.account ? resolveAccountBrowser(d.resources.find((x) => x.id === r.account), d.resources)?.id || null : null);
+      if (autoBr) r.browser = autoBr.id;
+    }
   }
   if (body.resource !== undefined) r.resource = resourceRef(d, body.resource);
   if (body.account !== undefined) r.account = accountRef(d, body.account);
   if (body.browser !== undefined) r.browser = browserRef(d, body.browser);
+  if (body.design !== undefined) r.design = designRef(d, body.design);
+  if (body.estCost !== undefined) r.estCost = costOrNull(body.estCost);
   if (body.tools !== undefined) r.tools = toolRefs(d, body.tools);
   if (body.stepMode !== undefined && STEP_MODES.includes(body.stepMode)) r.stepMode = body.stepMode;
   if (body.sharedFolder !== undefined) r.sharedFolder = text(body.sharedFolder, 400);
@@ -1447,11 +1558,12 @@ route('DELETE', '/api/ui/employees/:id', async ({ params }) => store.mutate((d) 
 // ── 내 리소스 ──
 
 route('POST', '/api/ui/resources', async ({ body }) => store.mutate((d) => {
-  const name = text(body.name, 120);
-  if (!name) throw new HttpError(400, '이름이 필요합니다.');
   const kind = RES_KINDS.includes(body.kind) ? body.kind : '계정';
+  const parsed = kind === '오픈소스' && body.sourceInput ? parseOpenSourceInput(body.sourceInput) : { name: '', repo: '', command: '' };
+  const name = text(body.name, 120) || text(parsed.name, 120);
+  if (!name) throw new HttpError(400, '이름이 필요합니다.');
   const r = { id: nextId(d, 'res'), kind, name, status: RES_STATUS.includes(body.status) ? body.status : '사용 가능', note: text(body.note, 300) };
-  if (kind === '기계') Object.assign(r, { hostname: '', port: 22, isThisMac: false, status: '확인 필요' });
+  if (kind === '기계') Object.assign(r, { hostname: '', port: 22, isThisMac: false, deviceKind: body.deviceKind === 'phone' ? 'phone' : 'computer', status: '확인 필요' });
   if (kind === '폴더') r.path = text(body.path, 500);
   if (kind === '브라우저') {
     const pre = BROWSER_CATALOG.find((x) => x.key === body.preset);
@@ -1461,7 +1573,19 @@ route('POST', '/api/ui/resources', async ({ body }) => store.mutate((d) => {
   }
   if (kind === '오픈소스') {
     const pre = OSS_CATALOG.find((x) => x.key === body.preset);
-    Object.assign(r, { preset: pre ? pre.key : text(body.preset, 60), when: text(body.when, 300) || pre?.when || '', command: text(body.command, 200) || pre?.command || '', skillPath: text(body.skillPath, 500) });
+    const repoRaw = text(body.repo, 400) || parsed.repo || pre?.repo || '';
+    const repo = /^https?:\/\/\S+$/i.test(repoRaw) ? repoRaw : '';
+    Object.assign(r, { preset: pre ? pre.key : text(body.preset, 60), when: text(body.when, 300) || pre?.when || '', command: text(body.command, 200) || parsed.command || pre?.command || '', repo, skillPath: text(body.skillPath, 500) });
+  }
+  if (kind === '디자인') {
+    const pre = DESIGN_PRESETS.find((x) => x.key === body.preset);
+    const urlRaw = text(body.refUrl, 400) || pre?.refUrl || '';
+    Object.assign(r, {
+      preset: pre ? pre.key : text(body.preset, 60),
+      rules: text(body.rules, 2000) || pre?.rules || '',
+      assetPath: text(body.assetPath, 500) || pre?.assetPath || '',
+      refUrl: /^https?:\/\/\S+$/i.test(urlRaw) ? urlRaw : '',
+    });
   }
   if (kind === '계정') {
     const platform = ACCOUNT_PLATFORMS.some((p) => p.key === body.platform) ? body.platform : inferPlatform(name, r.note);
@@ -1469,8 +1593,9 @@ route('POST', '/api/ui/resources', async ({ body }) => store.mutate((d) => {
     const preset = ['readonly', 'approval', 'draft_auto', 'custom'].includes(body.preset) ? body.preset : defPreset;
     const permissions = normalizePermissions(platform, body.permissions, preset);
     const browser = body.browser !== undefined ? browserRef(d, body.browser) : null;
+    const spaceName = text(body.spaceName, 60);
     const assignee = body.assignee !== undefined && body.assignee !== null && body.assignee !== '' ? requireAgent(d, body.assignee).id : null;
-    Object.assign(r, { platform, preset: detectPreset(platform, permissions), permissions, browser, assignee });
+    Object.assign(r, { platform, preset: detectPreset(platform, permissions), permissions, browser, spaceName, assignee });
   }
   d.resources.push(r);
   return r;
@@ -1491,13 +1616,20 @@ route('PATCH', '/api/ui/resources/:id', async ({ params, body }) => store.mutate
   if (r.kind === '오픈소스') {
     if (body.when !== undefined) r.when = text(body.when, 300);
     if (body.command !== undefined) r.command = text(body.command, 200);
+    if (body.repo !== undefined) { const u = text(body.repo, 400); r.repo = /^https?:\/\/\S+$/i.test(u) ? u : ''; }
     if (body.skillPath !== undefined) r.skillPath = text(body.skillPath, 500);
+  }
+  if (r.kind === '디자인') {
+    if (body.rules !== undefined) r.rules = text(body.rules, 2000);
+    if (body.assetPath !== undefined) r.assetPath = text(body.assetPath, 500);
+    if (body.refUrl !== undefined) { const u = text(body.refUrl, 400); r.refUrl = /^https?:\/\/\S+$/i.test(u) ? u : ''; }
   }
   if (r.kind === '계정') {
     const cur = accountConfig(r);
     const nextPlat = body.platform && ACCOUNT_PLATFORMS.some((p) => p.key === body.platform) ? body.platform : cur.platform;
     r.platform = nextPlat;
     if (body.browser !== undefined) r.browser = browserRef(d, body.browser);
+    if (body.spaceName !== undefined) r.spaceName = text(body.spaceName, 60);
     if (body.assignee !== undefined) r.assignee = body.assignee ? requireAgent(d, body.assignee).id : null;
     let perms = nextPlat !== cur.platform ? presetPermissions(nextPlat, nextPlat === 'payment' ? 'readonly' : 'approval') : { ...cur.permissions };
     if (['readonly', 'approval', 'draft_auto'].includes(body.preset)) perms = presetPermissions(nextPlat, body.preset);
@@ -1507,6 +1639,7 @@ route('PATCH', '/api/ui/resources/:id', async ({ params, body }) => store.mutate
     r.preset = detectPreset(nextPlat, perms);
   }
   if (r.kind === '기계') {
+    if (body.deviceKind !== undefined) r.deviceKind = body.deviceKind === 'phone' ? 'phone' : 'computer';
     if (body.hostname !== undefined) {
       const h = text(body.hostname, 253);
       if (h && !validHostname(h)) throw new HttpError(400, '호스트 이름 형식이 아닙니다.');
@@ -1532,10 +1665,12 @@ route('DELETE', '/api/ui/resources/:id', async ({ params }) => store.mutate((d) 
     if (t.resource === params.id) t.resource = null;
     if (t.account === params.id) t.account = null;
     if (t.browser === params.id) t.browser = null;
+    if (t.design === params.id) t.design = null;
     if (Array.isArray(t.tools)) t.tools = t.tools.filter((x) => x !== params.id);
     for (const s of t.steps || []) {
       if (s.resource === params.id) s.resource = null;
       if (s.browser === params.id) s.browser = null;
+      if (s.design === params.id) s.design = null;
       if (Array.isArray(s.tools)) s.tools = s.tools.filter((x) => x !== params.id);
     }
   }
@@ -1543,10 +1678,12 @@ route('DELETE', '/api/ui/resources/:id', async ({ params }) => store.mutate((d) 
     if (r.resource === params.id) r.resource = null;
     if (r.account === params.id) r.account = null;
     if (r.browser === params.id) r.browser = null;
+    if (r.design === params.id) r.design = null;
     if (Array.isArray(r.tools)) r.tools = r.tools.filter((x) => x !== params.id);
     for (const s of r.steps || []) {
       if (s.resource === params.id) s.resource = null;
       if (s.browser === params.id) s.browser = null;
+      if (s.design === params.id) s.design = null;
       if (Array.isArray(s.tools)) s.tools = s.tools.filter((x) => x !== params.id);
     }
   }
@@ -1651,23 +1788,25 @@ route('DELETE', '/api/ui/revenue/:id', async ({ params }) => store.mutate((d) =>
 
 function taskView(d, t, withThread) {
   const routine = t.routineId ? d.routines.find((r) => r.id === t.routineId) : null;
-  const { browser, oss, account, policy } = taskToolsInfo(d, t);
+  const { browser, oss, designs, account, policy } = taskToolsInfo(d, t);
   const accCfg = account ? accountConfig(account) : null;
   const accPlat = accCfg ? platformByKey(accCfg.platform) : null;
   const accBr = account ? resolveAccountBrowser(account, d.resources) : null;
   const actStepIds = new Set(activeSteps(t).map((s) => s.id));
   const out = {
-    id: t.id, title: t.title, date: t.date, time: t.time, status: t.status, note: t.note,
+    id: t.id, title: t.title, date: t.date, time: t.time, intervalMin: t.intervalMin || routine?.intervalMin || null, status: t.status, note: t.note,
     assignee: t.assignee, assigneeName: nameOf(d, t.assignee), resource: t.resource ? d.resources.find((r) => r.id === t.resource)?.name || t.resource : null,
     account: account ? {
       id: account.id, name: account.name, platform: accCfg.platform, platformName: accCfg.platformName,
-      url: account.url || accPlat?.url || '',
+      url: account.url || accPlat?.url || '', spaceName: accCfg.spaceName || '',
       browser: accBr ? accBr.name : null, assignee: accCfg.assignee, assigneeName: accCfg.assignee ? nameOf(d, accCfg.assignee) : null,
       preset: accCfg.preset, permissions: accCfg.permissions,
       blocked: Boolean(policy?.blocked), policyMessage: policy?.message || '',
     } : null,
     browser: browser ? { id: browser.id, name: browser.name, command: browser.command || '', guide: browser.guide || '' } : null,
-    openSourceTools: oss.map((x) => ({ id: x.id, name: x.name, when: x.when || '', command: x.command || '', skillPath: x.skillPath || '' })),
+    openSourceTools: oss.map((x) => ({ id: x.id, name: x.name, when: x.when || '', command: x.command || '', repo: x.repo || '', skillPath: x.skillPath || '' })),
+    designs: designs.map((x) => ({ id: x.id, name: x.name, rules: x.rules || '', assetPath: x.assetPath || '', refUrl: x.refUrl || '' })),
+    estCost: t.estCost ?? null,
     stepMode: t.stepMode || 'serial',
     sharedFolder: t.sharedFolder || '',
     steps: (t.steps || []).map((s) => stepView(d, s, actStepIds)),
@@ -1687,18 +1826,20 @@ route('GET', '/api/agent/whoami', async ({ query }) => {
   const d = store.data;
   const e = requireAgent(d, query.get('emp'));
   const defBrowser = d.resources.find((r) => r.kind === '브라우저' && r.status !== '꺼짐' && r.isDefault) || d.resources.find((r) => r.kind === '브라우저' && r.status !== '꺼짐') || null;
-  const openSourceTools = d.resources.filter((r) => r.kind === '오픈소스' && r.status !== '꺼짐').map((r) => ({ id: r.id, name: r.name, when: r.when || '', command: r.command || '', skillPath: r.skillPath || '' }));
+  const openSourceTools = d.resources.filter((r) => r.kind === '오픈소스' && r.status !== '꺼짐').map((r) => ({ id: r.id, name: r.name, when: r.when || '', command: r.command || '', repo: r.repo || '', skillPath: r.skillPath || '' }));
+  const designs = d.resources.filter((r) => r.kind === '디자인' && r.status !== '꺼짐').map((r) => ({ id: r.id, name: r.name, rules: r.rules || '', assetPath: r.assetPath || '', refUrl: r.refUrl || '' }));
   const accounts = d.resources.filter((r) => r.kind === '계정' && r.status !== '꺼짐').map((r) => {
     const cfg = accountConfig(r);
     const plat = platformByKey(cfg.platform);
     const br = resolveAccountBrowser(r, d.resources);
-    return { id: r.id, name: r.name, platform: cfg.platform, url: r.url || plat?.url || '', browser: br?.name || null, assignee: cfg.assignee, assigneeName: cfg.assignee ? nameOf(d, cfg.assignee) : null, preset: cfg.preset, permissions: cfg.permissions };
+    return { id: r.id, name: r.name, platform: cfg.platform, url: r.url || plat?.url || '', spaceName: cfg.spaceName || '', browser: br?.name || null, assignee: cfg.assignee, assigneeName: cfg.assignee ? nameOf(d, cfg.assignee) : null, preset: cfg.preset, permissions: cfg.permissions };
   });
   return {
     id: e.id, name: e.name, role: e.role, tools: e.tools, manual: e.manual, runsOn: e.runsOn,
     resources: e.resources.map((id) => d.resources.find((r) => r.id === id)).filter(Boolean).map((r) => ({ id: r.id, name: r.name, kind: r.kind, status: r.status })),
     defaultBrowser: defBrowser ? { id: defBrowser.id, name: defBrowser.name, command: defBrowser.command || '', guide: defBrowser.guide || '' } : null,
     openSourceTools,
+    designs,
     accounts,
     company: d.settings.companyName || 'AI 회사 본사', owner: nameOf(d, 'jay'),
     quietHours: d.settings.quietHours || null, quietNow: isQuiet(d.settings.quietHours),
@@ -1712,8 +1853,10 @@ route('GET', '/api/agent/resources', async () => store.data.resources.map((r) =>
   const base = { id: r.id, name: r.name, kind: r.kind, status: r.status, note: r.note };
   if (r.kind === '계정') {
     const cfg = accountConfig(r);
-    return { ...base, platform: cfg.platform, browser: cfg.browser, assignee: cfg.assignee, preset: cfg.preset, permissions: cfg.permissions };
+    return { ...base, platform: cfg.platform, browser: cfg.browser, spaceName: cfg.spaceName, assignee: cfg.assignee, preset: cfg.preset, permissions: cfg.permissions };
   }
+  if (r.kind === '오픈소스') return { ...base, command: r.command || '', repo: r.repo || '', when: r.when || '' };
+  if (r.kind === '디자인') return { ...base, rules: r.rules || '', assetPath: r.assetPath || '', refUrl: r.refUrl || '' };
   return base;
 }));
 

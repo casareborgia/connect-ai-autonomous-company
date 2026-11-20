@@ -603,3 +603,19 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .wf-out { color: var(--ink-2); background: var(--fill); padding: 6px 10px; border-radius: 6px; }
 .wf-add { display: flex; gap: 6px; align-items: center; }
 .wf-add input { flex: 1; }
+
+/* 프롬프트 중심 입력 + 끼워넣기 + 자동 연결 1줄 + 반복 주기 */
+.p-wrap { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.p-label { margin-bottom: -2px; }
+.p-insert { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.prompt-box { font-size: 14px; line-height: 1.6; min-height: 96px; }
+.p-linked { padding: 7px 10px; border-radius: 8px; background: var(--fill); border: 1px solid var(--line); line-height: 1.5; }
+.p-linked b { color: var(--ink); font-weight: 600; }
+.adv-fold { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.adv-body { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.addbar.rt-add { grid-template-columns: 1fr auto auto auto; margin-top: 8px; }
+.r-sched-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 720px) {
+  .addbar.rt-add { grid-template-columns: 1fr 1fr; }
+  .addbar.rt-add input[data-k="rt-title"] { grid-column: 1 / -1; }
+}
