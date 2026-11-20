@@ -232,7 +232,7 @@ function pageApprovals() {
         h('span', { class: `tag${isWait ? ' solid' : ''}` }, isWait ? `${a.kind} · 결재 대기` : `${a.kind} · ${a.status}`),
         h('span', { class: 'who' }, kindBadge('ai'), nameOf(a.from)),
         h('span', { class: 'small muted' }, `${a.id} · ${stamp(a.requestedAt)} 요청`),
-        a.taskId ? h('a', { class: 'evi', href: `#messenger/task:${a.taskId}` }, `할 일 ${a.taskId}`) : null),
+        a.taskId ? h('a', { class: 'evi', href: `#home/${a.taskId}` }, `할 일 ${a.taskId}`) : null),
       h('div', { class: 'what' }, a.what),
       a.amount !== null && a.amount !== undefined ? h('div', { style: 'font-size:28px;font-weight:200;margin-top:8px' }, money(a.amount, a.currency || 'KRW')) : null,
       content,

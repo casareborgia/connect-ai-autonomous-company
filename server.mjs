@@ -1419,8 +1419,10 @@ route('POST', '/api/ui/onboard', async ({ body }) => {
     for (const rt of (Array.isArray(body.routines) ? body.routines : []).slice(0, 5)) {
       const title = text(rt?.title, 200);
       if (!title) continue;
-      const s = ruleAssign(title, '', d.employees, d.resources);
-      const r = { id: nextId(d, 'r'), title, where: '', days: [0, 1, 2, 3, 4, 5, 6], time: timeOrNull(rt.time), assignee: s.assignee, resource: s.resource, account: s.account || null, browser: s.browser || null, tools: s.tools || [], nextAssignee: null, alarm: s.assignee === 'jay', enabled: true, instruction: '', gate: s.gate, feature: null, log: {}, reason: s.reason, reasonBy: s.engine, noMatch: Boolean(s.noMatch), assignSource: 'rule' };
+      const instruction = text(rt?.instruction, 4000);
+      const iv = intervalOrNull(rt?.intervalMin);
+      const s = ruleAssign(title, instruction, d.employees, d.resources, d.settings?.assignMemory);
+      const r = { id: nextId(d, 'r'), title, where: '', days: [0, 1, 2, 3, 4, 5, 6], time: iv ? null : timeOrNull(rt.time), intervalMin: iv, lastIntervalAt: null, assignee: s.assignee, resource: s.resource, account: s.account || null, browser: s.browser || null, design: s.design || null, tools: s.tools || [], manualLinks: {}, estCost: null, stepMode: 'serial', sharedFolder: '', steps: [], nextAssignee: null, alarm: s.assignee === 'jay', enabled: true, instruction, gate: s.gate, feature: null, log: {}, reason: s.reason, reasonBy: s.engine, noMatch: Boolean(s.noMatch), assignSource: 'rule' };
       d.routines.push(r);
       routines.push(r.id);
     }
