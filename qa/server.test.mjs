@@ -20,11 +20,11 @@ function freePort() {
   });
 }
 
-async function startServer() {
+async function startServer({ seed = 'example' } = {}) {
   const port = await freePort();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aihq-srv-'));
   const child = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], {
-    env: { ...process.env, AIHQ_PORT: String(port), AIHQ_DATA_DIR: dir, AIHQ_WORKSPACES: path.join(dir, 'ws'), AIHQ_SEED: 'example', AIHQ_DISPATCH: '0' },
+    env: { ...process.env, AIHQ_PORT: String(port), AIHQ_DATA_DIR: dir, AIHQ_WORKSPACES: path.join(dir, 'ws'), AIHQ_SEED: seed, AIHQ_DISPATCH: '0' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const base = `http://127.0.0.1:${port}`;
@@ -344,7 +344,7 @@ test('THE FOUNDER 루틴 팩 (1클릭 담기 · 중복 방지 · 릴레이), 3�
     assert.equal(p1Again.body.skipped, 2);
 
     // 2. 클라우드 직원(Muse) 카탈로그 추가 시 home-cloud 그룹으로 분류
-    const emptySrv = await startServer({});
+    const emptySrv = await startServer({ seed: '' });
     try {
       const empRes = await emptySrv.ui('POST', '/api/ui/employees', { name: 'Muse', catalog: 'muse' });
       assert.equal(empRes.status, 200);
@@ -549,5 +549,127 @@ test('프롬프트 중심 자동 연결 (GitHub/npx 오픈소스 · 디자인 �
     assert.equal(gtMail.body.account.browser, 'Ego Lite');
   } finally {
     await srv.stop();
+  }
+});
+
+test('복합 프롬프트 보안 경계 · 대표 패턴 학습 · 프롬프트 재저장 정리 · 최종 지시서 미리보기', async () => {
+  const srv = await startServer({ seed: 'example' });
+  try {
+    const br = await srv.ui('POST', '/api/ui/resources', { kind: '브라우저', name: 'Ego Lite', preset: 'ego-lite', isDefault: true });
+    const hf = await srv.ui('POST', '/api/ui/resources', { kind: '오픈소스', name: 'Hyperframes', preset: 'hyperframes', command: 'npx hyperframes', when: '모션 그래픽' });
+    const rm = await srv.ui('POST', '/api/ui/resources', { kind: '오픈소스', name: 'Remotion', preset: 'remotion', command: 'npx remotion', when: 'React 영상' });
+
+    // 1. 복합 프롬프트: draft_auto 이메일이라도 "초안 작성해서 메일 발송해줘" 는 발송 승인을 우회할 수 없음
+    const compound = await srv.ui('POST', '/api/ui/tasks', { title: '이메일 답장 초안 작성해서 메일 발송해줘' });
+    assert.equal(compound.status, 200);
+    assert.equal(compound.body.assignee, 'jay');
+    assert.equal(compound.body.gate, '발송');
+
+    // 2. readonly 이메일에서 "답장 초안만 저장해줘" 는 read 로 오탐되지 않고 차단됨
+    await srv.ui('PATCH', '/api/ui/resources/a-email', { preset: 'readonly' });
+    const roDraft = await srv.ui('POST', '/api/ui/tasks', { title: '이메일 답장 초안만 저장해줘' });
+    assert.equal(roDraft.body.assignee, 'jay');
+    await srv.ui('PATCH', '/api/ui/resources/a-email', { preset: 'draft_auto' });
+
+    // 3. "Claude 멤버십 결제 갱신" 은 직원 이름보다 결제 게이트가 우선해 사람(jay)에게 남음
+    const payClaude = await srv.ui('POST', '/api/ui/tasks', { title: 'Claude 멤버십 결제 갱신' });
+    assert.equal(payClaude.body.assignee, 'jay');
+    assert.equal(payClaude.body.gate, '결제');
+
+    // 4. "유튜브 영상 블렌더 렌더" 는 계정이 기계 resource 를 덮어쓰지 않고 맥 스튜디오(studio)에 배정됨
+    const heavy = await srv.ui('POST', '/api/ui/tasks', { title: '유튜브 영상 블렌더 렌더' });
+    assert.equal(heavy.body.resource, 'studio');
+    assert.equal(heavy.body.account, 'a-youtube');
+
+    // 5. 대표가 "이메일 체크" 담당을 claude 로 직접 고치면, 이후 suggest 가 대표님 패턴 기억(claude)으로 추천
+    const mailT = await srv.ui('POST', '/api/ui/tasks', { title: '이메일 체크' });
+    await srv.ui('PATCH', `/api/ui/tasks/${mailT.body.id}`, { assignee: 'claude' });
+    const sug = await srv.ui('POST', '/api/ui/assign/suggest', { title: '이메일 체크' });
+    assert.equal(sug.status, 200);
+    assert.equal(sug.body.assignee, 'claude');
+    assert.equal(sug.body.learned, true);
+
+    // 6. 프롬프트 수정 시 이전 자동 연결 도구(Hyperframes)가 정리되고 새 도구(Remotion)만 남음
+    const editT = await srv.ui('POST', '/api/ui/tasks', { title: '모션 작업', assignee: 'gemini', note: 'Hyperframes 오픈소스로 만들어줘' });
+    assert.ok(editT.body.tools.includes(hf.body.id));
+    const edited = await srv.ui('PATCH', `/api/ui/tasks/${editT.body.id}`, { note: 'Remotion 오픈소스로 CONNECT AI 흑백 미니멀 스타일 적용해줘' });
+    assert.ok(!edited.body.tools.includes(hf.body.id), '지워진 Hyperframes 는 자동 정리됨');
+    assert.ok(edited.body.tools.includes(rm.body.id), '새로 적힌 Remotion 이 연결됨');
+    assert.equal(edited.body.design, 'd-minimal');
+
+    // 7. 최종 지시서 미리보기 (읽기 전용: 상태를 진행으로 바꾸지 않음)
+    const prev = await srv.ui('GET', `/api/ui/tasks/${editT.body.id}/prompt-preview`);
+    assert.equal(prev.status, 200);
+    assert.match(prev.body.prompt, /Remotion/);
+    assert.match(prev.body.prompt, /CONNECT AI 흑백 미니멀/);
+    const stAfter = await srv.ui('GET', '/api/state');
+    assert.equal(stAfter.body.data.tasks.find((x) => x.id === editT.body.id).status, '대기');
+
+    // 8. 병렬 협업 claim + DM 수신함 + 복사·붙여넣기 완료 시 routine.log 반영
+    const rtPaste = await srv.ui('POST', '/api/ui/routines', { title: '아침 뉴스 정리', assignee: 'claude', instruction: '뉴스 3줄 요약' });
+    const stP = await srv.ui('GET', '/api/state');
+    const pasteTask = stP.body.data.tasks.find((x) => x.routineId === rtPaste.body.id);
+    assert.equal(pasteTask.note, '뉴스 3줄 요약');
+    await srv.ui('POST', `/api/ui/tasks/${pasteTask.id}/paste`, { text: '요약 결과 3줄', done: true });
+    const stP2 = await srv.ui('GET', '/api/state');
+    assert.equal(stP2.body.data.routines.find((x) => x.id === rtPaste.body.id).log[pasteTask.date], '완료');
+
+    const dm = await srv.agent('POST', '/api/agent/messages', { from: 'claude', to: 'codex', text: '렌더 끝났어?' });
+    assert.equal(dm.status, 200);
+    const inbox = await srv.agent('POST', '/api/agent/inbox', { for: 'codex', peek: true });
+    assert.ok(inbox.body.some((m) => m.id === dm.body.id), 'DM 수신자가 @멘션 없이도 inbox 에서 확인 가능');
+
+    // 9. 실전 OS 팩(1인 AI 회사 데일리 운영 팩) 담기 시 5분 주기 + 4단계 협업 포함
+    assert.equal(br.status, 200);
+    const osPack = await srv.ui('POST', '/api/ui/routines/pack', { key: 'creator-daily-os' });
+    assert.equal(osPack.status, 200);
+    assert.equal(osPack.body.added, 2);
+    assert.ok(osPack.body.routines.some((r) => r.intervalMin === 5));
+    assert.ok(osPack.body.routines.some((r) => (r.steps || []).length === 4));
+  } finally {
+    await srv.stop();
+  }
+});
+
+test('수강생 공유용 워크플로우 청사진(Blueprint) 내보내기(개인정보 제거) · 가져오기(중복 방지)', async () => {
+  const src = await startServer({ seed: 'example' });
+  const dst = await startServer({ seed: '' });
+  try {
+    await src.ui('POST', '/api/ui/resources', { kind: '오픈소스', sourceInput: 'https://github.com/heygen-com/hyperframes', when: '모션 그래픽' });
+    await src.ui('POST', '/api/ui/revenue', { source: '토스페이먼츠', amount: 7777777, currency: 'KRW', period: '2026-11' });
+    await src.ui('POST', '/api/ui/routines', {
+      title: '5분 이메일 체크',
+      intervalMin: 5,
+      assignee: 'codex',
+      instruction: '/Users/secretuser/mail 과 boss@private.com 확인하고 sk-secretkey1234567890 절대 쓰지 마',
+    });
+
+    const exp = await src.ui('GET', '/api/ui/blueprint/export');
+    assert.equal(exp.status, 200);
+    assert.equal(exp.body.kind, 'connect-ai-hq-blueprint');
+    const serialized = JSON.stringify(exp.body);
+    assert.doesNotMatch(serialized, /7777777/);
+    assert.doesNotMatch(serialized, /\/Users\/secretuser/);
+    assert.doesNotMatch(serialized, /boss@private\.com/);
+    assert.doesNotMatch(serialized, /sk-secretkey1234567890/);
+    assert.ok(!exp.body.routines.some((r) => r.title === '운동'), '사람 개인 습관은 공유에서 제외');
+    assert.ok(exp.body.routines.some((r) => r.title === '5분 이메일 체크' && r.intervalMin === 5));
+
+    // 학생 빈 본사에 직원 1명 추가 후 청사진 가져오기
+    await dst.ui('POST', '/api/ui/employees', { name: 'Claude', catalog: 'claude' });
+    const imp1 = await dst.ui('POST', '/api/ui/blueprint/import', { blueprint: exp.body });
+    assert.equal(imp1.status, 200);
+    assert.ok(imp1.body.added.openSource >= 1);
+    assert.ok(imp1.body.added.designs >= 1);
+    assert.ok(imp1.body.added.routines >= 1);
+
+    // 두 번 가져와도 중복되지 않음
+    const imp2 = await dst.ui('POST', '/api/ui/blueprint/import', { blueprint: exp.body });
+    assert.equal(imp2.status, 200);
+    assert.equal(imp2.body.added.routines, 0);
+    assert.ok(imp2.body.skipped.routines >= 1);
+  } finally {
+    await src.stop();
+    await dst.stop();
   }
 });

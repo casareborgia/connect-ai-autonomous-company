@@ -17,6 +17,7 @@ const HELP = `hq · AI 회사 본사 보고 도구
   hq task show <할일id>                   스레드 포함
   hq task claim <할일id> --from <직원>     일을 맡기 (시작 전에 꼭)
   hq task start|done|stuck <할일id> --from <직원> [--note "메모"] [--result "결과"]
+  hq task step <할일id> <단계id> start|done|stuck --from <직원> [--output "결과경로"] [--note "메모"]
   hq log --from <직원> --task <할일id> --file <작업기록.txt|md> [--summary "두 줄 요약"]
 
 인수인계
@@ -64,9 +65,10 @@ async function call(method, p, body) {
       method,
       headers: { 'Content-Type': 'application/json', 'User-Agent': 'aihq-cli/1', 'X-HQ-Agent': '1' },
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15000),
     });
-  } catch {
-    fail(`본사 서버에 연결할 수 없습니다 (${BASE}). 본사를 켜 주세요: npx github:wonseokjung/connect-ai-autonomous-company (저장소에서는 node bin/connect-ai-hq.mjs)`);
+  } catch (e) {
+    fail(e.name === 'TimeoutError' ? `본사 서버 응답 시간 초과 (${BASE})` : `본사 서버에 연결할 수 없습니다 (${BASE}). 본사를 켜 주세요: npx github:wonseokjung/connect-ai-autonomous-company (저장소에서는 node bin/connect-ai-hq.mjs)`);
   }
   const txt = await res.text();
   let json;
@@ -81,6 +83,9 @@ function fail(msg, status) {
 }
 
 function need(flags, key, label) {
+  if ((!flags[key] || flags[key] === true) && (key === 'from' || key === 'for') && process.env.HQ_EMPLOYEE) {
+    return String(process.env.HQ_EMPLOYEE);
+  }
   if (!flags[key] || flags[key] === true) fail(`필요한 값이 없습니다: ${label || `--${key}`}`);
   return String(flags[key]);
 }
@@ -116,7 +121,12 @@ async function main() {
     const me = await call('GET', `/api/agent/whoami?emp=${encodeURIComponent(need(flags, 'from'))}`);
     console.log(`${me.name} (${me.id})${me.role ? ` · ${me.role}` : ''}`);
     if (me.tools?.length) console.log(`도구: ${me.tools.join(', ')}`);
+    if (me.defaultBrowser) console.log(`기본 브라우저: ${me.defaultBrowser.name}`);
+    if (me.openSourceTools?.length) console.log(`오픈소스: ${me.openSourceTools.map((o) => `${o.name}${o.command ? ` (${o.command})` : ''}`).join(', ')}`);
+    if (me.designs?.length) console.log(`디자인 스타일: ${me.designs.map((d) => d.name).join(', ')}`);
+    if (me.accounts?.length) console.log(`연결 계정: ${me.accounts.map((a) => `${a.name}${a.spaceName ? ` [스페이스:${a.spaceName}]` : ''}`).join(', ')}`);
     if (me.resources?.length) console.log(`리소스: ${me.resources.map((r) => `${r.name}(${r.status})`).join(', ')}`);
+    if (me.quietHours) console.log(`대표 자는 시간: ${me.quietHours.from}~${me.quietHours.to}`);
     if (me.manual) console.log(`\n업무 매뉴얼\n${me.manual}`);
     console.log(`\n규칙\n- ${me.rules.join('\n- ')}`);
     return;
@@ -149,10 +159,18 @@ async function main() {
     }
     if (sub === 'show') {
       const t = await call('GET', `/api/agent/tasks/${encodeURIComponent(rest[0] || need(flags, 'id'))}`);
-      console.log(`${t.id} · ${t.title}\n상태 ${t.status} · 담당 ${t.assigneeName} · ${t.date} ${t.time || ''}${t.resource ? ` · 리소스 ${t.resource}` : ''}`);
+      console.log(`${t.id} · ${t.title}\n상태 ${t.status} · 담당 ${t.assigneeName} · ${t.date} ${t.intervalMin ? `매 ${t.intervalMin}분` : (t.time || '')}${t.resource ? ` · 리소스 ${t.resource}` : ''}${t.estCost ? ` · 예상 ${Number(t.estCost).toLocaleString('ko-KR')}원` : ''}`);
       if (t.gate) console.log(`확인 필요: ${t.gate} (${t.gateApproved ? '대표 확인됨' : '대표 확인 전, 시작 금지'})`);
+      if (t.browser) console.log(`브라우저: ${t.browser.name}${t.browser.command ? ` (${t.browser.command})` : ''}`);
+      if (t.account) console.log(`연결 계정: ${t.account.name}${t.account.spaceName ? ` · 스페이스: ${t.account.spaceName}` : ''}${t.account.browser ? ` · ${t.account.browser}` : ''} (${t.account.preset})`);
+      if (t.openSourceTools?.length) console.log(`오픈소스: ${t.openSourceTools.map((o) => `${o.name}${o.command ? ` (${o.command})` : ''}${o.repo ? ` ${o.repo}` : ''}`).join(', ')}`);
+      if (t.designs?.length) console.log(`디자인: ${t.designs.map((d) => `${d.name}${d.rules ? ` — ${d.rules}` : ''}`).join(' / ')}`);
+      if (t.steps?.length) {
+        console.log(`\n팀 협업 단계 (${t.stepMode === 'parallel' ? '동시에 함께' : '순서대로'}${t.sharedFolder ? ` · 공유 폴더: ${t.sharedFolder}` : ''})`);
+        for (const s of t.steps) console.log(`  [${s.status}${s.active ? ' ★' : ''}] ${s.id} ${s.title} (${s.assigneeName || '미정'}${s.resourceName ? ` · ${s.resourceName}` : ''})${s.output ? ` → ${s.output}` : ''}`);
+      }
       if (t.note) console.log(`메모: ${t.note}`);
-      if (t.instruction) console.log(`\n지시서\n${t.instruction}`);
+      if (t.instruction && t.instruction !== t.note) console.log(`\n지시서\n${t.instruction}`);
       if (t.thread?.length) {
         console.log(`\n스레드 (${t.thread_note})`);
         for (const m of t.thread) {
@@ -161,6 +179,16 @@ async function main() {
         }
       }
       return;
+    }
+    if (sub === 'step') {
+      const [taskId, stepId, stepStatus] = rest;
+      if (!taskId || !stepId || !['start', 'done', 'stuck'].includes(stepStatus)) {
+        return fail('사용법: hq task step <할일id> <단계id> start|done|stuck [--from <직원>] [--output "..."] [--note "..."]');
+      }
+      const t = await call('POST', `/api/agent/tasks/${encodeURIComponent(taskId)}/steps/${encodeURIComponent(stepId)}/status`, {
+        from: need(flags, 'from'), status: stepStatus, output: flags.output === true ? '' : (flags.output || ''), note: flags.note === true ? '' : (flags.note || ''),
+      });
+      return console.log(`${t.id}/${stepId} → ${stepStatus} (전체 ${t.status})`);
     }
     if (sub === 'claim') {
       const t = await call('POST', `/api/agent/tasks/${encodeURIComponent(rest[0] || fail('할 일 아이디가 필요합니다.'))}/claim`, { from: need(flags, 'from') });
@@ -171,7 +199,7 @@ async function main() {
       const t = await call('POST', `/api/agent/tasks/${encodeURIComponent(id)}/status`, { from: need(flags, 'from'), status: sub, note: flags.note === true ? '' : flags.note, result: flags.result === true ? '' : flags.result });
       return console.log(`${t.id} → ${t.status}`);
     }
-    return fail('task list | show | start | done | stuck');
+    return fail('task list | show | claim | start | done | stuck | step');
   }
 
   if (cmd === 'handoff') {
@@ -185,7 +213,7 @@ async function main() {
       done: flags.done === true ? '' : flags.done, stuck: flags.stuck === true ? '' : flags.stuck,
       why: flags.why === true ? '' : flags.why, files: flags.files === true ? '' : flags.files,
     });
-    return console.log(`인수인계 ${h.id} 남김 (할 일 ${h.taskId} → 막힘)`);
+    return console.log(`인수인계 ${h.id} 남김 (할 일 ${h.taskId} → ${h.to ? `${h.to} 대기` : '막힘'})`);
   }
 
   if (cmd === 'msg') {
@@ -211,7 +239,7 @@ async function main() {
   if (cmd === 'ask-approval') {
     const what = sub || fail('무엇을 승인받을지 적어 주세요.');
     const a = await call('POST', '/api/agent/approvals', {
-      from: need(flags, 'from'), what, kind: flags.kind, taskId: flags.task, amount: flags.amount, currency: flags.currency,
+      from: need(flags, 'from'), what, kind: flags.kind, taskId: flags.task, accountId: flags.account, amount: flags.amount, currency: flags.currency,
       draft: typeof flags.draft === 'string' ? flags.draft : undefined,
     });
     return console.log(`결재 요청 ${a.id} 올림. 대표가 화면에서 승인하기 전에는 실행하지 마세요.`);

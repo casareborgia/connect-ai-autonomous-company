@@ -97,12 +97,12 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        what: str('무엇을 하려는지'), kind: { type: 'string', enum: ['결제', '업로드', '게시', '메시지 발송', '삭제', '기타'] },
-        task_id: str('할 일 아이디 (선택)'), amount: { type: 'number', description: '금액 (선택)' }, currency: str('통화, 예: KRW'), draft: str('보낼 글 초안 (선택)'),
+        what: str('무엇을 하려는지'), kind: { type: 'string', enum: ['결제', '업로드', '게시', '메시지 발송', '댓글 답글', '삭제', '기타'] },
+        task_id: str('할 일 아이디 (선택)'), account_id: str('연결 계정 아이디 (선택)'), amount: { type: 'number', description: '금액 (선택)' }, currency: str('통화, 예: KRW'), draft: str('보낼 글 초안 (선택)'),
       },
       required: ['what'],
     },
-    run: async (a) => call('POST', '/api/agent/approvals', { from: needMe(), what: a.what, kind: a.kind, taskId: a.task_id, amount: a.amount, currency: a.currency, draft: a.draft }),
+    run: async (a) => call('POST', '/api/agent/approvals', { from: needMe(), what: a.what, kind: a.kind, taskId: a.task_id, accountId: a.account_id, amount: a.amount, currency: a.currency, draft: a.draft }),
   },
   {
     name: 'list_approvals', description: '내가 올린 승인 요청의 상태(대기, 승인, 반려)와 대표가 확정한 문장(finalText)을 확인한다.',
@@ -143,7 +143,7 @@ const TOOLS = [
     run: async () => call('GET', '/api/agent/employees'),
   },
   {
-    name: 'list_resources', description: '회사 리소스(기계, 멤버십, 계정, 폴더)와 상태. 읽기 전용.',
+    name: 'list_resources', description: '회사 리소스(기계, 브라우저, 오픈소스, 디자인 스타일, 계정 권한, 멤버십, 폴더)와 상태. 읽기 전용.',
     inputSchema: { type: 'object', properties: {} },
     run: async () => call('GET', '/api/agent/resources'),
   },
