@@ -409,7 +409,10 @@ function promptInsertBar(ta) {
     ...active.filter((r) => r.kind === '브라우저').slice(0, 2).map((r) => ({ label: r.name, text: `${r.name} 사용해서` })),
     ...active.filter((r) => r.kind === '오픈소스').slice(0, 5).map((r) => ({ label: r.name, text: `${r.name} 오픈소스로` })),
     ...active.filter((r) => r.kind === '디자인').slice(0, 3).map((r) => ({ label: r.name, text: `${r.name} 스타일로` })),
-    ...active.filter((r) => r.kind === '계정').slice(0, 5).map((r) => ({ label: r.name.split(' · ')[0], text: r.spaceName ? `${r.name}(${r.spaceName} 스페이스)` : r.name })),
+    ...active.filter((r) => r.kind === '계정')
+      .sort((a, b) => (b.spaceName ? 1 : 0) - (a.spaceName ? 1 : 0))
+      .slice(0, 6)
+      .map((r) => ({ label: r.name.split(' · ')[0].split(' (')[0], text: r.spaceName ? `${r.name}(${r.spaceName} 스페이스)` : r.name })),
     ...active.filter((r) => r.kind === '기계' && !r.isThisMac).slice(0, 2).map((r) => ({ label: r.name, text: `${r.name}에서` })),
   ];
   if (!items.length) return null;
