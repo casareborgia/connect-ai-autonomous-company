@@ -661,6 +661,8 @@ body.onboarding .shell { grid-template-columns: 1fr; }
   .detail { padding: 14px; }
   .addbar.rt-add, .addbar.rt-add.iv-mode { grid-template-columns: 1fr 1fr; }
   .addbar.rt-add input[data-k="rt-title"] { grid-column: 1 / -1; }
+  .addbar.rt-add select, .addbar.rt-add input[type="time"] { width: 100% !important; }
+  .addbar.rt-add.iv-mode select { grid-column: 1 / -1; }
   .addbar.rt-add button.dark { grid-column: 1 / -1; }
   .res { flex-direction: column; align-items: stretch !important; }
   .res > .row { flex-wrap: wrap; justify-content: flex-end; }

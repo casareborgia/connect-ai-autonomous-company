@@ -90,6 +90,10 @@ function h(tag, attrs, ...kids) {
   return el;
 }
 
+function setDlg(dlg, ...kids) {
+  dlg.replaceChildren(...kids.flat(3).filter((k) => k !== null && k !== undefined && k !== false));
+}
+
 const WD = ['일', '월', '화', '수', '목', '금', '토'];
 const pad = (n) => String(n).padStart(2, '0');
 const won = (n) => `${Math.round(n).toLocaleString('ko-KR')}원`;
@@ -226,7 +230,7 @@ async function openPromptPreview(kind, id, flushFn = null) {
   if (flushFn) await flushFn();
   const dlg = document.getElementById('dlg');
   dlg.className = 'wide';
-  dlg.replaceChildren(h('h3', null, 'AI에게 전달되는 최종 지시서'), h('div', { class: 'small muted' }, '지시서를 정리하는 중…'));
+  setDlg(dlg, h('h3', null, 'AI에게 전달되는 최종 지시서'), h('div', { class: 'small muted' }, '지시서를 정리하는 중…'));
   dlg.showModal();
   try {
     const p = await api('GET', `/api/ui/${kind}/${id}/prompt-preview`);
@@ -239,7 +243,7 @@ async function openPromptPreview(kind, id, flushFn = null) {
     for (const tObj of p.linked?.tools || []) badges.push(h('span', { class: 'tag' }, tObj.name));
     if (p.linked?.estCost) badges.push(h('span', { class: 'tag' }, `예상 ${won(p.linked.estCost)}`));
     if (p.linked?.gate) badges.push(h('span', { class: 'tag' }, `${p.linked.gate} ${p.linked.gateApproved ? '확인됨' : '확인 필요'}`));
-    dlg.replaceChildren(
+    setDlg(dlg, 
       h('h3', null, 'AI에게 전달되는 최종 지시서'),
       h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '실행하거나 복사할 때 AI 직원에게 그대로 전달되는 전체 지시문입니다. (읽기 전용 미리보기)'),
       badges.length ? h('div', { class: 'row', style: 'margin-bottom:12px' }, badges) : null,
@@ -258,7 +262,7 @@ async function openConnectModal() {
   const dlg = document.getElementById('dlg');
   dlg.className = 'wide';
   const loadView = async () => {
-    dlg.replaceChildren(h('h3', null, 'AI 도구 연결 (MCP · 스킬)'), h('div', { class: 'small muted' }, '이 컴퓨터의 AI 도구를 확인하는 중…'));
+    setDlg(dlg, h('h3', null, 'AI 도구 연결 (MCP · 스킬)'), h('div', { class: 'small muted' }, '이 컴퓨터의 AI 도구를 확인하는 중…'));
     if (!dlg.open) dlg.showModal();
     try {
       const c = await api('GET', '/api/onboard/connect');
@@ -273,7 +277,7 @@ async function openConnectModal() {
             !t.mcp.configured ? (t.mcp.line ? copyBlock('터미널에 붙여넣기 · 출입증(MCP)', t.mcp.line) : copyBlock(`${t.mcp.file}에 합치기 · 출입증(MCP)`, t.mcp.snippet)) : null,
             t.skill && !t.skill.installed ? copyBlock('터미널에 붙여넣기 · 직원 수첩(스킬)', t.skill.line) : null) : null);
       }) : [h('div', { class: 'empty' }, '이 컴퓨터에서 Claude Code, Codex, Gemini CLI, LM Studio를 찾지 못했어요. 웹에서 쓰는 AI는 할 일에서 지시문 복사로 바로 쓸 수 있어요.')];
-      dlg.replaceChildren(
+      setDlg(dlg, 
         h('h3', null, 'AI 도구 연결 (MCP · 스킬)'),
         h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '터미널에서 아래 명령을 실행하거나 npx github:wonseokjung/connect-ai-autonomous-company connect 를 치면 자동으로 연결해 드려요.'),
         ...rows,
@@ -313,7 +317,7 @@ function openSettingsModal() {
     dlg.close();
     await act('PATCH', '/api/ui/settings', patch, '설정을 저장했어요');
   });
-  dlg.replaceChildren(
+  setDlg(dlg, 
     h('h3', null, '본사 설정'),
     h('div', { class: 'grid2' },
       h('label', { class: 'field' }, '대표 이름', ownerName),
@@ -878,7 +882,7 @@ function openImport(t) {
   const who = h('select', { class: 'in', 'aria-label': '누구의 대화' }, S.data.employees.map((e) => h('option', { value: e.id, selected: e.id === t.assignee }, e.name)));
   const body = h('textarea', { class: 'in', rows: 8, placeholder: '피클, Muse, ChatGPT 앱 등에서 나눈 대화를 붙여 넣으세요', 'aria-label': '대화 내용' });
   const link = h('input', { class: 'in', placeholder: '공유 링크 (선택, https)', 'aria-label': '공유 링크' });
-  dlg.replaceChildren(
+  setDlg(dlg, 
     h('h3', null, '대화 가져오기'),
     h('p', { class: 'small muted', style: 'margin:-8px 0 16px' }, `할 일 "${t.title}" 스레드에 그 직원의 메시지로 남고, 가져옴 표시가 붙습니다.`),
     h('label', { class: 'field' }, '누구와의 대화', who),
@@ -1221,11 +1225,11 @@ function morningBriefing(today) {
 async function openDailyReport() {
   const dlg = document.getElementById('dlg');
   dlg.className = 'wide';
-  dlg.replaceChildren(h('h3', null, '오늘의 자율 회사 리포트'), h('div', { class: 'small muted' }, '정리하는 중…'));
+  setDlg(dlg, h('h3', null, '오늘의 자율 회사 리포트'), h('div', { class: 'small muted' }, '정리하는 중…'));
   dlg.showModal();
   try {
     const rep = await api('GET', '/api/ui/report/daily');
-    dlg.replaceChildren(
+    setDlg(dlg, 
       h('h3', null, '오늘의 자율 회사 리포트'),
       h('p', { class: 'small muted', style: 'margin:-8px 0 14px' }, '매출 금액·계정 정보는 빼고 오늘 AI가 일한 숫자만 담았어요. 방송 오프닝이나 커뮤니티 인증에 바로 붙여 넣으세요.'),
       h('pre', { class: 'report-pre' }, rep.text),
@@ -1293,7 +1297,7 @@ function pageHome() {
 async function openBlueprintExport() {
   const dlg = document.getElementById('dlg');
   dlg.className = 'wide';
-  dlg.replaceChildren(h('h3', null, '워크플로우 청사진 내보내기'), h('div', { class: 'small muted' }, '개인 정보를 제거하고 청사진을 만드는 중…'));
+  setDlg(dlg, h('h3', null, '워크플로우 청사진 내보내기'), h('div', { class: 'small muted' }, '개인 정보를 제거하고 청사진을 만드는 중…'));
   dlg.showModal();
   try {
     const bp = await api('GET', '/api/ui/blueprint/export');
@@ -1308,15 +1312,14 @@ async function openBlueprintExport() {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast('청사진 JSON 파일을 저장했어요');
     };
-    dlg.replaceChildren(
+    setDlg(dlg, 
       h('h3', null, '워크플로우 청사진 내보내기'),
       h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '로컬 파일 경로, 이메일, API 키, 매출 기록, 개인 루틴은 모두 자동으로 제거했습니다. 수강생이나 팀원에게 안전하게 공유할 수 있어요.'),
       h('div', { class: 'row', style: 'margin-bottom:12px' },
-        h('span', { class: 'tag' }, `AI 직원 ${bp.employees.length}명`),
-        h('span', { class: 'tag' }, `오픈소스 ${bp.openSource.length}개`),
-        h('span', { class: 'tag' }, `디자인 ${bp.designs.length}개`),
-        h('span', { class: 'tag' }, `AI 루틴 ${bp.routines.length}개`),
-        h('span', { class: 'tag' }, `계정 틀 ${bp.accounts.length}개`)),
+        h('span', { class: 'tag' }, `오픈소스 ${(bp.openSource || []).length}개`),
+        h('span', { class: 'tag' }, `디자인 ${(bp.designs || []).length}개`),
+        h('span', { class: 'tag' }, `계정 틀 ${(bp.accounts || []).length}개`),
+        h('span', { class: 'tag' }, `AI 루틴 ${(bp.routines || []).length}개`)),
       h('pre', { class: 'report-pre mono' }, jsonText),
       h('div', { class: 'bar' },
         h('button', { class: 'btn', onclick: () => { dlg.className = ''; dlg.close(); } }, '닫기'),
@@ -1356,7 +1359,7 @@ function openBlueprintImport() {
       toast(sum.length ? `청사진을 가져왔어요 · ${sum.join(' · ')}` : '이미 모든 항목이 들어 있어요');
     }
   });
-  dlg.replaceChildren(
+  setDlg(dlg, 
     h('h3', null, '워크플로우 청사진 가져오기'),
     h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '같은 이름의 직원·도구·루틴은 건너뛰고, 새로 추가되는 워크플로우만 안전하게 담아옵니다.'),
     h('div', { class: 'row', style: 'margin-bottom:10px' }, fileIn),
@@ -1687,7 +1690,7 @@ function openAddEmployee() {
       for (const b of quick.children) b.classList.toggle('on', b === ev.currentTarget);
     },
   }, c.engine === 'local' ? `${c.name} (로컬)` : c.name)));
-  dlg.replaceChildren(h('h3', null, 'AI 직원 추가'),
+  setDlg(dlg, h('h3', null, 'AI 직원 추가'),
     h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '이미 쓰는 AI를 고르면 역할이 채워집니다. 역할은 배분할 때 씁니다.'),
     quick,
     h('label', { class: 'field', style: 'margin-top:14px' }, '이름', name), h('label', { class: 'field', style: 'margin-top:12px' }, '역할', role),
@@ -1876,7 +1879,7 @@ function openAddOss() {
     if (p.repo) repo.value = p.repo;
     preview.textContent = p.command || p.repo ? `자동 인식됨 → ${p.name}${p.command ? ` · ${p.command}` : ''}` : '직접 이름을 입력해도 됩니다.';
   });
-  dlg.replaceChildren(
+  setDlg(dlg, 
     h('h3', null, '오픈소스 도구 추가'),
     h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '등록해 두면 프롬프트에 이름만 적었을 때 AI가 이 GitHub/npx 명령을 정확히 사용합니다.'),
     h('label', { class: 'field' }, 'GitHub 주소 또는 npx 명령 (1줄 붙여넣기)', src),
@@ -1905,7 +1908,7 @@ function openEditOss(r) {
   const cmd = h('input', { class: 'in', value: r.command || '', placeholder: '실행 명령 (예: npx hyperframes)', 'aria-label': '실행 명령' });
   const repo = h('input', { class: 'in', value: r.repo || '', placeholder: 'GitHub 주소 (선택)', 'aria-label': 'GitHub 주소' });
   const skillPath = h('input', { class: 'in', value: r.skillPath || '', placeholder: '스킬 파일 경로 (선택)', 'aria-label': '스킬 파일 경로' });
-  dlg.replaceChildren(
+  setDlg(dlg, 
     h('h3', null, `${r.name} 편집`),
     h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '실행 명령, GitHub 주소, 언제 쓰는지를 수정하면 프롬프트 지시서에 즉시 반영됩니다.'),
     h('label', { class: 'field' }, '도구 이름', name),
@@ -1932,7 +1935,7 @@ function openAddDesign() {
   const rules = h('textarea', { class: 'in', rows: 3, placeholder: '예: 흰 배경(#fff), 검정 글자(#111), 넓은 여백, 깔끔한 표 중심, 이모지 남발 금지', 'aria-label': '디자인 규칙' });
   const assetPath = h('input', { class: 'in', placeholder: '참고 파일·캐릭터 폴더 경로 (선택, 예: ~/Brand/DESIGN.md)', 'aria-label': '에셋 폴더' });
   const refUrl = h('input', { class: 'in', placeholder: '참고 사이트 주소 (선택, https://...)', 'aria-label': '참고 주소' });
-  dlg.replaceChildren(
+  setDlg(dlg, 
     h('h3', null, '내 디자인 스타일 추가'),
     h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '등록해 두면 프롬프트에 스타일 이름만 적었을 때 AI가 이 디자인 규칙과 캐릭터/에셋 폴더를 그대로 따릅니다.'),
     h('label', { class: 'field' }, '스타일 이름', name),
@@ -1956,7 +1959,7 @@ function openEditDesign(r) {
   const rules = h('textarea', { class: 'in', rows: 4, placeholder: '색상·폰트·톤·금지사항', 'aria-label': '디자인 규칙' }, r.rules || '');
   const assetPath = h('input', { class: 'in', value: r.assetPath || '', placeholder: '예: ~/Brand/DESIGN.md 또는 캐릭터 폴더', 'aria-label': '에셋 폴더' });
   const refUrl = h('input', { class: 'in', value: r.refUrl || '', placeholder: 'https://...', 'aria-label': '참고 주소' });
-  dlg.replaceChildren(
+  setDlg(dlg, 
     h('h3', null, `${r.name} 편집`),
     h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '디자인 규칙이나 캐릭터·DESIGN.md 경로를 넣어 두면 AI가 매번 정확히 참고합니다.'),
     h('label', { class: 'field' }, '스타일 이름', name),
@@ -2167,7 +2170,7 @@ function openAddAccount() {
   const empSel = S.data.employees.length ? h('select', { class: 'in', 'aria-label': '담당 AI 모델', onchange: (ev) => { pickedEmp = ev.target.value; } },
     h('option', { value: '' }, '자동 배정 (할 일에 맞춰 고름)'),
     S.data.employees.map((e) => h('option', { value: e.id }, `${e.name}${e.role ? ` · ${e.role}` : ''}`))) : null;
-  dlg.replaceChildren(
+  setDlg(dlg, 
     h('h3', null, '연결 계정 추가'),
     h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '브라우저(Ego Lite 등)로 들어갈 계정을 고르면, 알맞은 안전 권한이 미리 채워집니다.'),
     platGroups,

@@ -619,13 +619,18 @@ test('복합 프롬프트 보안 경계 · 대표 패턴 학습 · 프롬프트 
     const inbox = await srv.agent('POST', '/api/agent/inbox', { for: 'codex', peek: true });
     assert.ok(inbox.body.some((m) => m.id === dm.body.id), 'DM 수신자가 @멘션 없이도 inbox 에서 확인 가능');
 
-    // 9. 실전 OS 팩(1인 AI 회사 데일리 운영 팩) 담기 시 5분 주기 + 4단계 협업 포함
+    // 9. 실전 OS 팩(1인 AI 회사 데일리 운영 팩) 담기 시 5분 주기 + 4단계 협업 포함 + 모두 AI 배정
     assert.equal(br.status, 200);
     const osPack = await srv.ui('POST', '/api/ui/routines/pack', { key: 'creator-daily-os' });
     assert.equal(osPack.status, 200);
     assert.equal(osPack.body.added, 2);
+    assert.ok(osPack.body.routines.every((r) => r.assignee && r.assignee !== 'jay'), '실전 OS 팩 루틴은 모두 AI 직원에게 배정됨');
     assert.ok(osPack.body.routines.some((r) => r.intervalMin === 5));
     assert.ok(osPack.body.routines.some((r) => (r.steps || []).length === 4));
+
+    const ep2Pack = await srv.ui('POST', '/api/ui/routines/pack', { key: 'ep2-briefing' });
+    assert.equal(ep2Pack.status, 200);
+    assert.ok(ep2Pack.body.routines.every((r) => r.assignee && r.assignee !== 'jay'), 'EP.2 읽기 브리핑 팩 루틴은 모두 AI 직원에게 배정됨');
   } finally {
     await srv.stop();
   }
