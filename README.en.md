@@ -13,7 +13,7 @@ The app's interface is in Korean today.
 ## Get started
 
 ```
-npx connect-ai-hq
+npx github:wonseokjung/connect-ai-autonomous-company
 ```
 
 All you need is Node 20 or later. No packages to install, no keys to paste. The HQ starts and `http://127.0.0.1:8790` opens in your browser. Press Ctrl+C in the terminal to stop it.
@@ -33,7 +33,7 @@ Then one safety rule: money and publishing stay in your hands.
 Your data is a single file, `~/.connect-ai-hq/data/hq.json`, written atomically, with a daily copy kept in `backups/` (last 14). To look around with an example company, use a separate data folder:
 
 ```
-AIHQ_SEED=example AIHQ_DATA_DIR=./example-data npx connect-ai-hq
+AIHQ_SEED=example AIHQ_DATA_DIR=./example-data npx github:wonseokjung/connect-ai-autonomous-company
 ```
 
 From a clone of this repository, run `node bin/connect-ai-hq.mjs`.
@@ -60,14 +60,14 @@ From a clone of this repository, run `node bin/connect-ai-hq.mjs`.
 Connect your tools from the terminal. It asks before each tool, and the default answer is no (it only prints the command).
 
 ```
-npx connect-ai-hq connect
+npx github:wonseokjung/connect-ai-autonomous-company connect
 ```
 
 Or add it yourself (employee IDs are on the My staff screen):
 
 ```
-claude mcp add -s user aihq -e HQ_EMPLOYEE=claudecode -- npx -y connect-ai-hq mcp
-codex mcp add aihq --env HQ_EMPLOYEE=codex -- npx -y connect-ai-hq mcp
+claude mcp add -s user aihq -e HQ_EMPLOYEE=claudecode -- npx -y github:wonseokjung/connect-ai-autonomous-company mcp
+codex mcp add aihq --env HQ_EMPLOYEE=codex -- npx -y github:wonseokjung/connect-ai-autonomous-company mcp
 ```
 
 For Gemini CLI (`~/.gemini/settings.json`) and LM Studio (`~/.lmstudio/mcp.json`), merge this into `mcpServers`:
@@ -75,7 +75,7 @@ For Gemini CLI (`~/.gemini/settings.json`) and LM Studio (`~/.lmstudio/mcp.json`
 ```json
 {
   "mcpServers": {
-    "aihq": { "command": "npx", "args": ["-y", "connect-ai-hq", "mcp"], "env": { "HQ_EMPLOYEE": "gemini" } }
+    "aihq": { "command": "npx", "args": ["-y", "github:wonseokjung/connect-ai-autonomous-company", "mcp"], "env": { "HQ_EMPLOYEE": "gemini" } }
   }
 }
 ```
@@ -83,11 +83,11 @@ For Gemini CLI (`~/.gemini/settings.json`) and LM Studio (`~/.lmstudio/mcp.json`
 Scripts and other agents can do the same from the command line:
 
 ```
-npx connect-ai-hq task list --mine codex
-npx connect-ai-hq task claim t5 --from codex
-npx connect-ai-hq handoff t5 --from codex --done "compared 3 options" --stuck "checkout page" --why "needs a card payment" --to jay
-npx connect-ai-hq ask-approval "pay for flights" --from codex --kind 결제 --task t5
-npx connect-ai-hq hq help
+npx github:wonseokjung/connect-ai-autonomous-company task list --mine codex
+npx github:wonseokjung/connect-ai-autonomous-company task claim t5 --from codex
+npx github:wonseokjung/connect-ai-autonomous-company handoff t5 --from codex --done "compared 3 options" --stuck "checkout page" --why "needs a card payment" --to jay
+npx github:wonseokjung/connect-ai-autonomous-company ask-approval "pay for flights" --from codex --kind 결제 --task t5
+npx github:wonseokjung/connect-ai-autonomous-company hq help
 ```
 
 ## A thread for every task

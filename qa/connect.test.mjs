@@ -10,7 +10,7 @@ import { runMuseOnce, MUSE_DEFAULTS } from '../lib/muse.mjs';
 
 test('MCP 명령: 패키지 폴더면 node 경로, npx 임시 폴더면 npx', () => {
   assert.deepEqual(mcpLaunch('/opt/hq'), { command: 'node', args: ['/opt/hq/mcp/server.mjs'] });
-  assert.deepEqual(mcpLaunch('/Users/a/.npm/_npx/abc/node_modules/connect-ai-hq'), { command: 'npx', args: ['-y', 'connect-ai-hq', 'mcp'] });
+  assert.deepEqual(mcpLaunch('/Users/a/.npm/_npx/abc/node_modules/connect-ai-hq'), { command: 'npx', args: ['-y', 'github:wonseokjung/connect-ai-autonomous-company', 'mcp'] });
   assert.equal(shellLine(['node', '/a b/c.mjs', "it's"]), "node '/a b/c.mjs' 'it'\\''s'");
 });
 

@@ -37,5 +37,10 @@
   ],
   "license": "SEE LICENSE IN LICENSE.md",
   "author": "CONNECT AI LAB",
-  "private": true
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wonseokjung/connect-ai-autonomous-company.git"
+  },
+  "homepage": "https://github.com/wonseokjung/connect-ai-autonomous-company"
 }

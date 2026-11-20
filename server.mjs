@@ -799,7 +799,7 @@ route('GET', '/api/onboard/detect', async () => {
 });
 
 // AI 도구에 본사 출입증(MCP)과 직원 수첩(스킬)을 넣는 명령 (보여 주기만, 실행은 터미널의 connect-ai-hq connect)
-route('GET', '/api/onboard/connect', async () => ({ targets: connectTargets({ employees: store.data.employees }), terminal: 'npx connect-ai-hq connect' }));
+route('GET', '/api/onboard/connect', async () => ({ targets: connectTargets({ employees: store.data.employees }), terminal: 'npx github:wonseokjung/connect-ai-autonomous-company connect' }));
 
 // 1분 시작하기: 이름, 회사, 쓰는 AI, 사무실, 자는 시간 (매일 할 일은 고르면 함께)
 route('POST', '/api/ui/onboard', async ({ body }) => {

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // CONNECT AI HQ · 한 줄로 켜기
-//   npx connect-ai-hq            본사를 켜고 브라우저를 연다 (데이터: ~/.connect-ai-hq)
-//   npx connect-ai-hq connect    이 컴퓨터의 AI 도구에 본사 출입증(MCP)과 직원 수첩(스킬)을 넣는다 (도구마다 먼저 묻는다)
-//   npx connect-ai-hq mcp        MCP 서버 (AI 도구 설정에서 부르는 명령)
-//   npx connect-ai-hq task ...   AI 직원용 보고 명령 (hq 와 같음, help 로 전체 보기)
+//   npx github:wonseokjung/connect-ai-autonomous-company            본사를 켜고 브라우저를 연다 (데이터: ~/.connect-ai-hq)
+//   npx github:wonseokjung/connect-ai-autonomous-company connect    이 컴퓨터의 AI 도구에 본사 출입증(MCP)과 직원 수첩(스킬)을 넣는다 (도구마다 먼저 묻는다)
+//   npx github:wonseokjung/connect-ai-autonomous-company mcp        MCP 서버 (AI 도구 설정에서 부르는 명령)
+//   npx github:wonseokjung/connect-ai-autonomous-company task ...   AI 직원용 보고 명령 (hq 와 같음, help 로 전체 보기)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,12 +25,12 @@ function flag(name) {
 
 const HELP = `CONNECT AI HQ · AI Autonomous Company · 나의 AI 자율 회사 본사
 
-  npx connect-ai-hq                 본사를 켜고 브라우저를 엽니다
+  npx github:wonseokjung/connect-ai-autonomous-company                 본사를 켜고 브라우저를 엽니다
       --port <번호>                 기본 8790
       --no-open                     브라우저를 열지 않음
-  npx connect-ai-hq connect         AI 도구에 MCP 와 스킬 넣기 (도구마다 먼저 물어봄, 기본은 보여 주기만)
-  npx connect-ai-hq mcp             MCP 서버 (HQ_EMPLOYEE=<직원 아이디>)
-  npx connect-ai-hq <hq 명령>        AI 직원용 보고 명령. 예: task list --mine codex (전체: npx connect-ai-hq hq help)
+  npx github:wonseokjung/connect-ai-autonomous-company connect         AI 도구에 MCP 와 스킬 넣기 (도구마다 먼저 물어봄, 기본은 보여 주기만)
+  npx github:wonseokjung/connect-ai-autonomous-company mcp             MCP 서버 (HQ_EMPLOYEE=<직원 아이디>)
+  npx github:wonseokjung/connect-ai-autonomous-company <hq 명령>        AI 직원용 보고 명령. 예: task list --mine codex (전체: npx github:wonseokjung/connect-ai-autonomous-company hq help)
 
 데이터 폴더: ${HOME_DIR} (AIHQ_DATA_DIR 로 바꿀 수 있음)
 `;
@@ -79,7 +79,7 @@ async function start() {
     if ((await isHq(url)).hq) break;
     await new Promise((r) => setTimeout(r, 250));
   }
-  console.log(`AI 도구 연결: npx connect-ai-hq connect · 끄기: Ctrl+C\n`);
+  console.log(`AI 도구 연결: npx github:wonseokjung/connect-ai-autonomous-company connect · 끄기: Ctrl+C\n`);
   if (open) openBrowser(url);
 }
 

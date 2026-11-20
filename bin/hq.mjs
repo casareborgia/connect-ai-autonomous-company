@@ -66,7 +66,7 @@ async function call(method, p, body) {
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch {
-    fail(`본사 서버에 연결할 수 없습니다 (${BASE}). 본사를 켜 주세요: npx connect-ai-hq (저장소에서는 node bin/connect-ai-hq.mjs)`);
+    fail(`본사 서버에 연결할 수 없습니다 (${BASE}). 본사를 켜 주세요: npx github:wonseokjung/connect-ai-autonomous-company (저장소에서는 node bin/connect-ai-hq.mjs)`);
   }
   const txt = await res.text();
   let json;

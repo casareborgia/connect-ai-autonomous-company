@@ -11,7 +11,7 @@ CONNECT AI HQ는 인공지능 자율 회사를 만들기 위한 루틴화 도구
 ## 시작하기
 
 ```
-npx connect-ai-hq
+npx github:wonseokjung/connect-ai-autonomous-company
 ```
 
 Node 20 이상이면 됩니다. 설치할 패키지도, 넣을 키도 없습니다. 본사가 켜지고 브라우저에서 `http://127.0.0.1:8790` 이 열립니다. 끄려면 터미널에서 Ctrl+C.
@@ -30,7 +30,7 @@ Node 20 이상이면 됩니다. 설치할 패키지도, 넣을 키도 없습니�
 데이터는 `~/.connect-ai-hq/data/hq.json` 한 파일입니다. 저장할 때마다 임시 파일에 쓰고 바꿔 끼우며, 하루 한 번 `backups/` 에 복사본을 남깁니다 (14개 보관). 예시 회사로 둘러보려면 데이터 폴더를 따로 정하고 켭니다.
 
 ```
-AIHQ_SEED=example AIHQ_DATA_DIR=./example-data npx connect-ai-hq
+AIHQ_SEED=example AIHQ_DATA_DIR=./example-data npx github:wonseokjung/connect-ai-autonomous-company
 ```
 
 저장소에서 바로 켤 때는 `node bin/connect-ai-hq.mjs` 입니다.
@@ -57,14 +57,14 @@ AIHQ_SEED=example AIHQ_DATA_DIR=./example-data npx connect-ai-hq
 연결은 터미널에서 한 번에 합니다. 찾은 도구마다 먼저 묻고, 기본 답은 "아니요"(명령만 보여 줌)입니다.
 
 ```
-npx connect-ai-hq connect
+npx github:wonseokjung/connect-ai-autonomous-company connect
 ```
 
 직접 넣고 싶다면 (직원 아이디는 내 직원 화면에 있습니다)
 
 ```
-claude mcp add -s user aihq -e HQ_EMPLOYEE=claudecode -- npx -y connect-ai-hq mcp
-codex mcp add aihq --env HQ_EMPLOYEE=codex -- npx -y connect-ai-hq mcp
+claude mcp add -s user aihq -e HQ_EMPLOYEE=claudecode -- npx -y github:wonseokjung/connect-ai-autonomous-company mcp
+codex mcp add aihq --env HQ_EMPLOYEE=codex -- npx -y github:wonseokjung/connect-ai-autonomous-company mcp
 ```
 
 Gemini CLI (`~/.gemini/settings.json`), LM Studio (`~/.lmstudio/mcp.json`) 는 같은 모양을 `mcpServers` 에 합칩니다.
@@ -72,7 +72,7 @@ Gemini CLI (`~/.gemini/settings.json`), LM Studio (`~/.lmstudio/mcp.json`) 는 �
 ```json
 {
   "mcpServers": {
-    "aihq": { "command": "npx", "args": ["-y", "connect-ai-hq", "mcp"], "env": { "HQ_EMPLOYEE": "gemini" } }
+    "aihq": { "command": "npx", "args": ["-y", "github:wonseokjung/connect-ai-autonomous-company", "mcp"], "env": { "HQ_EMPLOYEE": "gemini" } }
   }
 }
 ```
@@ -80,11 +80,11 @@ Gemini CLI (`~/.gemini/settings.json`), LM Studio (`~/.lmstudio/mcp.json`) 는 �
 스크립트와 다른 에이전트는 같은 일을 명령줄로 합니다.
 
 ```
-npx connect-ai-hq task list --mine codex
-npx connect-ai-hq task claim t5 --from codex
-npx connect-ai-hq handoff t5 --from codex --done "3곳 비교" --stuck "결제 화면" --why "카드 결제 필요" --to jay
-npx connect-ai-hq ask-approval "항공권 결제" --from codex --kind 결제 --task t5
-npx connect-ai-hq hq help
+npx github:wonseokjung/connect-ai-autonomous-company task list --mine codex
+npx github:wonseokjung/connect-ai-autonomous-company task claim t5 --from codex
+npx github:wonseokjung/connect-ai-autonomous-company handoff t5 --from codex --done "3곳 비교" --stuck "결제 화면" --why "카드 결제 필요" --to jay
+npx github:wonseokjung/connect-ai-autonomous-company ask-approval "항공권 결제" --from codex --kind 결제 --task t5
+npx github:wonseokjung/connect-ai-autonomous-company hq help
 ```
 
 ## 할 일마다 스레드
