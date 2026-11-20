@@ -434,7 +434,7 @@ function linkedSummaryLine(item) {
   }
   const des = item.design ? res(item.design) : null;
   if (des) parts.push(`디자인: ${des.name}`);
-  if (acc) parts.push(`${acc.name.split(' · ')[0]} (${accountSummaryText(acc)})`);
+  if (acc) parts.push(`${acc.name.split(' · ')[0].split(' (')[0]} (${accountSummaryText(acc)})`);
   if (!parts.length) return null;
   return h('div', { class: 'p-linked small muted' }, h('b', null, '자동 연결됨'), ' · ', parts.join(' · '));
 }
