@@ -95,10 +95,11 @@ test('로컬 세션 기반 Claude · Codex 5시간 토큰 사용량 스캔 (중�
     const map = buildEmployeeUsageMap(d, { claude: cu, codex: xu }, '2026-11-21', now);
     assert.equal(map.claude.pct5h, 88);
     assert.equal(map.codex.pct5h, 64);
-    assert.equal(AVATAR_PRESETS.length, 8);
-    assert.equal(defaultAvatarFor({ name: 'Claude 멤버십' }), 'nova');
-    assert.equal(defaultAvatarFor({ name: 'Codex 멤버십' }), 'volt');
-    assert.equal(defaultAvatarFor({ avatar: 'fox' }), 'nova');
+    assert.equal(AVATAR_PRESETS.length, 16);
+    assert.equal(defaultAvatarFor({ name: 'Claude 멤버십' }), 'dokkaebi');
+    assert.equal(defaultAvatarFor({ name: 'Codex 멤버십' }), 'haetae');
+    assert.equal(defaultAvatarFor({ name: 'Claude 멤버십' }, 'modern'), 'nova');
+    assert.equal(defaultAvatarFor({ avatar: 'fox' }), 'dokkaebi');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -169,11 +170,12 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(avOk.body.avatarStyle, 'motion');
     assert.equal(avOk.body.persona, '새벽에도 안 자는 기획자');
 
-    const bulkStyle = await ui('POST', '/api/ui/employees/avatar-style', { avatarStyle: 'pixel' });
+    const bulkStyle = await ui('POST', '/api/ui/employees/avatar-style', { avatarStyle: 'pixel', pack: 'k-crew' });
     assert.equal(bulkStyle.status, 200);
     assert.equal(bulkStyle.body.avatarStyle, 'pixel');
+    assert.equal(bulkStyle.body.pack, 'k-crew');
 
-    const mascotRes = await fetch(`${origin}/mascots/nova.jpg`);
+    const mascotRes = await fetch(`${origin}/mascots/haetae.jpg`);
     assert.equal(mascotRes.status, 200);
     assert.match(mascotRes.headers.get('content-type') || '', /image\/jpeg/);
 

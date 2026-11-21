@@ -23,7 +23,7 @@ import { readConnectors, summarize, normalizeSite } from './lib/revenue.mjs';
 import { splitUtterance, pickOllamaModel } from './lib/llm.mjs';
 import { ruleAssign, aiAssign, tokens, learnAssignMemory } from './lib/assign.mjs';
 import { detectGate, GATES } from './lib/gates.mjs';
-import { AI_CATALOG, DEFAULT_GROUPS, AVATAR_PRESETS, AVATAR_STYLES, defaultAvatarFor, webUrlFor } from './lib/catalog.mjs';
+import { AI_CATALOG, DEFAULT_GROUPS, AVATAR_PACKS, AVATAR_PRESETS, AVATAR_STYLES, defaultAvatarFor, webUrlFor } from './lib/catalog.mjs';
 import { localStatus, localStatusCached, clearLocalStatusCache, reach, validHostname } from './lib/machines.mjs';
 import { startScheduler, ensureRoutineTasks, notify, minutes, isQuiet, INTERVAL_MINS } from './lib/scheduler.mjs';
 import { listLocalModels, localReply, runOnce, runnerInfo, systemPrompt, quoteThread, notInstalled, findBin } from './lib/agents.mjs';
@@ -1219,7 +1219,7 @@ async function stateView(viaLan = false) {
     runtime: powerGuard.status(),
     bridges: detectDesktopBridges(),
     options: {
-      catalog: AI_CATALOG, avatarPresets: AVATAR_PRESETS, avatarStyles: AVATAR_STYLES, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
+      catalog: AI_CATALOG, avatarPacks: AVATAR_PACKS, avatarPresets: AVATAR_PRESETS, avatarStyles: AVATAR_STYLES, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
       gates: GATES, engines: ENGINES, runModes: RUN_MODES, resKinds: RES_KINDS, resStatus: RES_STATUS,
       phoneModes: PHONE_MODES,
       accountPlatforms: publicAccountCatalog(), accountCategories: ACCOUNT_CATEGORIES, accountPresets: ACCOUNT_PRESETS, permLevels: PERM_LEVELS,
@@ -2213,16 +2213,20 @@ function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, 
   return e;
 }
 
-// 전체 AI 직원의 캐릭터 스타일(스튜디오 3D / 코딩 모션 / 픽셀 펫 / 미니멀 라인)을 한 번에 통일
+// 전체 AI 직원의 캐릭터 스타일 또는 팩(K-수호 크루 / 모던 랩 크루)을 한 번에 통일
 route('POST', '/api/ui/employees/avatar-style', async ({ body }) => {
-  const style = String(body.avatarStyle || '').trim();
-  if (!AVATAR_STYLES.some((s) => s.key === style)) throw new HttpError(400, '올바른 캐릭터 스타일이 아니에요.');
+  const style = body.avatarStyle ? String(body.avatarStyle).trim() : null;
+  const pack = body.pack ? String(body.pack).trim() : null;
+  if (style && !AVATAR_STYLES.some((s) => s.key === style)) throw new HttpError(400, '올바른 캐릭터 스타일이 아니에요.');
+  if (pack && !AVATAR_PACKS.some((p) => p.key === pack)) throw new HttpError(400, '올바른 캐릭터 팩이 아니에요.');
+  if (!style && !pack) throw new HttpError(400, '바꿀 스타일이나 팩을 골라 주세요.');
   return store.mutate((d) => {
     for (const e of d.employees) {
-      e.avatarStyle = style;
+      if (style) e.avatarStyle = style;
+      if (pack) e.avatar = defaultAvatarFor(e, pack);
       if (body.clearCustom === true) e.avatarImage = '';
     }
-    return { ok: true, avatarStyle: style, count: d.employees.length };
+    return { ok: true, avatarStyle: style, pack, count: d.employees.length };
   });
 }, UI);
 

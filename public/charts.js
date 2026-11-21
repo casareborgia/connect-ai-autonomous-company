@@ -515,8 +515,18 @@
     return svg;
   }
 
-  // CONNECT AI LAB 오리지널 컬러 크루 8종 (코딩 모션그래픽 · 픽셀 펫 · 컬러 미니멀)
+  // CONNECT AI LAB 오리지널 컬러 크루 16종 (한국 전통 K-수호 크루 8종 + 모던 랩 크루 8종)
   const CREW_PALETTE = {
+    // 한국 전통 K-수호 크루
+    haetae:      { bg: '#F0FDFA', main: '#2DD4BF', sub: '#FACC15', skin: '#FFFDF7', hair: '#99F6E4', accent: '#EF4444' },
+    dokkaebi:    { bg: '#FFF5F2', main: '#EF4444', sub: '#FACC15', skin: '#FFE4D1', hair: '#2D2A32', accent: '#3B82F6' },
+    kkachi:      { bg: '#F0F6FF', main: '#1E3A8A', sub: '#F59E0B', skin: '#FFFFFF', hair: '#1E293B', accent: '#38BDF8' },
+    horangi:     { bg: '#FFFBEB', main: '#F59E0B', sub: '#FB923C', skin: '#FEF3C7', hair: '#451A03', accent: '#38BDF8' },
+    cheongnyong: { bg: '#ECFEFF', main: '#06B6D4', sub: '#FB7185', skin: '#CFFAFE', hair: '#FFFFFF', accent: '#FDE047' },
+    dalto:       { bg: '#FDF2F8', main: '#F472B6', sub: '#34D399', skin: '#FFFDF9', hair: '#FCE7F3', accent: '#FACC15' },
+    jangseung:   { bg: '#FEF9EE', main: '#D97706', sub: '#1E293B', skin: '#FDE68A', hair: '#92400E', accent: '#EF4444' },
+    bonghwang:   { bg: '#FFF7ED', main: '#FB923C', sub: '#FACC15', skin: '#FFEDD5', hair: '#14B8A6', accent: '#14B8A6' },
+    // 모던 랩 크루
     nova: { bg: '#FFF3EE', main: '#FF7A59', sub: '#FDE68A', skin: '#FFE4D1', hair: '#4A3728', accent: '#34D399' },
     volt: { bg: '#EFF9FF', main: '#38BDF8', sub: '#FACC15', skin: '#FFE7D6', hair: '#2B3A55', accent: '#60A5FA' },
     lumi: { bg: '#F4F0FF', main: '#8B5CF6', sub: '#FDE047', skin: '#FFE6DC', hair: '#3B2F63', accent: '#C4B5FD' },
@@ -529,6 +539,134 @@
 
   // 16x16 컬러 픽셀 아트 도트맵 (문자별 색 매핑)
   const PIXEL_GRIDS = {
+    haetae: [
+      '.......uu.......',
+      '.....hhmmhh.....',
+      '...hhmmmmmmhh...',
+      '..hmmssssssmmh..',
+      '..hmssksSkssmh..',
+      '..hmssksssksmh..',
+      '..hmsppssppsmh..',
+      '...hmssssssmh...',
+      '...hhmaaaamhh...',
+      '..hhmmmuummmhh..',
+      '..mmmmmmmmmmmm..',
+      '..mmwwwwwwwwmm..',
+      '...mmmmmmmmmm...',
+      '....mm....mm....',
+    ],
+    dokkaebi: [
+      '....u......u....',
+      '....uu....uu....',
+      '...hhhhhhhhhh...',
+      '..hhsssssssshh..',
+      '..hsssksSksssh..',
+      '..hssskssskssh..',
+      '..hssppssppssh..',
+      '...hsssssssssh..',
+      '...mmmmmmmmmm...',
+      '..mmmmwwwwmmmm..',
+      '..mmmmwwwwmmmm..',
+      '..mmmawwwwuumm..',
+      '...mmmmmmmmmm...',
+      '....mm....mm....',
+    ],
+    kkachi: [
+      '.....hhhhhh.....',
+      '..hhhhhhhhhhhh..',
+      '....hmmmmmmh....',
+      '...mmwwwwwwmm...',
+      '..mmwwkwwkwwmm..',
+      '..mmwwpwwpwwmm..',
+      '..mmmwwuuwwmmm..',
+      '...mmmwwwwmmm...',
+      '..mmmmwwwwmmmm..',
+      '..mmmawwwwammm..',
+      '...mmmwwwwmmm...',
+      '....mmmmmmmm....',
+      '.....uu..uu.....',
+      '................',
+    ],
+    horangi: [
+      '...mm......mm...',
+      '..mmmmmmmmmmmm..',
+      '..mmhmmmmmmhmm..',
+      '..mmmmmmmmmmmm..',
+      '..mmsksSksSsmm..',
+      '..mmssssssssmm..',
+      '..mmppssssppmm..',
+      '...mmmmmmmmmm...',
+      '..mmmmmmmmmmmm..',
+      '..mhmmaaaammhm..',
+      '..mmmmmmmmmmmm..',
+      '...mmmmmmmmmm...',
+      '....mm....mm....',
+      '................',
+    ],
+    cheongnyong: [
+      '...u........u...',
+      '...uu.mmmm.uu...',
+      '...mmmmmmmmmm...',
+      '..mmssssssssmm..',
+      '..mmsksSksssmm..',
+      '..mmsppssppsmm..',
+      '...mmssssssmm...',
+      '..wwwwwwwwwwww..',
+      '.wwwwwwwwwwwwww.',
+      '..mmmmaaaammmm..',
+      '..mmmaaaaaammm..',
+      '...mmmmmmmmmm...',
+      '....mm....mm....',
+      '................',
+    ],
+    dalto: [
+      '....ss....ss....',
+      '....sm....ms....',
+      '....sm....ms....',
+      '...ssssssssss...',
+      '..ssskssssksss..',
+      '..ssppssssppss..',
+      '...ssssssssss...',
+      '...mmmmmmmmmm...',
+      '..mmmmuuuummmm..',
+      '..mmmmmmmmmmmm..',
+      '..mmmmmmmmmmmm..',
+      '...mmmmmmmmmm...',
+      '....ss....ss....',
+      '................',
+    ],
+    jangseung: [
+      '.....uuuuuu.....',
+      '...uuuuuuuuuu...',
+      '....mmmmmmmm....',
+      '...mmssssssmm...',
+      '...mskssssksm...',
+      '...msppssppsm...',
+      '...mmssssssmm...',
+      '...mmmmmmmmmm...',
+      '..mmmmmmmmmmmm..',
+      '..mmmmaaaammmm..',
+      '..mmmmmmmmmmmm..',
+      '...mmmmmmmmmm...',
+      '...mmmmmmmmmm...',
+      '................',
+    ],
+    bonghwang: [
+      '.....u.uu.u.....',
+      '.....mmmmmm.....',
+      '...mmmmmmmmmm...',
+      '..mmssssssssmm..',
+      '..mmsksSksssmm..',
+      '..mmsppSSppsmm..',
+      '...mmssuussmm...',
+      '..aaammmmmmaaa..',
+      '..aaammmmmmaaa..',
+      '...ammmmmmmma...',
+      '....mmmmmmmm....',
+      '.....uu..uu.....',
+      '................',
+      '................',
+    ],
     nova: [
       '.....mmmmmm.....',
       '....mmmmmmmm....',
@@ -693,9 +831,9 @@
     return svg;
   }
 
-  function avatarSvg(key = 'bobo', { size = 44, state = 'idle', style = 'motion' } = {}) {
-    const legacy = { fox: 'nova', cat: 'volt', owl: 'lumi', whale: 'momo', rabbit: 'coco', bot: 'bobo', bear: 'pip', spark: 'zing' };
-    const k = CREW_PALETTE[key] ? key : (legacy[key] || 'bobo');
+  function avatarSvg(key = 'haetae', { size = 44, state = 'idle', style = 'motion' } = {}) {
+    const legacy = { fox: 'dokkaebi', cat: 'haetae', owl: 'kkachi', whale: 'cheongnyong', rabbit: 'dalto', bot: 'jangseung', bear: 'bonghwang', spark: 'horangi' };
+    const k = CREW_PALETTE[key] ? key : (legacy[key] || 'haetae');
     const pal = CREW_PALETTE[k];
     if (style === 'pixel') return pixelAvatarSvg(k, pal, { size, state });
 
@@ -752,7 +890,98 @@
       }
     };
 
-    if (k === 'bobo') {
+    if (k === 'haetae') {
+      // 해태 (옥빛 곱슬 구름 갈기 + 황금 뿔 + 빨간 매듭 방울 + 노트북)
+      for (const [cx, cy, r] of [[16, 25, 7], [48, 25, 7], [19, 17, 7], [45, 17, 7], [32, 14, 8], [16, 34, 6], [48, 34, 6]]) {
+        body.appendChild(s('circle', { cx, cy, r, fill: pal.hair }));
+      }
+      body.appendChild(s('circle', { cx: 32, cy: 31, r: 14, fill: pal.skin }));
+      body.appendChild(s('polygon', { points: '29,18 35,18 32,9', fill: pal.sub, stroke: '#D97706', 'stroke-width': 1, class: 'av-wiggle' }));
+      addFace(32, 31);
+      body.appendChild(s('path', { d: 'M20 44 Q32 48 44 44', fill: 'none', stroke: pal.accent, 'stroke-width': 2.6, 'stroke-linecap': 'round' }));
+      body.appendChild(s('circle', { cx: 32, cy: 47, r: 3.2, fill: pal.sub, stroke: '#D97706', 'stroke-width': 1 }));
+      body.appendChild(s('rect', { x: 18, y: 47, width: 16, height: 7, rx: 2, fill: '#F5F5F0', stroke: '#CBD5E1', 'stroke-width': 1 }));
+    } else if (k === 'dokkaebi') {
+      // 도깨비 (다홍 한복 배자 + 꼬마 금뿔 + 도깨비방망이 펜)
+      body.appendChild(s('path', { d: 'M17 53 C17 42 24 40 32 40 C40 40 47 42 47 53 Z', fill: pal.main }));
+      body.appendChild(s('path', { d: 'M27 40 L32 47 L37 40', fill: '#FFFDF7' }));
+      body.appendChild(s('circle', { cx: 32, cy: 29, r: 14, fill: pal.skin }));
+      body.appendChild(s('path', { d: 'M17 28 C17 16 24 12 32 13 C40 12 47 16 47 28 C42 23 37 22 32 23 C27 22 22 23 17 28 Z', fill: pal.hair }));
+      body.appendChild(s('polygon', { points: '21,17 26,15 21,9', fill: pal.sub, class: 'av-wiggle' }));
+      body.appendChild(s('polygon', { points: '43,17 38,15 43,9', fill: pal.sub, class: 'av-wiggle' }));
+      addFace(32, 30);
+      body.appendChild(s('rect', { x: 43, y: 38, width: 4.5, height: 13, rx: 2, fill: pal.sub, transform: 'rotate(18 45 44)' }));
+    } else if (k === 'kkachi') {
+      // 까치 (반투명 전통 갓 + 감색/흰색 깃털 + 돋보기)
+      body.appendChild(s('ellipse', { cx: 32, cy: 36, rx: 15, ry: 16, fill: pal.main }));
+      body.appendChild(s('ellipse', { cx: 32, cy: 43, rx: 11, ry: 9, fill: '#FFFFFF' }));
+      // 갓
+      body.appendChild(s('g', { class: 'av-wiggle' },
+        s('ellipse', { cx: 32, cy: 19, rx: 18, ry: 3.5, fill: '#1E293B', opacity: 0.85 }),
+        s('rect', { x: 25, y: 9.5, width: 14, height: 9.5, rx: 2, fill: '#1E293B', opacity: 0.82 })));
+      addFace(32, 30, { darkScreen: true, smile: false });
+      body.appendChild(s('polygon', { points: '29.5,33 34.5,33 32,36.5', fill: pal.sub }));
+      body.appendChild(s('circle', { cx: 20, cy: 43, r: 4.5, fill: '#E0F2FE', stroke: pal.sub, 'stroke-width': 1.8 }));
+    } else if (k === 'horangi') {
+      // 민화 호랑이 (치자빛 노랑 + 줄무늬 + 색동 목걸이)
+      body.appendChild(s('circle', { cx: 19, cy: 17, r: 5.5, fill: pal.main }));
+      body.appendChild(s('circle', { cx: 45, cy: 17, r: 5.5, fill: pal.main }));
+      body.appendChild(s('circle', { cx: 19, cy: 17, r: 2.8, fill: pal.skin }));
+      body.appendChild(s('circle', { cx: 45, cy: 17, r: 2.8, fill: pal.skin }));
+      body.appendChild(s('ellipse', { cx: 32, cy: 45, rx: 14, ry: 9, fill: pal.main }));
+      body.appendChild(s('circle', { cx: 32, cy: 29, r: 15, fill: pal.main }));
+      body.appendChild(s('ellipse', { cx: 32, cy: 33, rx: 9.5, ry: 7, fill: pal.skin }));
+      body.appendChild(s('path', { d: 'M27 17 L37 17 M29 20 L35 20', stroke: pal.hair, 'stroke-width': 2, 'stroke-linecap': 'round' }));
+      addFace(32, 29);
+      body.appendChild(s('path', { d: 'M21 43 Q32 47 43 43', fill: 'none', stroke: '#EF4444', 'stroke-width': 3, 'stroke-linecap': 'round' }));
+      body.appendChild(s('circle', { cx: 32, cy: 46, r: 2.8, fill: '#FACC15' }));
+    } else if (k === 'cheongnyong') {
+      // 청룡 (청자빛 아기 용 + 산호 뿔 + 구름 카라 + 여의주)
+      body.appendChild(s('path', { d: 'M22 18 L18 10 M20 14 L23 11 M42 18 L46 10 M44 14 L41 11', stroke: pal.sub, 'stroke-width': 2.6, 'stroke-linecap': 'round', class: 'av-wiggle' }));
+      body.appendChild(s('ellipse', { cx: 32, cy: 45, rx: 13, ry: 9, fill: pal.main }));
+      body.appendChild(s('circle', { cx: 32, cy: 29, r: 13.5, fill: pal.main }));
+      body.appendChild(s('ellipse', { cx: 32, cy: 33, rx: 9, ry: 6, fill: pal.skin }));
+      addFace(32, 29);
+      // 흰 구름 목도리 + 여의주
+      for (const cx of [22, 27, 32, 37, 42]) body.appendChild(s('circle', { cx, cy: 41, r: 3.4, fill: '#FFFFFF' }));
+      body.appendChild(s('circle', { cx: 32, cy: 48, r: 5.5, fill: pal.accent, stroke: '#F59E0B', 'stroke-width': 1 }));
+    } else if (k === 'dalto') {
+      // 달토끼 (분홍 한복 저고리 + 민트 옷고름 + 스마트폰)
+      body.appendChild(s('ellipse', { cx: 25, cy: 14, rx: 4, ry: 10, fill: pal.skin, stroke: '#FBCFE8', 'stroke-width': 1.2, class: 'av-wiggle' }));
+      body.appendChild(s('ellipse', { cx: 39, cy: 14, rx: 4, ry: 10, fill: pal.skin, stroke: '#FBCFE8', 'stroke-width': 1.2, class: 'av-wiggle' }));
+      body.appendChild(s('ellipse', { cx: 25, cy: 14, rx: 1.8, ry: 6, fill: '#FBCFE8' }));
+      body.appendChild(s('ellipse', { cx: 39, cy: 14, rx: 1.8, ry: 6, fill: '#FBCFE8' }));
+      body.appendChild(s('path', { d: 'M17 53 C17 42 24 40 32 40 C40 40 47 42 47 53 Z', fill: pal.main }));
+      body.appendChild(s('path', { d: 'M27 40 L32 46 L37 40', fill: '#FFFFFF' }));
+      body.appendChild(s('rect', { x: 28, y: 45, width: 9, height: 3.5, rx: 1.8, fill: pal.sub }));
+      body.appendChild(s('circle', { cx: 32, cy: 30, r: 13.5, fill: pal.skin }));
+      addFace(32, 30);
+    } else if (k === 'jangseung') {
+      // 꼬마 장승 (따뜻한 나무결 + 사모관대 + 빨간 복주머니)
+      body.appendChild(s('rect', { x: 18, y: 20, width: 28, height: 34, rx: 13, fill: pal.main, stroke: '#B45309', 'stroke-width': 1.2 }));
+      body.appendChild(s('ellipse', { cx: 32, cy: 31, rx: 11.5, ry: 10, fill: pal.skin }));
+      // 사모관대
+      body.appendChild(s('g', { class: 'av-wiggle' },
+        s('rect', { x: 24, y: 11, width: 16, height: 10, rx: 5, fill: pal.sub }),
+        s('ellipse', { cx: 19, cy: 17, rx: 4, ry: 2.2, fill: pal.sub }),
+        s('ellipse', { cx: 45, cy: 17, rx: 4, ry: 2.2, fill: pal.sub })));
+      addFace(32, 31);
+      // 빨간 복주머니
+      body.appendChild(s('circle', { cx: 32, cy: 47, r: 5.2, fill: pal.accent }));
+      body.appendChild(s('circle', { cx: 32, cy: 47, r: 1.8, fill: '#FACC15' }));
+    } else if (k === 'bonghwang') {
+      // 아기 봉황 (복숭아·금·옥빛 깃털 + 왕관 벼슬 + 슬레이트)
+      body.appendChild(s('g', { class: 'av-wiggle' },
+        s('ellipse', { cx: 32, cy: 12, rx: 3.2, ry: 6, fill: pal.main }),
+        s('ellipse', { cx: 26, cy: 14, rx: 2.6, ry: 5, fill: pal.sub, transform: 'rotate(-20 26 14)' }),
+        s('ellipse', { cx: 38, cy: 14, rx: 2.6, ry: 5, fill: pal.accent, transform: 'rotate(20 38 14)' })));
+      body.appendChild(s('ellipse', { cx: 32, cy: 36, rx: 15, ry: 16, fill: pal.main }));
+      body.appendChild(s('ellipse', { cx: 32, cy: 31, rx: 12, ry: 10, fill: pal.skin }));
+      addFace(32, 30, { smile: false });
+      body.appendChild(s('polygon', { points: '29.5,33 34.5,33 32,36', fill: pal.sub }));
+      body.appendChild(s('rect', { x: 22, y: 44, width: 20, height: 9, rx: 2, fill: pal.accent }));
+      body.appendChild(s('rect', { x: 22, y: 44, width: 20, height: 2.8, rx: 1, fill: '#1E293B' }));
+    } else if (k === 'bobo') {
       // 보보 (버터 옐로우 새싹 봇)
       const leaf = s('g', { class: 'av-wiggle' });
       leaf.appendChild(s('path', { d: 'M32 16 L32 11', stroke: '#16A34A', 'stroke-width': 2.2, 'stroke-linecap': 'round' }));

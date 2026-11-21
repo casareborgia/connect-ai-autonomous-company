@@ -1879,8 +1879,8 @@ function fmtResetMin(m) {
   return m >= 60 ? `약 ${Math.floor(m / 60)}시간 ${m % 60}분 뒤 리셋` : `약 ${m}분 뒤 리셋`;
 }
 
-const LEGACY_AVATAR = { fox: 'nova', cat: 'volt', owl: 'lumi', whale: 'momo', rabbit: 'coco', bot: 'bobo', bear: 'pip', spark: 'zing' };
-function normAvatarKey(k) { return LEGACY_AVATAR[k] || k || 'bobo'; }
+const LEGACY_AVATAR = { fox: 'dokkaebi', cat: 'haetae', owl: 'kkachi', whale: 'cheongnyong', rabbit: 'dalto', bot: 'jangseung', bear: 'bonghwang', spark: 'horangi' };
+function normAvatarKey(k) { return LEGACY_AVATAR[k] || k || 'haetae'; }
 
 function avatarEl(e, { size = 44, clickable = false, stateOverride = null, styleOverride = null } = {}) {
   const working = stateOverride ? stateOverride === 'working' : isWorking(e.id);
@@ -1956,20 +1956,24 @@ function resizeImageToDataUrl(file, grayscale = false) {
 
 function buildAvatarPrompt(emp, vibe, prop) {
   const vibeDesc = {
+    k3d: 'National Museum of Korea MU:DS x Pop Mart style ultra-cute full-color 3D matte clay vinyl toy bust figurine of a Korean traditional heritage guardian character (like baby Haetae, Dokkaebi, Kkachi with Gat, Minhwa tiger, Cheongnyong, or Jangseung), Korean pastel Obangsaek colors',
     '3d': 'Pop Mart x Pixar style ultra-cute full-color 3D matte clay vinyl toy bust figurine, soft pastel studio lighting',
-    illust: 'Warm editorial Korean kawaii full-color character illustration, clean soft outlines, rosy cheeks, cheerful pastel palette',
-    pixel: 'Cute vibrant 16-bit full-color retro pixel art character portrait, crisp pixel edges, pastel studio background',
-    clay: 'Soft squishy handmade colorful polymer clay chibi character bust, studio macro lighting, joyful expression',
+    illust: 'Warm editorial Korean Minhwa & kawaii full-color character illustration, clean soft outlines, rosy cheeks, cheerful pastel palette',
+    pixel: 'Cute vibrant 16-bit full-color retro pixel art Korean heritage character portrait, crisp pixel edges, pastel studio background',
   }[vibe] || 'ultra-cute full-color 3D chibi vinyl toy bust portrait';
   const roleHint = emp.role ? `representing the AI role: "${emp.role}"` : 'for a 1-person AI company teammate';
   const propHint = prop ? `, holding or wearing: ${prop}` : '';
-  return `1:1 square centered bust portrait of an original cute human-chibi or desk-companion spirit character (NOT an animal) for CONNECT AI LAB, ${roleHint}${propHint}. Style: ${vibeDesc}. Joyful big glossy kawaii eyes, rosy cheeks, vibrant harmonious colors, clean solid soft pastel background with generous padding, zero text, zero watermark.`;
+  return `1:1 square centered bust portrait for CONNECT AI LAB, ${roleHint}${propHint}. Style: ${vibeDesc}. Joyful big glossy kawaii eyes, rosy cheeks, vibrant harmonious colors, clean solid soft pastel Hanji background with generous padding, zero text, zero watermark.`;
 }
 
 function openAvatarModal(e) {
   const dlg = document.getElementById('dlg');
   dlg.className = 'wide';
   const presets = S.options.avatarPresets || [];
+  const packs = S.options.avatarPacks || [
+    { key: 'k-crew', name: 'K-수호 크루 (한국 전통)' },
+    { key: 'modern', name: '모던 랩 크루' },
+  ];
   const styles = S.options.avatarStyles || [
     { key: 'studio', name: '스튜디오 3D', hint: 'CONNECT AI LAB 컬러 3D 피규어' },
     { key: 'motion', name: '코딩 모션', hint: '눈 깜빡임 · 호흡 · 타자 컬러 모션' },
@@ -1977,14 +1981,16 @@ function openAvatarModal(e) {
     { key: 'flat', name: '컬러 미니멀', hint: '깔끔한 컬러 플랫' },
   ];
   let pickedKey = normAvatarKey(e.avatar);
+  let pickedPack = presets.find((p) => p.key === pickedKey)?.pack || 'k-crew';
   let pickedStyle = e.avatarStyle || 'studio';
   let customImg = e.avatarImage || '';
   let previewState = 'idle';
-  let genVibe = '3d';
-  const personaIn = h('input', { class: 'in', value: e.persona || '', placeholder: '예: 새벽에도 안 자는 자동화 집사 · 초안 3초 컷 작가', maxlength: '80' });
-  const propIn = h('input', { class: 'in sm', placeholder: '추가 소품 (선택, 예: 아이스커피, 카메라, 별핀)' });
+  let genVibe = 'k3d';
+  const personaIn = h('input', { class: 'in', value: e.persona || '', placeholder: '예: 새벽에도 안 자는 수호 해태 · 뚝딱 기획 도깨비', maxlength: '80' });
+  const propIn = h('input', { class: 'in sm', placeholder: '추가 소품 (선택, 예: 복주머니, 갓, 노트북, 붓)' });
   const grayChk = h('input', { type: 'checkbox', checked: false });
   const previewWrap = h('div', { class: 'av-preview-bar' });
+  const packBar = h('div', { class: 'picker' });
   const styleBar = h('div', { class: 'picker' });
   const grid = h('div', { class: 'avatar-grid' });
   const promptPre = h('pre', { class: 'full', style: 'margin:8px 0 0;font-size:11px;max-height:110px' });
@@ -1992,9 +1998,24 @@ function openAvatarModal(e) {
   const syncPrompt = () => { promptPre.textContent = buildAvatarPrompt(e, genVibe, propIn.value.trim()); };
   propIn.addEventListener('input', syncPrompt);
 
+  const renderPackBar = () => {
+    packBar.replaceChildren(...packs.map((pk) => h('button', {
+      type: 'button', class: `chip${pickedPack === pk.key ? ' on' : ''}`,
+      onclick: () => {
+        pickedPack = pk.key;
+        const firstInPack = presets.find((p) => p.pack === pickedPack);
+        if (firstInPack && presets.find((p) => p.key === pickedKey)?.pack !== pickedPack) pickedKey = firstInPack.key;
+        customImg = '';
+        renderPackBar();
+        renderGrid();
+        renderPreview();
+      },
+    }, pk.name)));
+  };
+
   const renderStyleBar = () => {
     styleBar.replaceChildren(...styles.map((st) => h('button', {
-      type: 'button', class: `chip${pickedStyle === st.key ? ' on' : ''}`,
+      type: 'button', class: `chip sm${pickedStyle === st.key ? ' on' : ''}`,
       onclick: () => {
         pickedStyle = st.key;
         customImg = '';
@@ -2009,28 +2030,30 @@ function openAvatarModal(e) {
     const fakeEmp = { ...e, avatar: pickedKey, avatarStyle: pickedStyle, avatarImage: customImg };
     const stObj = styles.find((x) => x.key === pickedStyle);
     const prObj = presets.find((x) => x.key === pickedKey);
+    const pkObj = packs.find((x) => x.key === pickedPack);
     const stateBtns = [['idle', '대기'], ['working', '근무 중'], ['cooling', '휴식']].map(([sk, sl]) => h('button', {
       type: 'button', class: `chip sm${previewState === sk ? ' on' : ''}`,
       onclick: () => { previewState = sk; renderPreview(); },
     }, sl));
     previewWrap.replaceChildren(
       h('div', { class: 'row', style: 'gap:14px;align-items:center' },
-        avatarEl(fakeEmp, { size: 72, stateOverride: previewState, styleOverride: pickedStyle }),
+        avatarEl(fakeEmp, { size: 68, stateOverride: previewState, styleOverride: pickedStyle }),
         h('div', null,
           h('div', { style: 'font-weight:600;font-size:15px' }, e.name),
           h('div', { class: 'small muted', style: 'margin-top:2px' }, customImg ? '직접 올린 이미지 · GIF 사용 중' : `${prObj?.name || pickedKey} · ${stObj?.name || pickedStyle}`),
           h('div', { class: 'row', style: 'gap:5px;margin-top:8px' }, h('span', { class: 'small muted' }, '모션 미리보기'), stateBtns))),
       h('button', {
         type: 'button', class: 'btn sm',
-        title: '모든 AI 직원에게 이 캐릭터 스타일을 한 번에 적용합니다',
+        title: '모든 AI 직원에게 이 팩과 스타일을 한 번에 적용합니다',
         onclick: () => once('all-av-style', async () => {
-          await act('POST', '/api/ui/employees/avatar-style', { avatarStyle: pickedStyle }, `전체 직원을 "${stObj?.name || pickedStyle}" 스타일로 맞췄어요`);
+          await act('POST', '/api/ui/employees/avatar-style', { avatarStyle: pickedStyle, pack: pickedPack }, `전체 직원을 "${pkObj?.name || pickedPack} · ${stObj?.name || pickedStyle}"로 맞췄어요`);
         }),
       }, '전체 직원 통일'));
   };
 
   const renderGrid = () => {
-    grid.replaceChildren(...presets.map((p) => {
+    const visible = presets.filter((p) => (p.pack || 'k-crew') === pickedPack);
+    grid.replaceChildren(...visible.map((p) => {
       const fake = { id: `pre-${p.key}`, name: p.name, avatar: p.key, avatarStyle: pickedStyle, avatarImage: '' };
       return h('button', {
         type: 'button', class: `avatar-opt${!customImg && pickedKey === p.key ? ' on' : ''}`,
@@ -2058,7 +2081,7 @@ function openAvatarModal(e) {
     }
   });
 
-  const vibeBtns = [['3d', '3D 피규어'], ['illust', '귀여운 일러스트'], ['pixel', '컬러 픽셀'], ['clay', '말랑 클레이']].map(([vk, vl]) => h('button', {
+  const vibeBtns = [['k3d', 'K-전통 3D 피규어'], ['3d', '모던 3D 피규어'], ['illust', '한국 민화 일러스트'], ['pixel', '컬러 픽셀']].map(([vk, vl]) => h('button', {
     type: 'button', class: `chip sm${genVibe === vk ? ' on' : ''}`,
     onclick: (ev) => {
       genVibe = vk;
@@ -2067,6 +2090,7 @@ function openAvatarModal(e) {
     },
   }, vl));
 
+  renderPackBar();
   renderStyleBar();
   renderGrid();
   renderPreview();
@@ -2074,8 +2098,8 @@ function openAvatarModal(e) {
 
   setDlg(dlg,
     h('h3', null, `${e.name} · CONNECT AI LAB 캐릭터 스튜디오`),
-    h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '스튜디오 3D 피규어 · 코딩 모션그래픽 · 픽셀 펫 · 직접 생성 이미지 중 원하는 스타일을 직원마다 고를 수 있어요.'),
-    h('div', { style: 'margin-bottom:12px' }, styleBar),
+    h('p', { class: 'small muted', style: 'margin:-8px 0 10px' }, '한국 전통 K-수호 크루(해태·도깨비·까치·민화 호랑이 등)와 모던 랩 크루를 3D · 코딩 모션 · 픽셀 펫으로 자유롭게 골라 쓰세요.'),
+    h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px' }, packBar, styleBar),
     previewWrap,
     grid,
     h('div', { class: 'bp-bar' },
@@ -2147,13 +2171,22 @@ function pagePocket() {
       h('div', { class: 'pocket-sec-h' },
         h('b', null, `내 AI 직원 (${d.employees.length}명)`),
         h('span', { class: 'small muted' }, '캐릭터를 탭해 꾸미기')),
-      h('div', { class: 'picker' }, (S.options.avatarStyles || []).map((st) => {
-        const allSame = d.employees.length > 0 && d.employees.every((x) => (x.avatarStyle || 'studio') === st.key && !x.avatarImage);
-        return h('button', {
-          type: 'button', class: `chip sm${allSame ? ' on' : ''}`,
-          onclick: () => once(`pstyle-${st.key}`, () => act('POST', '/api/ui/employees/avatar-style', { avatarStyle: st.key }, `캐릭터를 ${st.name} 스타일로 바꿨어요`)),
-        }, st.name);
-      })),
+      h('div', { class: 'picker' },
+        (S.options.avatarPacks || []).map((pk) => {
+          const packKeys = new Set((S.options.avatarPresets || []).filter((p) => p.pack === pk.key).map((p) => p.key));
+          const isPack = d.employees.length > 0 && d.employees.every((x) => packKeys.has(normAvatarKey(x.avatar)));
+          return h('button', {
+            type: 'button', class: `chip sm${isPack ? ' on' : ''}`,
+            onclick: () => once(`ppack-${pk.key}`, () => act('POST', '/api/ui/employees/avatar-style', { pack: pk.key }, `${pk.name}으로 바꿨어요`)),
+          }, pk.key === 'k-crew' ? '한국 전통' : '모던 크루');
+        }),
+        (S.options.avatarStyles || []).map((st) => {
+          const allSame = d.employees.length > 0 && d.employees.every((x) => (x.avatarStyle || 'studio') === st.key && !x.avatarImage);
+          return h('button', {
+            type: 'button', class: `chip sm${allSame ? ' on' : ''}`,
+            onclick: () => once(`pstyle-${st.key}`, () => act('POST', '/api/ui/employees/avatar-style', { avatarStyle: st.key }, `캐릭터를 ${st.name} 스타일로 바꿨어요`)),
+          }, st.name);
+        })),
       h('div', { class: 'pocket-grid' }, d.employees.map((e) => {
         const w = S.working.find((x) => x.emp === e.id);
         const cooling = isEmpCooling(e);
