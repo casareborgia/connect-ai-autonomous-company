@@ -767,6 +767,23 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .add-av-btn img { width: 32px; height: 32px; border-radius: 8px; object-fit: cover; }
 .add-av-btn span { font-size: 10px; color: var(--ink-2); max-width: 54px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .add-av-btn.add-up { border-style: dashed; }
+
+/* 오늘 한 일 (완료 & 결과물) · 실행 결과 최상단 카드 · 웹→로컬 1클릭 전환 */
+.res-card { border: 1px solid var(--ink); border-radius: 12px; background: #fff; padding: 14px 16px; margin-bottom: 14px; }
+.res-card.live { background: var(--fill); border-style: solid; }
+.res-pre { white-space: pre-wrap; font-family: var(--font); font-size: 13px; line-height: 1.6; background: var(--fill); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; max-height: 260px; overflow-y: auto; margin: 10px 0 0; }
+.handoff-run-box { border: 1px solid var(--ink); border-radius: 10px; background: #fff; padding: 10px 12px; margin-bottom: 10px; }
+.done-list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 10px; }
+.done-card { border: 1px solid var(--line-2); border-radius: 12px; background: #fff; overflow: hidden; }
+.done-card.open { border-color: var(--ink); }
+.done-card-top { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; cursor: pointer; }
+.done-card-top:hover { background: var(--fill); }
+.done-card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.done-card-title { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 14px; }
+.done-card-title b { font-weight: 600; color: var(--ink); }
+.done-human-badge { width: 28px; height: 28px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--fill); display: grid; place-items: center; font-size: 11px; font-weight: 600; color: var(--ink); flex: none; }
+.done-res { font-size: 13px; color: var(--ink-2); background: var(--fill); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; line-height: 1.5; }
+.done-card .detail { margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
 .usage-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .dash-usage-list { display: flex; flex-direction: column; gap: 7px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .dash-usage-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 6px; border-radius: 8px; cursor: pointer; }

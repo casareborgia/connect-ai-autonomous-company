@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { extractKoreanTime } from '../lib/util.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'bin', 'connect-ai-hq.mjs');
@@ -250,5 +251,86 @@ test('처음 사용자 E2E 시뮬레이션: 9종 툴 connect(--dry-run/--yes/dis
       await new Promise((r) => child.once('exit', r));
     }
     fs.rmSync(rootTmp, { recursive: true, force: true });
+  }
+});
+
+test('한국어 시각 자동 추출 + 일반 실행 실패 시 다른 AI 자동 인계(failoverTrail) + 완료 결과물 요약(resultSummary) + 웹→로컬 1클릭 전환 실행', async () => {
+  assert.equal(extractKoreanTime('오후 4시 30분 egolite로 들어가서 이메일 전부 체크'), '16:30');
+  assert.equal(extractKoreanTime('오전 9시 반 회의 준비'), '09:30');
+  assert.equal(extractKoreanTime('저녁 8시 라이브 방송'), '20:00');
+  assert.equal(extractKoreanTime('아침 7시 산책'), '07:00');
+  assert.equal(extractKoreanTime('16:45 메일 정리'), '16:45');
+  assert.equal(extractKoreanTime('5분마다 이메일 체크'), null, '반복 주기는 시각으로 오인하면 안 됨');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aihq-failover-'));
+  const binDir = path.join(dir, 'bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  const failClaude = makeMockBin(binDir, 'mock-claude-fail', 'echo "임시 오류 발생" >&2\nexit 1');
+  const okCodex = makeMockBin(binDir, 'mock-codex-ok', 'echo "이메일 3건 확인 완료: 영수증 요청 1건 초안 저장됨"');
+
+  const port = 19820 + Math.floor(Math.random() * 150);
+  const child = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], {
+    env: {
+      ...process.env,
+      AIHQ_PORT: String(port),
+      AIHQ_DATA_DIR: dir,
+      AIHQ_WORKSPACES: path.join(dir, 'ws'),
+      AIHQ_SEED: 'example',
+      AIHQ_NO_OPEN: '1',
+      AIHQ_DISPATCH: '0',
+      AIHQ_NO_NOTIFY: '1',
+      AIHQ_NO_CAFFEINATE: '1',
+      AIHQ_LLM_MODEL: '',
+      AIHQ_CLAUDE_BIN: failClaude,
+      AIHQ_CODEX_BIN: okCodex,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const origin = `http://127.0.0.1:${port}`;
+  try {
+    for (let i = 0; i < 60; i++) {
+      try { const r = await fetch(`${origin}/api/state`); if (r.ok) break; } catch { /* wait */ }
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    const secret = fs.readFileSync(path.join(dir, '.human-session'), 'utf8').trim();
+    const ui = async (method, url, body) => {
+      const r = await fetch(`${origin}${url}`, {
+        method,
+        headers: { Origin: origin, 'X-HQ-UI': '1', Cookie: `hq_human=${secret}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+      return { status: r.status, body: await r.json().catch(() => null) };
+    };
+
+    // 1) "오후 4시 30분 ..." 추가 시 time="16:30" 자동 추출 확인
+    const timed = await ui('POST', '/api/ui/tasks', { title: '오후 4시 30분 egolite로 들어가서 이메일 전부 체크', assignee: 'gemini' });
+    assert.equal(timed.status, 200);
+    assert.equal(timed.body.time, '16:30', '제목 속 한국어 시각이 time 필드에 자동 추출되어야 함');
+
+    // 2) 웹 전용 Gemini 에 배정된 일을 1클릭 전환(switchTo=claude, enableAuto=true)으로 실행 →
+    //    claude 가 일반 exit 1 로 실패 → codex 가 자동으로 이어받아 완료 & resultSummary + failoverTrail 기록!
+    await ui('PATCH', '/api/ui/employees/codex', { runMode: 'auto' });
+    await ui('PATCH', '/api/ui/employees/claude', { fallbackTo: 'codex' });
+    const runRes = await ui('POST', `/api/ui/tasks/${timed.body.id}/run`, { switchTo: 'claude', enableAuto: true });
+    assert.equal(runRes.status, 200);
+
+    let doneTask = null;
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 120));
+      const st = await (await fetch(`${origin}/api/state`)).json();
+      doneTask = st.data.tasks.find((t) => t.id === timed.body.id);
+      if (doneTask?.status === '완료') break;
+    }
+    assert.equal(doneTask?.status, '완료', 'claude 실패 후 codex 가 자동으로 이어받아 완료해야 함');
+    assert.equal(doneTask?.completedBy, 'codex');
+    assert.ok(doneTask?.completedAt, '완료 시각이 기록되어야 함');
+    assert.match(doneTask?.resultSummary || '', /이메일 3건 확인 완료/, '완료 결과물 요약이 카드에 남아야 함');
+    assert.equal(doneTask?.failoverTrail?.length, 1, '실패 자동 인계 기록이 남아야 함');
+    assert.equal(doneTask.failoverTrail[0].from, 'claude');
+    assert.equal(doneTask.failoverTrail[0].to, 'codex');
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise((r) => child.once('exit', r));
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -505,6 +505,21 @@ const GRIP = () => {
 
 // ───────── 할 일 줄 ─────────
 
+function isInstalledCli(e) {
+  return Boolean(e && CLI_ENGINES.includes(e.engine) && S.runners?.[e.engine]);
+}
+function runnableCandidates(excludeId = null) {
+  const list = (S?.data?.employees || []).filter((x) => x.id !== excludeId && (canRun(x) || isInstalledCli(x)));
+  return list.sort((a, b) => Number(canRun(b)) - Number(canRun(a)));
+}
+function latestResultOf(t) {
+  const msgs = (S?.data?.messages || []).filter((m) => m.thread === `task:${t.id}` && (m.kind === 'result' || m.fromKind === 'ai'));
+  const last = msgs.filter((m) => m.kind === 'result').slice(-1)[0] || msgs.slice(-1)[0];
+  if (last) return { text: last.text || '', by: last.from, at: last.at, run: last.run || null };
+  if (t.resultSummary) return { text: t.resultSummary, by: t.completedBy || t.assignee, at: t.completedAt || t.lastRunAt, run: null };
+  return null;
+}
+
 function taskRow(t, { draggable = true, overdue = false } = {}) {
   const open = ui.open === t.id;
   const done = t.status === '완료';
@@ -512,7 +527,9 @@ function taskRow(t, { draggable = true, overdue = false } = {}) {
   const gated = t.gate && !t.gateApprovedAt && !done && t.assignee !== 'jay';
   const pendAppr = S.data.approvals.some((a) => a.taskId === t.id && a.status === '대기');
   const e = emp(t.assignee);
+  const workJob = S.working.find((w) => w.taskId === t.id) || (t.status === '진행' ? S.working.find((w) => w.emp === t.assignee) : null);
   const thinking = S.assigning.includes(`task:${t.id}`);
+  const trail = t.failoverTrail || [];
   const li = h('li', { class: `task${done ? ' done' : ''}${open ? ' open' : ''}`, 'data-id': t.id });
 
   const chk = h('input', { type: 'checkbox', class: 'chk', checked: done, 'aria-label': `${t.title} 완료`,
@@ -524,16 +541,47 @@ function taskRow(t, { draggable = true, overdue = false } = {}) {
   const msgs = S.data.messages.filter((m) => m.thread === `task:${t.id}` && m.fromKind !== 'system').length;
   const stLen = (t.steps || []).length;
   const stDone = stLen ? t.steps.filter((s) => s.status === '완료').length : 0;
+  const quickRun = (!done && !gated && e && !t.officeRun && !workJob)
+    ? (canRun(e)
+      ? h('button', {
+        type: 'button', class: 'btn sm dark', title: `${shortName(e.id)} 지금 바로 실행`,
+        onclick: (ev) => {
+          ev.stopPropagation();
+          once(`qrun-${t.id}`, async () => {
+            const r = await act('POST', `/api/ui/tasks/${t.id}/run`, {});
+            if (r?.queued) toast(`⏳ 대기열: ${r.reason || '여유 생기면 자동 시작해요'}`);
+            else if (r) toast(`${shortName(r.empId || e.id)}이(가) 작업을 시작했어요`);
+          });
+        },
+      }, t.status === '막힘' ? '재시도' : '실행')
+      : (isInstalledCli(e) && e.runMode === 'off')
+        ? h('button', {
+          type: 'button', class: 'btn sm', title: `${e.name} 자동 실행을 켜고 지금 바로 실행`,
+          onclick: (ev) => {
+            ev.stopPropagation();
+            once(`qrun-${t.id}`, async () => {
+              const r = await act('POST', `/api/ui/tasks/${t.id}/run`, { enableAuto: true });
+              if (r) toast(`${shortName(e.id)} 자동 실행을 켜고 작업을 시작했어요`);
+            });
+          },
+        }, '켜고 실행')
+        : (e.engine === 'web' ? h('span', { class: 'tag dash', title: '웹 전용 AI — 눌러서 설치된 AI로 바로 실행하거나 지시문 복사' }, '웹 복사') : null))
+    : null;
   const right = h('div', { class: 'right' },
     overdue && !done ? h('button', { class: 'btn sm', title: '오늘 할 일로 옮기기', onclick: (ev) => { ev.stopPropagation(); act('PATCH', `/api/ui/tasks/${t.id}`, { date: S.today }, '오늘로 옮겼어요'); } }, '오늘로') : null,
     pendAppr ? h('span', { class: 'tag solid', title: '대표 결재 대기 중' }, '결재 대기') : null,
     gated ? h('button', { class: 'btn sm dark', onclick: (ev) => { ev.stopPropagation(); if (confirm(`"${t.title}" 에 ${gateK(t.gate)} 들어 있습니다. AI가 진행해도 될까요?`)) act('POST', `/api/ui/tasks/${t.id}/approve-gate`, {}, `${gateO(t.gate)} 확인했어요`); } }, `${t.gate} 확인`) : null,
     stLen ? h('span', { class: 'tag', title: '팀 협업 워크플로우' }, `${t.stepMode === 'parallel' ? '동시' : '협업'} ${stDone}/${stLen}`) : null,
+    trail.length ? h('span', { class: 'tag', title: trail.map((x) => `${x.fromName} → ${x.toName} (${x.reason})`).join(' / ') }, `인계 ${trail.length}`) : null,
     t.queued && !done ? h('span', { class: 'tag dash', title: t.queueReason || '여유 생기면 자동 시작' }, '대기열') : null,
-    t.status === '진행' || t.status === '막힘' ? h('span', { class: `stat-pill ${t.status}` }, officeOf(t) && t.status === '진행' ? `${officeOf(t).name}에서 실행 중` : isWorking(t.assignee) && t.status === '진행' ? '일하는 중' : t.status) : null,
+    workJob || t.status === '진행' || t.status === '막힘'
+      ? h('span', { class: `stat-pill ${workJob ? '진행' : t.status}` }, officeOf(t) && t.status === '진행' ? `${officeOf(t).name}에서 실행 중` : workJob ? '● 일하는 중' : t.status === '막힘' ? '실패 · 막힘' : t.status)
+      : null,
+    quickRun,
     msgs ? h('span', { class: 'small muted', title: '스레드 메시지' }, `대화 ${msgs}`) : null,
     who);
   const meta = [];
+  if (workJob?.statusLine) meta.push(`진행: ${workJob.statusLine}`);
   if (t.queued && t.queueReason && !done) meta.push(`대기열: ${t.queueReason}`);
   if (t.reason) meta.push(thinking ? `${t.reason} · 다시 보는 중` : t.reason);
   if (t.resource && res(t.resource) && !(t.reason || '').includes(res(t.resource).name)) meta.push(res(t.resource).name);
@@ -782,7 +830,32 @@ function taskDetail(t, e) {
         },
       }, o.name);
     }))) : null;
+  const workJob = S.working.find((w) => w.taskId === t.id) || (t.status === '진행' ? S.working.find((w) => w.emp === t.assignee) : null);
+  const latestRes = latestResultOf(t);
+  const trail = t.failoverTrail || [];
+  const topStatusBox = workJob
+    ? h('div', { class: 'res-card live' },
+      h('div', { class: 'row', style: 'justify-content:space-between' },
+        h('div', { class: 'row' },
+          emp(workJob.emp) ? avatarEl(emp(workJob.emp), { size: 28, stateOverride: 'working' }) : null,
+          h('b', null, `${shortName(workJob.emp)} 지금 실행 중`),
+          h('span', { class: 'tag solid' }, workJob.label || '실행 중')),
+        h('span', { class: 'small muted' }, stamp(workJob.since))),
+      h('div', { class: 'small muted', style: 'margin-top:6px' }, workJob.statusLine || '작업을 처리하고 있어요… (끝나면 아래 오늘 한 일에 결과물이 올라옵니다)'))
+    : latestRes
+      ? h('div', { class: 'res-card' },
+        h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:6px' },
+          h('div', { class: 'row', style: 'gap:8px' },
+            emp(latestRes.by) ? avatarEl(emp(latestRes.by), { size: 26 }) : null,
+            h('b', null, t.status === '완료' ? '완료 결과물' : '최근 실행 결과'),
+            h('span', { class: 'small muted' }, `${latestRes.by === 'jay' ? '나' : shortName(latestRes.by)}${latestRes.at ? ` · ${stamp(latestRes.at)}` : ''}`),
+            trail.length ? h('span', { class: 'tag' }, `⚡ 자동 인계: ${trail.map((x) => x.fromName).join(' → ')} → ${trail[trail.length - 1].toName}`) : null),
+          h('button', { type: 'button', class: 'btn sm', onclick: async () => { await copyText(latestRes.text); toast('결과물을 복사했어요'); } }, '결과 복사')),
+        h('pre', { class: 'res-pre' }, latestRes.text))
+      : null;
+
   return h('div', { class: 'detail' },
+    topStatusBox,
     h('div', { class: 'd-grid' }, h('div', { class: 'span2' }, f.title), f.time, f.date),
     h('div', { class: 'p-wrap' },
       h('div', { class: 'p-toolbar' },
@@ -861,33 +934,49 @@ function officeBox(t, e) {
     line ? h('div', { class: 'small muted' }, line) : null);
 }
 
-// AI에게 일 시키기. 앱이 직접 실행할 수 있으면 실행 버튼, 아니면 복사해서 맡기기 (설치, 환경변수 없이)
+// AI에게 일 시키기. 앱이 직접 실행할 수 있으면 1클릭 실행, 설치된 CLI 가 꺼져 있거나 웹 전용 AI 면 1클릭 전환·바로 실행 제공
 function workBox(t, e, flushIfDirty = null) {
   if (t.status === '완료' && !ui.handout[t.id]) return null;
   const locked = t.gate && !t.gateApprovedAt;
   const retryBtn = (t.status === '막힘' || t.queued) ? h('button', { class: 'btn sm', onclick: () => once(`retry-${t.id}`, () => act('POST', `/api/ui/tasks/${t.id}/retry`, {}, '대기 상태로 초기화했어요')) }, t.queued ? '대기열 해제' : '다시 시도') : null;
+  const runNow = (payload = {}, msgFn = null) => once(`run-${t.id}-${payload.switchTo || 'cur'}`, async () => {
+    if (flushIfDirty) await flushIfDirty();
+    const resRun = await act('POST', `/api/ui/tasks/${t.id}/run`, payload);
+    if (resRun?.queued) toast(`⏳ 대기열: ${resRun.reason || '여유 생기면 자동 시작해요'}`);
+    else if (resRun?.rerouted) toast(`⚡ ${resRun.reason || `${resRun.office}로 우회했어요`}`);
+    else if (resRun) toast(msgFn ? msgFn(resRun) : `${shortName(resRun.empId || e.id)}이(가) 작업을 시작했어요`);
+  });
+
+  const altRunners = runnableCandidates(e.id).slice(0, 3);
   if (canRun(e)) {
     const local = e.engine === 'local';
     return h('div', { class: 'work' },
-      h('div', { class: 'small' }, local ? `${e.name}: 이 컴퓨터 안에서 바로 답해요.` : `${e.name}: 이 컴퓨터에서 한 번 실행해요 (작업 폴더 workspaces/${e.id}).`),
+      h('div', { class: 'small' }, local ? `${shortName(e.id)}: 이 컴퓨터 안에서 바로 답해요.` : `${shortName(e.id)}: 이 컴퓨터에서 직접 실행하고 결과물을 아래 「오늘 한 일」에 남깁니다 (실패 시 다른 AI에게 자동 인계).`),
       t.queued && t.queueReason ? h('div', { class: 'small muted' }, `⏳ 대기열: ${t.queueReason}`) : null,
       locked ? h('div', { class: 'small muted' }, `${gateK(t.gate)} 들어간 일이라 대표 확인 뒤에 시킬 수 있어요.`) : null,
-      h('div', { class: 'row' },
+      h('div', { class: 'row', style: 'flex-wrap:wrap' },
         h('button', { class: 'btn dark', 'data-act': 'run', disabled: isWorking(e.id) || locked,
-          onclick: () => {
-            if (local || confirm(`${e.name}: 지금 한 번 실행할까요?`)) {
-              once(`run-${t.id}`, async () => {
-                if (flushIfDirty) await flushIfDirty();
-                const resRun = await act('POST', `/api/ui/tasks/${t.id}/run`, {});
-                if (resRun?.queued) toast(`⏳ 대기열: ${resRun.reason || '여유 생기면 자동 시작해요'}`);
-                else if (resRun?.rerouted) toast(`⚡ ${resRun.reason || `${resRun.office}로 우회했어요`}`);
-                else if (resRun) toast(local ? `${josa(shortName(e.id), '이', '가')} 쓰는 중이에요` : `시켰어요: ${nameOf(resRun.empId || e.id)}`);
-              });
-            }
-          } },
-        isWorking(e.id) ? (local ? '쓰는 중 · 보통 10~50초' : '일하는 중') : local ? '지금 답 받기' : `${shortName(e.id)} 한 번 실행`),
+          onclick: () => runNow({}, (r) => (local ? `${josa(shortName(e.id), '이', '가')} 쓰는 중이에요` : `${shortName(r.empId || e.id)}이(가) 작업을 시작했어요`)) },
+        isWorking(e.id) ? (local ? '쓰는 중 · 보통 10~50초' : '● 일하는 중') : local ? '지금 답 받기' : `${shortName(e.id)} 바로 실행`),
+        t.status === '막힘' && altRunners.length
+          ? altRunners.slice(0, 2).map((cand) => h('button', {
+            type: 'button', class: 'btn sm', disabled: locked,
+            onclick: () => runNow({ switchTo: cand.id, enableAuto: true }, () => `${shortName(cand.id)}에게 넘겨서 바로 실행했어요`),
+          }, `${shortName(cand.id)}에게 넘겨 실행`))
+          : null,
         retryBtn));
   }
+
+  // 이 컴퓨터에 CLI 가 설치되어 있지만 실행 모드가 '꺼짐(off)' 인 경우: 1클릭 자동 실행 켜고 바로 실행!
+  if (isInstalledCli(e) && e.runMode === 'off') {
+    return h('div', { class: 'work' },
+      h('div', { class: 'small' }, h('b', null, `${shortName(e.id)}은 이 컴퓨터에 설치되어 있어요`), ' · 실행 모드가 꺼져 있어 대기 중입니다. 아래 버튼 한 번으로 자동 실행을 켜고 바로 시작할 수 있어요.'),
+      locked ? h('div', { class: 'small muted' }, `${gateK(t.gate)} 들어간 일이라 대표 확인 뒤에 시킬 수 있어요.`) : null,
+      h('div', { class: 'row', style: 'flex-wrap:wrap' },
+        h('button', { type: 'button', class: 'btn dark', disabled: locked, onclick: () => runNow({ enableAuto: true }, () => `${shortName(e.id)} 자동 실행을 켜고 바로 시작했어요`) }, '자동 실행 켜고 지금 바로 실행'),
+        retryBtn));
+  }
+
   const ho = ui.handout[t.id];
   const url = ho?.url || e.webUrl || '';
   const paste = h('textarea', { class: 'in', rows: 4, 'data-k': `paste-${t.id}`, placeholder: `${shortName(e.id)}에게 받은 답을 여기에 붙여 넣으세요`, 'aria-label': '받은 답' });
@@ -903,7 +992,17 @@ function workBox(t, e, flushIfDirty = null) {
     } catch { /* toast 는 api 가 띄움 */ }
   });
   const savePaste = () => submitInput(paste, `paste-${t.id}`, (v) => act('POST', `/api/ui/tasks/${t.id}/paste`, { text: v, done: doneBox.checked }, '결과를 남겼어요'));
+  const directHandoff = altRunners.length
+    ? h('div', { class: 'handoff-run-box' },
+      h('div', { class: 'small' }, h('b', null, `${shortName(e.id)}은 웹 전용이라 앱에서 직접 실행 못해요`), ' · 이 컴퓨터에 설치된 AI에게 넘겨 바로 실행할 수 있어요:'),
+      h('div', { class: 'row', style: 'flex-wrap:wrap;margin-top:6px' },
+        altRunners.map((cand) => h('button', {
+          type: 'button', class: 'btn sm dark', disabled: locked,
+          onclick: () => runNow({ switchTo: cand.id, enableAuto: true }, () => `${shortName(cand.id)}에게 넘겨 바로 작업을 시작했어요`),
+        }, `${shortName(cand.id)}로 바로 실행`))))
+    : null;
   return h('div', { class: 'work' },
+    directHandoff,
     h('div', { class: 'small' }, h('b', null, '복사해서 맡기기'), ` · ${josa(e.name, '은', '는')} 이 앱 안에서 직접 답하지 않아요. 지시문을 복사해 ${url ? '열어서' : `${shortName(e.id)}에`} 붙여 넣고, 받은 답을 아래에 넣어 주세요.`),
     locked ? h('div', { class: 'small muted' }, `${gateK(t.gate)} 들어간 일이라 대표 확인 뒤에 맡길 수 있어요.`) : null,
     h('div', { class: 'row' },
@@ -1291,14 +1390,50 @@ function recentTalk() {
     })) : h('div', { class: 'empty' }, '아직 대화가 없습니다'));
 }
 
-// 오늘 목록: 필터 + 끝난 일 접기 + 30개가 넘으면 담당별 묶음
-function todayList(today) {
+// 오늘 할 일(진행·대기·막힘) + 오늘 한 일(완료 & 결과물) 2단 분리
+function doneCard(t) {
+  const open = ui.open === t.id;
+  const byId = t.completedBy || t.assignee || 'jay';
+  const isAi = byId !== 'jay' && Boolean(emp(byId));
+  const actorEmp = isAi ? emp(byId) : null;
+  const resObj = latestResultOf(t);
+  const trail = t.failoverTrail || [];
+  const doneTime = t.completedAt ? stamp(t.completedAt) : (t.lastRunAt ? stamp(t.lastRunAt) : (t.time || ''));
+  const chk = h('input', {
+    type: 'checkbox', class: 'chk', checked: true, 'aria-label': `${t.title} 완료 해제`,
+    onclick: (ev) => ev.stopPropagation(),
+    onchange: () => act('PATCH', `/api/ui/tasks/${t.id}`, { status: '대기' }, '오늘 할 일로 되돌렸어요'),
+  });
+  const toggleOpen = () => { ui.open = open ? null : t.id; ui.picking = null; render(); };
+  return h('li', { class: `done-card${open ? ' open' : ''}`, 'data-id': t.id },
+    h('div', {
+      class: 'done-card-top', tabindex: '0', role: 'button', 'aria-expanded': open ? 'true' : 'false',
+      onclick: (ev) => { if (ev.target.closest('button,input,a')) return; toggleOpen(); },
+      onkeydown: (ev) => { if (ev.target !== ev.currentTarget) return; if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleOpen(); } },
+    },
+    chk,
+    actorEmp ? avatarEl(actorEmp, { size: 28 }) : h('span', { class: 'done-human-badge' }, '나'),
+    h('div', { class: 'done-card-main' },
+      h('div', { class: 'done-card-title' },
+        h('b', null, t.title),
+        doneTime ? h('span', { class: 'small muted' }, `${doneTime} 완료`) : null,
+        h('span', { class: `tag${isAi ? ' solid' : ''}` }, isAi ? `${shortName(byId)} 완료` : '대표 완료'),
+        trail.length ? h('span', { class: 'tag', title: trail.map((x) => `${x.fromName} → ${x.toName} (${x.reason})`).join(' / ') }, `⚡ 인계: ${trail[0].fromName} → ${trail[trail.length - 1].toName}`) : null),
+      resObj
+        ? h('div', { class: 'done-res clamp2' }, resObj.text)
+        : h('div', { class: 'small muted' }, isAi ? '완료 보고됨 (눌러서 상세 보기)' : (t.note ? t.note : '대표가 직접 완료 체크함'))),
+    h('button', { type: 'button', class: 'btn sm', onclick: (ev) => { ev.stopPropagation(); toggleOpen(); } }, open ? '접기' : (resObj ? '결과 보기' : '열기'))),
+    open ? taskDetail(t, emp(t.assignee)) : null);
+}
+
+function todayOpenSection(today) {
   const f = ui.homeFilter || 'all';
-  const mineCount = today.filter((t) => t.assignee === 'jay' && t.status !== '완료').length;
-  const aiCount = today.filter((t) => t.assignee !== 'jay' && t.status !== '완료').length;
-  const gateCount = today.filter((t) => ((t.gate && !t.gateApprovedAt) || S.data.approvals.some((a) => a.status === '대기' && a.taskId === t.id)) && t.status !== '완료').length;
+  const openAll = today.filter((t) => t.status !== '완료');
+  const mineCount = openAll.filter((t) => t.assignee === 'jay').length;
+  const aiCount = openAll.filter((t) => t.assignee !== 'jay').length;
+  const gateCount = openAll.filter((t) => (t.gate && !t.gateApprovedAt) || S.data.approvals.some((a) => a.status === '대기' && a.taskId === t.id)).length;
   const filterTabs = [
-    ['all', `전체 (${today.length})`],
+    ['all', `전체 (${openAll.length})`],
     ['me', `나 (${mineCount})`],
     ['ai', `AI (${aiCount})`],
     ...(gateCount || f === 'gate' ? [['gate', `확인 대기 (${gateCount})`]] : []),
@@ -1309,29 +1444,47 @@ function todayList(today) {
       onclick: () => { ui.homeFilter = k; render(); },
     }, label)));
 
-  const filtered = today.filter((t) => {
+  const open = openAll.filter((t) => {
     if (f === 'me') return t.assignee === 'jay';
     if (f === 'ai') return t.assignee !== 'jay';
     if (f === 'gate') return (t.gate && !t.gateApprovedAt) || S.data.approvals.some((a) => a.status === '대기' && a.taskId === t.id);
     return true;
   });
-  const open = filtered.filter((t) => t.status !== '완료');
-  const done = filtered.filter((t) => t.status === '완료');
-  const doneBox = done.length ? h('details', {
-    class: 'done-box', 'data-k': 'done-box', open: ui.doneOpen ? true : undefined,
-    ontoggle: (ev) => { ui.doneOpen = ev.target.open; },
-  }, h('summary', null, `끝난 일 ${done.length}개`), taskList(done, { draggable: false })) : null;
 
-  if (filtered.length <= 30) {
-    return h('div', null, filterBar, open.length ? taskList(open, { draggable: f === 'all' }) : h('div', { class: 'empty' }, f === 'all' ? '남은 일이 없습니다.' : '해당하는 할 일이 없습니다.'), doneBox);
+  if (open.length <= 30) {
+    return h('div', null, filterBar, open.length ? taskList(open, { draggable: f === 'all' }) : h('div', { class: 'empty' }, f === 'all' ? '남은 할 일이 없습니다. 아래 「오늘 한 일」에서 완료 결과물을 확인하세요.' : '해당하는 할 일이 없습니다.'));
   }
   const order = ['jay', ...S.data.employees.map((e) => e.id), null];
   const keyOf = (t) => (t.assignee === 'jay' || emp(t.assignee) ? t.assignee : null);
   const groups = order.map((id) => [id, open.filter((t) => keyOf(t) === id)]).filter(([, l]) => l.length);
   return h('div', null,
     filterBar,
-    groups.map(([id, list]) => h('div', { class: 'grp-list' }, h('div', { class: 'grp-name' }, `${id === 'jay' ? '나' : id ? shortName(id) : '담당 미정'} · ${list.length}`), taskList(list))),
-    doneBox);
+    groups.map(([id, list]) => h('div', { class: 'grp-list' }, h('div', { class: 'grp-name' }, `${id === 'jay' ? '나' : id ? shortName(id) : '담당 미정'} · ${list.length}`), taskList(list))));
+}
+
+function todayDoneSection(today) {
+  const doneAll = today
+    .filter((t) => t.status === '완료')
+    .sort((a, b) => String(b.completedAt || b.lastRunAt || '').localeCompare(String(a.completedAt || a.lastRunAt || '')));
+  const aiDone = doneAll.filter((t) => (t.completedBy || t.assignee) !== 'jay');
+  const humanDone = doneAll.filter((t) => (t.completedBy || t.assignee) === 'jay');
+  const df = ui.doneFilter || 'all';
+  const shown = df === 'ai' ? aiDone : df === 'me' ? humanDone : doneAll;
+  const tabs = [
+    ['all', `전체 (${doneAll.length})`],
+    ['ai', `AI가 한 일 (${aiDone.length})`],
+    ['me', `내가 한 일 (${humanDone.length})`],
+  ];
+  return h('section', { class: 'sec done-sec', 'data-k': 'today-done-sec' },
+    secHead('오늘 한 일 · 완료 & 결과물', doneAll.length ? `AI ${aiDone.length}건 · 나 ${humanDone.length}건` : '완료된 일과 AI 결과물이 여기에 쌓입니다'),
+    h('div', { class: 'filter-bar', role: 'group', 'aria-label': '오늘 한 일 분류' },
+      tabs.map(([k, label]) => h('button', {
+        type: 'button', class: `chip sm${df === k ? ' on' : ''}`, 'aria-pressed': df === k ? 'true' : 'false',
+        onclick: () => { ui.doneFilter = k; render(); },
+      }, label))),
+    shown.length
+      ? h('ul', { class: 'done-list' }, shown.map(doneCard))
+      : h('div', { class: 'empty' }, doneAll.length ? '이 분류에 완료된 일이 아직 없어요.' : '아직 오늘 완료한 일이 없어요. 내가 체크한 일과 AI가 끝낸 결과물이 여기 자동으로 정리됩니다.'));
 }
 
 // 아침/오늘 보고 1줄 띠: AI 완료·확인 대기·막힘이 있을 때만 조용히 표시, 확인 누르면 사라짐
@@ -1428,8 +1581,9 @@ function pageHome() {
     pendingApprs.length ? h('section', { class: 'sec' }, secHead('대표 확인 대기', `${pendingApprs.length}건 · 승인 전에 내용을 고칠 수 있어요`),
       pendingApprs.map(approvalInlineCard)) : null,
     overdue.length ? h('section', { class: 'sec' }, secHead('지난 날짜, 아직 안 끝남', `${overdue.length}개`), taskList(overdue, { draggable: false, overdue: true })) : null,
-    h('section', { class: 'sec' }, secHead(`오늘 · ${dateK(S.today)}`, `${today.filter((t) => t.status === '완료').length}/${today.length} 완료`),
-      today.length ? todayList(today) : h('div', { class: 'empty' }, '오늘 할 일이 없습니다. 위에 적어 보세요.')),
+    h('section', { class: 'sec' }, secHead(`오늘 할 일 · ${dateK(S.today)}`, `남은 일 ${today.filter((t) => t.status !== '완료').length}건`),
+      today.length ? todayOpenSection(today) : h('div', { class: 'empty' }, '오늘 할 일이 없습니다. 위에 적어 보세요.')),
+    todayDoneSection(today),
     later.length ? h('section', { class: 'sec' }, secHead('예정', `${later.length}개`), taskList(later, { draggable: false })) : null,
     h('div', { class: 'cols home-foot' }, timeline(), recentTalk()));
 }

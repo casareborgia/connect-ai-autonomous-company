@@ -17,7 +17,7 @@ import { Store } from './lib/store.mjs';
 import { seedData, emptyData } from './lib/seed.mjs';
 import {
   STATUSES, APPROVAL_KINDS, METRIC_NAMES, HttpError,
-  ymd, hm, addDays, nowIso, nextId, orderFor, text, optText, timeOrNull, dateOrNull, periodOrNull, numberOrNull,
+  ymd, hm, addDays, nowIso, nextId, orderFor, text, optText, timeOrNull, extractKoreanTime, dateOrNull, periodOrNull, numberOrNull,
 } from './lib/util.mjs';
 import { readConnectors, summarize, normalizeSite } from './lib/revenue.mjs';
 import { splitUtterance, pickOllamaModel } from './lib/llm.mjs';
@@ -100,7 +100,7 @@ function migrate(d) {
   }
   d.tasks.forEach((t, i) => {
     if (typeof t.order !== 'number') t.order = i + 1;
-    for (const [k, v] of Object.entries({ resource: null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: null, intervalMin: null, stepMode: 'serial', sharedFolder: '', steps: [], gate: null, gateApprovedAt: null, reason: '', reasonBy: '', noMatch: false, handedAt: null, assignSource: 'jay', routineId: null, jobId: null, runStartedAt: null, lastRunAt: null, queued: false, queueReason: '', retryAfter: null, localOnly: false, history: [], officeRun: false, officeJob: null, remote: null, relayedAt: null })) if (t[k] === undefined) t[k] = v;
+    for (const [k, v] of Object.entries({ resource: null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: null, intervalMin: null, stepMode: 'serial', sharedFolder: '', steps: [], gate: null, gateApprovedAt: null, reason: '', reasonBy: '', noMatch: false, handedAt: null, assignSource: 'jay', routineId: null, jobId: null, runStartedAt: null, lastRunAt: null, completedAt: null, completedBy: null, resultSummary: '', failoverTrail: [], queued: false, queueReason: '', retryAfter: null, localOnly: false, history: [], officeRun: false, officeJob: null, remote: null, relayedAt: null })) if (t[k] === undefined) t[k] = v;
     if (!Array.isArray(t.steps)) t.steps = [];
   });
   for (const r of d.routines) {
@@ -1038,8 +1038,29 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
     sys(x, thread, `실행 시작: ${emp.name} (${label}${emp.engine === 'local' ? '' : ` · 모델 ${runModel}`}${emp.engine === 'local' ? '' : `, 작업 폴더 workspaces/${emp.id}`}, ${trigger === 'auto' ? '자동 실행' : '대표가 누름'})`);
   });
 
-  // 3) 실행 도중 토큰·사용 한도 오류 시 자동 쿨다운 + 대체 AI 즉시 이어받기
+  // 3) 실행 도중 토큰 한도 · 먹통 · 일반 실행 실패 시 다른 실행 가능 AI 에게 자동 인계
   let nextFailover = null;
+  const isRunnableNow = (cand) => canRun(cand) && (cand.engine === 'local' || Boolean(runnerInfo(cand.engine)?.bin));
+  const recordFailover = (tt, fromEmp, toEmp, reason) => {
+    if (!Array.isArray(tt.failoverTrail)) tt.failoverTrail = [];
+    tt.failoverTrail.push({ from: fromEmp.id, fromName: fromEmp.avatarName || fromEmp.name, to: toEmp.id, toName: toEmp.avatarName || toEmp.name, reason, at: nowIso() });
+    if (tt.failoverTrail.length > 8) tt.failoverTrail = tt.failoverTrail.slice(-8);
+  };
+  const handoffToBackup = (x, tt, fb, reasonShort, sysLine) => {
+    tt.assignee = fb.emp.id;
+    tt.status = '대기';
+    tt.runStartedAt = null;
+    tt.queued = false;
+    tt.queueReason = '';
+    tt.retryAfter = null;
+    tt.reason = `${emp.avatarName || emp.name} ${reasonShort} → ${fb.emp.avatarName || fb.emp.name} 자동 인계`;
+    recordFailover(tt, emp, fb.emp, reasonShort);
+    pushHistory(tt, 'system', '대기', tt.reason);
+    sys(x, thread, sysLine);
+    notifyOwner(x, 'CONNECT AI HQ · 자동 인계', `${tt.title} (${emp.avatarName || emp.name} → ${fb.emp.avatarName || fb.emp.name})`);
+    nextFailover = { taskId: tt.id, trigger, depth: depth + 1, triedEmps: new Set([...tried, emp.id]) };
+  };
+
   const handleFailureQuota = (x, tt, rawErrText) => {
     if (x.settings?.autoOptimize === false) return false;
     const qErr = detectQuotaError(rawErrText);
@@ -1052,23 +1073,14 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
     }
     const nextTried = new Set([...tried, emp.id]);
     const otherWorking = new Set([...working.keys()].filter((id) => id !== emp.id));
-    const fb = depth < 2
-      ? pickFallbackEmployee(x, emp.id, { task: tt, workingIds: otherWorking, canRunFn: canRun, requireRunnable: true, excludeIds: nextTried })
+    const fb = depth < 3
+      ? pickFallbackEmployee(x, emp.id, { task: tt, workingIds: otherWorking, canRunFn: isRunnableNow, requireRunnable: true, excludeIds: nextTried })
       : null;
     if (fb) {
-      tt.assignee = fb.emp.id;
-      tt.status = '대기';
-      tt.runStartedAt = null;
-      tt.queued = false;
-      tt.queueReason = '';
-      tt.retryAfter = null;
-      tt.reason = fb.reason;
-      pushHistory(tt, 'system', '대기', `${emp.name} ${qErr.label} → ${fb.emp.name} 자동 인계`);
-      sys(x, thread, `⚡ ${emp.name} ${qErr.label}(${qErr.minutes}분 휴식) → 대체 직원 ${fb.emp.name}에게 멈춘 지점부터 자동 인계합니다`);
-      nextFailover = { taskId: tt.id, trigger, depth: depth + 1, triedEmps: nextTried };
+      handoffToBackup(x, tt, fb, qErr.label, `⚡ ${emp.name} ${qErr.label}(${qErr.minutes}분 휴식) → 대체 직원 ${fb.emp.name}에게 멈춘 지점부터 자동 인계합니다`);
       return true;
     }
-    // 실행 가능한 대체 AI가 없을 때: 웹 대체 직원이 있으면 안내, 아니면 대기열에서 쿨다운 후 자동 재시도
+    // 실행 가능한 대체 AI가 없을 때: 대기열에서 쿨다운 후 자동 재시도
     tt.status = '대기';
     tt.runStartedAt = null;
     tt.queued = true;
@@ -1081,25 +1093,26 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
 
   const handleFailureHang = (x, tt, hangSec) => {
     sys(x, thread, `⚠️ ${emp.name} 무응답(먹통) 감지 (${hangSec}초 동안 출력 없음) — 프로세스를 안전하게 종료했어요.`);
-    if (x.settings?.autoOptimize !== false && depth < 2) {
+    if (x.settings?.autoOptimize !== false && depth < 3) {
       const nextTried = new Set([...tried, emp.id]);
       const otherWorking = new Set([...working.keys()].filter((id) => id !== emp.id));
-      const fb = pickFallbackEmployee(x, emp.id, { task: tt, workingIds: otherWorking, canRunFn: canRun, requireRunnable: true, excludeIds: nextTried });
+      const fb = pickFallbackEmployee(x, emp.id, { task: tt, workingIds: otherWorking, canRunFn: isRunnableNow, requireRunnable: true, excludeIds: nextTried });
       if (fb) {
-        tt.assignee = fb.emp.id;
-        tt.status = '대기';
-        tt.runStartedAt = null;
-        tt.queued = false;
-        tt.queueReason = '';
-        tt.retryAfter = null;
-        tt.reason = `${emp.name} 무응답 → ${fb.emp.name} 자동 인계`;
-        pushHistory(tt, 'system', '대기', `${emp.name} 무응답(먹통) → ${fb.emp.name} 자동 인계`);
-        sys(x, thread, `⚡ 먹통 감지 → 대체 직원 ${fb.emp.name}에게 자동으로 넘겨서 이어서 처리합니다`);
-        nextFailover = { taskId: tt.id, trigger, depth: depth + 1, triedEmps: nextTried };
+        handoffToBackup(x, tt, fb, '무응답(먹통)', `⚡ 먹통 감지 → 대체 직원 ${fb.emp.name}에게 자동으로 넘겨서 이어서 처리합니다`);
         return true;
       }
     }
     return false;
+  };
+
+  const handleFailureGeneral = (x, tt, reasonLabel) => {
+    if (x.settings?.autoOptimize === false || depth >= 3) return false;
+    const nextTried = new Set([...tried, emp.id]);
+    const otherWorking = new Set([...working.keys()].filter((id) => id !== emp.id));
+    const fb = pickFallbackEmployee(x, emp.id, { task: tt, workingIds: otherWorking, canRunFn: isRunnableNow, requireRunnable: true, excludeIds: nextTried });
+    if (!fb) return false;
+    handoffToBackup(x, tt, fb, reasonLabel, `⚡ ${emp.name} ${reasonLabel} → 대체 직원 ${fb.emp.name}이(가) 이어받아 자동으로 다시 실행합니다`);
+    return true;
   };
 
   const finish = (output, ok, code, meta = {}) => store.mutate((x) => {
@@ -1116,10 +1129,16 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
     if (tt.status === '진행') {
       if (!ok && handleFailureQuota(x, tt, output)) return;
       if (meta.hung && handleFailureHang(x, tt, meta.hangSec || Math.round(DEFAULT_HANG_MS / 1000))) return;
+      if (!ok && handleFailureGeneral(x, tt, `실행 실패 (코드 ${code})`)) return;
       if (ok && Array.isArray(tt.steps) && tt.steps.length) {
         completeActiveStepFromRun(x, tt, emp.id, String(output || '').slice(0, 2000), '실행 끝');
       } else {
         tt.status = ok ? '완료' : '막힘';
+        if (ok) {
+          tt.completedAt = nowIso();
+          tt.completedBy = emp.id;
+          tt.resultSummary = summarizeText(outText, 240);
+        }
         pushHistory(tt, emp.id, tt.status, ok ? '실행 끝' : meta.hung ? '무응답(먹통) 중단' : `실행 실패 (코드 ${code})`);
         syncRoutineLog(x, tt);
         const empLabel = emp.avatarName || emp.name;
@@ -1142,6 +1161,7 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
     const errText = String(e.message || e);
     const tt = x.tasks.find((y) => y.id === t.id);
     if (tt && tt.status === '진행' && handleFailureQuota(x, tt, errText)) return;
+    if (tt && tt.status === '진행' && handleFailureGeneral(x, tt, '실행 오류')) return;
     sys(x, thread, `실행 실패: ${emp.name} · ${errText.slice(0, 300)}`);
     if (tt) {
       tt.runStartedAt = null;
@@ -1175,7 +1195,12 @@ async function autoRun(now) {
     if (t.officeRun || isOffice(d.resources.find((r) => r.id === t.resource))) return false;
     if (t.gate && !t.gateApprovedAt) return false;
     if (t.queued) return !t.retryAfter || Date.parse(t.retryAfter) <= nowMs;
-    if (t.date !== today || !t.routineId) return false;
+    if (t.date !== today) return false;
+    if (!t.routineId) {
+      if (d.settings?.autoStartAdded === false) return false;
+      if (!t.time || minutes(t.time) > cur) return false;
+      return true;
+    }
     if (!t.intervalMin && t.time && minutes(t.time) > cur) return false;
     return true;
   }).sort((a, b) => (Number(Boolean(b.queued)) - Number(Boolean(a.queued))) || (a.order || 0) - (b.order || 0));
@@ -1450,13 +1475,15 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
   const t = await store.mutate((d) => {
     const title = text(body.title, 300);
     if (!title) throw new HttpError(400, '할 일 제목이 필요합니다.');
+    const parsedTime = timeOrNull(body.time) || extractKoreanTime(title);
     const t = {
-      id: nextId(d, 't'), order: 0, title, kind: 'human', assignee: 'jay', date: dateOrNull(body.date) || ymd(), time: timeOrNull(body.time),
+      id: nextId(d, 't'), order: 0, title, kind: 'human', assignee: 'jay', date: dateOrNull(body.date) || ymd(), time: parsedTime,
       status: '대기', note: text(body.note, 4000), resource: null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: costOrNull(body.estCost), intervalMin: null,
       stepMode: STEP_MODES.includes(body.stepMode) ? body.stepMode : 'serial', sharedFolder: text(body.sharedFolder, 400), steps: [],
       gate: null, gateApprovedAt: null, reason: '', assignSource: 'jay',
       queued: false, queueReason: '', retryAfter: null, localOnly: Boolean(body.localOnly),
       routineId: null, jobId: null, createdAt: nowIso(), createdBy: 'jay', history: [], runStartedAt: null, lastRunAt: null,
+      completedAt: null, completedBy: null, resultSummary: '', failoverTrail: [],
     };
     if (body.assignee !== undefined && body.assignee !== 'auto') {
       const full = `${title} ${t.note}`;
@@ -1608,10 +1635,15 @@ route('PATCH', '/api/ui/tasks/:id', async ({ params, body }) => store.mutate((d)
       t.status = body.status;
       if (body.status === '대기') {
         t.runStartedAt = null;
+        t.completedAt = null;
         t.queued = false;
         t.queueReason = '';
         t.retryAfter = null;
         if (!remoteActive && t.remote && ['failed', 'blocked', 'retry'].includes(t.remote.state)) t.remote = null;
+      } else if (body.status === '완료') {
+        t.runStartedAt = null;
+        t.completedAt = nowIso();
+        t.completedBy = t.assignee === 'jay' ? 'jay' : (t.completedBy || 'jay');
       }
       pushHistory(t, 'jay', body.status, '');
       syncRoutineLog(d, t);
@@ -1729,16 +1761,46 @@ route('POST', '/api/ui/tasks/reorder', async ({ body }) => store.mutate((d) => {
 }), UI);
 
 // 결제, 업로드, 게시, 삭제가 들어간 할 일: 대표 클릭으로만 풀린다
-route('POST', '/api/ui/tasks/:id/approve-gate', async ({ params }) => store.mutate((d) => {
-  const t = getTask(d, params.id);
-  if (!t.gate) throw new HttpError(400, '확인이 필요한 할 일이 아닙니다.');
-  t.gateApprovedAt = nowIso();
-  pushHistory(t, 'jay', t.status, `${t.gate} 확인`);
-  sys(d, `task:${t.id}`, `대표 확인 완료: ${t.gate}. 진행해도 됩니다.`);
-  return t;
-}), UI);
+route('POST', '/api/ui/tasks/:id/approve-gate', async ({ params }) => {
+  const out = await store.mutate((d) => {
+    const t = getTask(d, params.id);
+    if (!t.gate) throw new HttpError(400, '확인이 필요한 할 일이 아닙니다.');
+    t.gateApprovedAt = nowIso();
+    pushHistory(t, 'jay', t.status, `${t.gate} 확인`);
+    sys(d, `task:${t.id}`, `대표 확인 완료: ${t.gate}. 진행해도 됩니다.`);
+    return t;
+  });
+  setTimeout(() => autoRun(new Date()).catch(() => {}), 200);
+  return out;
+}, UI);
 
-route('POST', '/api/ui/tasks/:id/run', async ({ params }) => startRun(params.id, 'jay'), UI);
+route('POST', '/api/ui/tasks/:id/run', async ({ params, body }) => {
+  if (body?.switchTo || body?.enableAuto) {
+    await store.mutate((d) => {
+      const t = getTask(d, params.id);
+      if (body.switchTo) {
+        const nextEmp = d.employees.find((x) => x.id === body.switchTo);
+        if (!nextEmp) throw new HttpError(404, '넘길 AI 직원을 찾을 수 없어요.');
+        const prev = t.assignee;
+        t.assignee = nextEmp.id;
+        t.kind = 'ai';
+        t.status = '대기';
+        t.runStartedAt = null;
+        t.queued = false;
+        t.queueReason = '';
+        t.reason = `${nameOf(d, prev)} → ${nextEmp.avatarName || nextEmp.name} 직접 실행 전환`;
+        sys(d, `task:${t.id}`, `담당 전환 후 바로 실행: ${nameOf(d, prev)} → ${nextEmp.avatarName || nextEmp.name}`);
+      }
+      if (body.enableAuto) {
+        const emp = d.employees.find((x) => x.id === t.assignee);
+        if (emp && (CLI_ENGINES.includes(emp.engine) || (emp.engine === 'local' && emp.model)) && emp.runMode === 'off') {
+          emp.runMode = 'auto';
+        }
+      }
+    });
+  }
+  return startRun(params.id, 'jay');
+}, UI);
 
 route('POST', '/api/ui/tasks/:id/messages', async ({ params, body }) => {
   const m = await store.mutate((d) => {
@@ -1797,6 +1859,9 @@ route('POST', '/api/ui/tasks/:id/paste', async ({ params, body }) => store.mutat
     } else {
       t.status = '완료';
       t.runStartedAt = null;
+      t.completedAt = at;
+      t.completedBy = emp.id;
+      t.resultSummary = summarizeText(txt, 240);
       pushHistory(t, emp.id, '완료', '받은 답 붙여 넣음');
       syncRoutineLog(d, t);
     }
@@ -2819,6 +2884,12 @@ route('POST', '/api/agent/tasks/:id/status', async ({ params, body }) => store.m
   pushHistory(t, emp.id, status, note);
   syncRoutineLog(d, t);
   const result = text(body.result, 6000);
+  if (status === '완료') {
+    t.completedAt = nowIso();
+    t.completedBy = emp.id;
+    if (result) t.resultSummary = summarizeText(result, 240);
+    notifyOwner(d, `CONNECT AI HQ · ${emp.avatarName || emp.name} 완료`, t.title);
+  }
   if (result) addMsg(d, { thread: `task:${t.id}`, from: emp.id, fromKind: 'ai', kind: 'result', text: result, to: ['jay'], ...(modelOf(emp) ? { run: { label: '직원 보고', model: modelOf(emp) } } : {}) });
   sys(d, `task:${t.id}`, `${emp.name}: ${status}${note ? ` · ${note}` : ''}`);
   return taskView(d, t, false);
