@@ -183,7 +183,7 @@ test('처음 사용자 E2E 시뮬레이션: 9종 툴 connect(--dry-run/--yes/dis
     assert.ok(agyEmp && ocEmp, 'Antigravity 와 OpenCode 직원이 CLI 엔진으로 채용되어야 함');
     assert.equal(agyEmp.id, 'antigravity', 'connect --yes 를 온보딩 전에 먼저 실행해도 직원 ID 가 정확히 일치해야 함');
     assert.equal(ocEmp.id, 'opencode');
-    assert.equal(agyEmp.runMode, 'manual', '온보딩 직후 기본값은 안전한 manual');
+    assert.equal(agyEmp.runMode, 'auto', '온보딩 시 설치된 CLI AI 는 바로 자동 실행(auto) 상태로 시작해야 함');
     // MCP 출근(whoami)이 별칭(agy / claude)으로도 끊김 없이 연결되는지 확인
     const whoAgy = await fetch(`${origin}/api/agent/whoami?emp=antigravity`, { headers: { 'X-HQ-Agent': '1' } });
     assert.equal(whoAgy.status, 200);
@@ -255,6 +255,9 @@ test('처음 사용자 E2E 시뮬레이션: 9종 툴 connect(--dry-run/--yes/dis
 });
 
 test('한국어 시각 자동 추출 + 일반 실행 실패 시 다른 AI 자동 인계(failoverTrail) + 완료 결과물 요약(resultSummary) + 웹→로컬 1클릭 전환 실행', async () => {
+  assert.equal(extractKoreanTime('오후 5:11 이메일 체크'), '17:11');
+  assert.equal(extractKoreanTime('저녁 7:30 댓글 확인'), '19:30');
+  assert.equal(extractKoreanTime('오전 12:15 새벽 점검'), '00:15');
   assert.equal(extractKoreanTime('오후 4시 30분 egolite로 들어가서 이메일 전부 체크'), '16:30');
   assert.equal(extractKoreanTime('오전 9시 반 회의 준비'), '09:30');
   assert.equal(extractKoreanTime('저녁 8시 라이브 방송'), '20:00');

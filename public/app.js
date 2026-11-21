@@ -1757,6 +1757,18 @@ function pageHome() {
     !d.employees.length ? h('div', { class: 'callout' },
       h('div', null, h('b', null, '먼저 쓰는 AI를 직원으로 추가하세요.'), h('div', { class: 'small muted' }, 'ChatGPT, Claude, Gemini 처럼 이미 쓰는 AI를 고르면, 적은 일을 알맞은 AI에게 나눠 줍니다.')),
       h('button', { class: 'btn dark', onclick: openAddEmployee }, '직원 추가')) : null,
+    (() => {
+      const offInstalled = d.employees.filter((e) => (isInstalledCli(e) || (e.engine === 'local' && e.model)) && e.runMode === 'off');
+      if (!offInstalled.length) return null;
+      return h('div', { class: 'health-banner', style: 'margin-top:16px;margin-bottom:0' },
+        h('div', null,
+          h('span', { class: 'tag solid', style: 'margin-right:8px' }, '자동 실행 꺼짐'),
+          h('span', { class: 'small' }, `${offInstalled.map((e) => shortName(e.id)).join(' · ')} 자동 실행을 한 번만 켜두면, 할 일 추가·예약 시각에 누르지 않아도 알아서 실행됩니다.`)),
+        h('button', {
+          type: 'button', class: 'btn sm dark',
+          onclick: () => once('enable-auto-all', () => act('POST', '/api/ui/employees/enable-auto', {}, `${offInstalled.map((e) => shortName(e.id)).join(' · ')} 자동 실행을 켰어요`)),
+        }, '전원 자동 실행 켜기'));
+    })(),
     pendingApprs.length ? h('section', { class: 'sec' }, secHead('대표 확인 대기', `${pendingApprs.length}건 · 승인 전에 내용을 고칠 수 있어요`),
       pendingApprs.map(approvalInlineCard)) : null,
     overdue.length ? h('section', { class: 'sec' }, secHead('지난 날짜, 아직 안 끝남', `${overdue.length}개`), taskList(overdue, { draggable: false, overdue: true })) : null,

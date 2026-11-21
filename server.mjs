@@ -1935,10 +1935,10 @@ route('POST', '/api/ui/onboard', async ({ body }) => {
       let engine = c.engine;
       let model = '';
       let runMode = 'off';
-      if (CLI_ENGINES.includes(engine)) { if (det[engine]) runMode = 'manual'; else engine = 'web'; }
+      if (CLI_ENGINES.includes(engine)) { if (det[engine]) runMode = 'auto'; else engine = 'web'; }
       if (engine === 'local') {
         const m = det[c.local];
-        if (m) { model = m; runMode = 'manual'; } else continue;
+        if (m) { model = m; runMode = 'auto'; } else continue;
       }
       const e = makeEmployee(d, { name: c.name, role: c.role, engine, webUrl: c.url || '', model, general: c.general, runMode, group: c.group, catalog: c.key });
       e.catalog = c.key;
@@ -2386,6 +2386,24 @@ route('DELETE', '/api/ui/avatars/:id', async ({ params }) => store.mutate((d) =>
   if (d.settings.customAvatars.length === before) throw new HttpError(404, '보관함에 해당 캐릭터가 없어요.');
   return { ok: true, id: params.id };
 }), UI);
+
+// 설치된 CLI · 로컬 AI 직원의 자동 실행을 한 번에 켠다 (위험 게이트는 대표 승인 전 계속 잠김)
+route('POST', '/api/ui/employees/enable-auto', async () => {
+  const turned = await store.mutate((d) => {
+    const ids = [];
+    for (const e of d.employees) {
+      const cliOk = CLI_ENGINES.includes(e.engine) && Boolean(runnerInfo(e.engine)?.bin);
+      const localOk = e.engine === 'local' && Boolean(e.model);
+      if ((cliOk || localOk) && e.runMode !== 'auto') {
+        e.runMode = 'auto';
+        ids.push(e.id);
+      }
+    }
+    return ids;
+  });
+  if (turned.length) setTimeout(() => autoRun(new Date()).catch(() => {}), 200);
+  return { ok: true, turned, count: turned.length };
+}, UI);
 
 // 전체 AI 직원의 캐릭터 스타일 또는 팩(K-수호 크루 / 모던 랩 크루)을 한 번에 통일
 route('POST', '/api/ui/employees/avatar-style', async ({ body }) => {
