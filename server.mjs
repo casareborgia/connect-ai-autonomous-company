@@ -47,6 +47,7 @@ import { exportBlueprint, importBlueprint } from './lib/blueprint.mjs';
 import {
   DEFAULT_MAX_RAM_PCT, DEFAULT_MAX_HEAVY, detectQuotaError, isCoolingDown, cooldownRemainingMin,
   isSensitiveLocalTask, isHeavyTask, pickFallbackEmployee, buildMachineHealthMap, pickOptimalMachine,
+  autoWireEmployeeFallbacks, autoWireMachineFallbacks,
 } from './lib/optimizer.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -1663,13 +1664,13 @@ route('POST', '/api/ui/onboard', async ({ body }) => {
       e.catalog = c.key;
       made.push(e.id);
     }
-    // 기계: 이 컴퓨터는 늘, 나머지는 고른 것만
+    // 기계: 이 컴퓨터는 늘, 나머지는 고른 것만 (RAM 85% 상한 · 대체 컴퓨터 자동 연결)
     if (!d.resources.some((r) => r.kind === '기계' && r.isThisMac)) {
-      d.resources.push({ id: nextId(d, 'res'), kind: '기계', name: text(body.thisMac, 60) || '이 컴퓨터', hostname: '', port: 22, isThisMac: true, status: '사용 가능', note: '' });
+      d.resources.push({ id: nextId(d, 'res'), kind: '기계', name: text(body.thisMac, 60) || '이 컴퓨터', hostname: '', port: 22, isThisMac: true, maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '사용 가능', note: '' });
     }
     for (const mName of (Array.isArray(body.machines) ? body.machines : []).slice(0, 8)) {
       const n = text(mName, 60);
-      if (n && !d.resources.some((r) => r.name === n)) d.resources.push({ id: nextId(d, 'res'), kind: '기계', name: n, hostname: '', port: 22, isThisMac: false, status: '확인 필요', note: '' });
+      if (n && !d.resources.some((r) => r.name === n)) d.resources.push({ id: nextId(d, 'res'), kind: '기계', name: n, hostname: '', port: 22, isThisMac: false, maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '확인 필요', note: '' });
     }
     // 브라우저: 고른 것만 추가 (첫 번째가 기본 브라우저)
     const hasDefBrowser = d.resources.some((r) => r.kind === '브라우저' && r.isDefault);
@@ -1686,12 +1687,14 @@ route('POST', '/api/ui/onboard', async ({ body }) => {
       if (!o || d.resources.some((r) => r.kind === '오픈소스' && r.preset === o.key)) continue;
       d.resources.push({ id: nextId(d, 'res'), kind: '오픈소스', name: o.name, preset: o.key, when: o.when || '', command: o.command || '', skillPath: o.skillPath || '', status: '사용 가능', note: o.hint });
     }
-    // ~/.ssh/config 에서 찾고 대표가 확인한 컴퓨터 (별칭만 저장, 연결 확인은 내 리소스에서 누를 때)
+    // ~/.ssh/config 에서 찾고 대표가 확인한 컴퓨터 (별칭만 저장, 연결 확인은 AI 사무실에서 누를 때)
     const found = sshHosts();
     for (const alias of (Array.isArray(body.sshHosts) ? body.sshHosts : []).slice(0, 8)) {
       if (!found.includes(alias) || !validAlias(alias) || d.resources.some((r) => r.sshAlias === alias)) continue;
-      d.resources.push({ id: nextId(d, 'res'), kind: '기계', name: alias, hostname: '', port: 22, isThisMac: false, sshAlias: alias, status: '확인 필요', note: '~/.ssh/config 에서 찾음' });
+      d.resources.push({ id: nextId(d, 'res'), kind: '기계', name: alias, hostname: '', port: 22, isThisMac: false, sshAlias: alias, maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '확인 필요', note: '~/.ssh/config 에서 찾음' });
     }
+    autoWireEmployeeFallbacks(d);
+    autoWireMachineFallbacks(d);
     const routines = [];
     for (const rt of (Array.isArray(body.routines) ? body.routines : []).slice(0, 5)) {
       const title = text(rt?.title, 200);
@@ -2077,6 +2080,7 @@ route('POST', '/api/ui/employees', async ({ body }) => {
     if (!name) throw new HttpError(400, '이름이 필요합니다.');
     const e = makeEmployee(d, { name, role: text(body.role, 200) || cat?.role || '', engine, webUrl: cat?.url, general: cat?.general, group: body.group || cat?.group });
     if (cat) e.catalog = cat.key;
+    autoWireEmployeeFallbacks(d);
     return { ...e, reassigned: reassignUnmatched(d) };
   });
   refineMany(out.reassigned);
@@ -2144,6 +2148,7 @@ route('POST', '/api/ui/resources', async ({ body }) => store.mutate((d) => {
     Object.assign(r, { platform, preset: detectPreset(platform, permissions), permissions, browser, spaceName, assignee });
   }
   d.resources.push(r);
+  if (kind === '기계') autoWireMachineFallbacks(d);
   return r;
 }), UI);
 

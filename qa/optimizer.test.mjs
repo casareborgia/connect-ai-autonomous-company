@@ -242,3 +242,25 @@ test('컴퓨터 RAM 85% 초과 과부하 시 실행 차단 및 대기열(queued)
     fs.rmSync(binDir, { recursive: true, force: true });
   }
 });
+
+test('처음 시작(빈 상태 온보딩) 시 AI 직원·사무실 대체 순위 및 RAM 85% 상한 자동 연결', async () => {
+  const srv = await startTestServer({ AIHQ_SEED: '' });
+  try {
+    const ob1 = await srv.ui('POST', '/api/ui/onboard', {
+      name: '민지',
+      company: '민지 스튜디오',
+      ais: ['chatgpt', 'claude'],
+      machines: ['Mac Studio'],
+      browsers: ['egolite'],
+    });
+    assert.equal(ob1.status, 200);
+    const st = await srv.ui('GET', '/api/state');
+    assert.equal(st.body.data.employees.length, 2);
+    assert.ok(st.body.data.employees.every((e) => Boolean(e.fallbackTo) && e.fallbackTo !== e.id), '온보딩으로 채용한 AI 직원 간 대체 순위가 자동 연결됨');
+    const machines = st.body.data.resources.filter((r) => r.kind === '기계');
+    assert.equal(machines.length, 2);
+    assert.ok(machines.every((m) => m.maxRamPct === 85 && Boolean(m.fallbackTo) && m.fallbackTo !== m.id), '이 컴퓨터 ↔ Mac Studio 간 RAM 85% 상한 및 대체 컴퓨터가 자동 연결됨');
+  } finally {
+    await srv.stop();
+  }
+});

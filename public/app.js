@@ -1,5 +1,5 @@
 // AI 회사 본사 · 화면
-// 네 칸: 내 할 일, 매일 할 일, 내 직원, 내 리소스.
+// 네 칸: 오늘 할 일, 자동 루틴, AI 직원, AI 사무실.
 // 모든 데이터는 textContent 로만 넣는다 (AI가 쓴 글은 데이터일 뿐, 절대 실행하지 않음).
 'use strict';
 
@@ -390,7 +390,7 @@ function render() {
   ui.lastThread = ui.open;
 }
 
-const NAV = [['home', '내 할 일'], ['daily', '매일 할 일'], ['staff', '내 직원'], ['resources', '내 리소스']];
+const NAV = [['home', '오늘 할 일'], ['daily', '자동 루틴'], ['staff', 'AI 직원'], ['resources', 'AI 사무실']];
 function hiddenOn() { return (window.HIDDEN || []).filter((x) => features()[x.flag]); }
 
 function pageFor(route) {
@@ -748,7 +748,7 @@ function taskDetail(t, e) {
     h('div', { class: 'd-bar' },
       h('div', { class: 'row' },
         h('button', { class: 'btn sm', onclick: () => { if (confirm(`이 할 일을 지울까요?\n${t.title}`)) { ui.open = null; act('DELETE', `/api/ui/tasks/${t.id}`, undefined, '지웠어요'); } } }, '지우기'),
-        !t.routineId ? h('button', { class: 'btn sm', onclick: () => once(`tor-${t.id}`, async () => { await flushIfDirty(); await act('POST', `/api/ui/tasks/${t.id}/to-routine`, {}, '매일 할 일에 넣었어요'); }) }, '매일 루틴으로') : null,
+        !t.routineId ? h('button', { class: 'btn sm', onclick: () => once(`tor-${t.id}`, async () => { await flushIfDirty(); await act('POST', `/api/ui/tasks/${t.id}/to-routine`, {}, '자동 루틴에 넣었어요'); }) }, '자동 루틴으로') : null,
         h('select', { class: 'in sm', style: 'width:96px', 'aria-label': '상태', onchange: (ev) => act('PATCH', `/api/ui/tasks/${t.id}`, { status: ev.target.value }) },
           S.options.statuses.map((s) => h('option', { value: s, selected: s === t.status }, s)))),
       h('div', { class: 'row' },
@@ -1494,7 +1494,7 @@ function pageDaily() {
   const visible = d.routines.filter((r) => !r.feature || features()[r.feature]);
   const ivList = S.options.intervalMins || [5, 15, 30, 60];
   const curSched = ui.rtSched || 'time';
-  const title = h('input', { class: 'in', placeholder: '예: 이메일 체크, 8시 영상 편집 (아래에서 담당 직접 선택 가능)', 'data-k': 'rt-title', 'aria-label': '매일 할 일' });
+  const title = h('input', { class: 'in', placeholder: '예: 이메일 체크, 8시 영상 편집 (아래에서 담당 직접 선택 · 컴퓨터는 자동 최적화)', 'data-k': 'rt-title', 'aria-label': '자동 루틴' });
   const schedSel = h('select', { class: 'in', 'data-k': 'rt-sched', style: 'width:128px', 'aria-label': '반복 주기' },
     h('option', { value: 'time', selected: curSched === 'time' }, '매일 시각'),
     ivList.map((m) => h('option', { value: String(m), selected: curSched === String(m) }, m === 60 ? '1시간마다' : `${m}분마다`)));
@@ -1604,7 +1604,7 @@ function pageDaily() {
           dots7(r),
           human ? h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: r.alarm, onchange: (ev) => act('PATCH', `/api/ui/routines/${r.id}`, { alarm: ev.target.checked }) }), h('span', { class: 'tr' }), '알람') : null,
           h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: r.enabled !== false, onchange: (ev) => act('PATCH', `/api/ui/routines/${r.id}`, { enabled: ev.target.checked }) }), h('span', { class: 'tr' }), '켜짐'),
-          h('button', { class: 'x', 'aria-label': `${r.title} 지우기`, onclick: () => { if (confirm(`이 매일 할 일을 지울까요?\n${r.title}`)) act('DELETE', `/api/ui/routines/${r.id}`, undefined, '지웠어요'); } }, '×'))),
+          h('button', { class: 'x', 'aria-label': `${r.title} 지우기`, onclick: () => { if (confirm(`이 루틴을 지울까요?\n${r.title}`)) act('DELETE', `/api/ui/routines/${r.id}`, undefined, '지웠어요'); } }, '×'))),
       picking ? h('div', { class: 'r-who' }, assigneePicker(r.assignee, (id) => { ui.rtPicking = null; act('PATCH', `/api/ui/routines/${r.id}`, { assignee: id }, `${shortName(id)}에게 맡겼어요`); })) : null,
       h('div', { class: 'small muted', style: 'margin-top:6px' }, [r.reason, autoText].filter(Boolean).join(' · ')),
       h('details', { 'data-k': `rt-d-${r.id}`, style: 'margin-top:10px' }, h('summary', null, foldLabel),
@@ -1653,7 +1653,7 @@ function pageDaily() {
         h('button', { type: 'button', class: 'btn sm', onclick: openBlueprintExport }, '청사진 내보내기'),
         h('button', { type: 'button', class: 'btn sm dark', onclick: openBlueprintImport }, '청사진 가져오기'))));
   return h('div', null,
-    h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, '매일 할 일')),
+    h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, '자동 루틴')),
       h('div', { class: 'sub' }, '정해진 시각 또는 5분~1시간 간격으로 AI가 프롬프트대로 반복 실행합니다.')),
     h('div', { class: 'row' },
       h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: d.settings.alarmsEnabled, onchange: (ev) => act('PATCH', '/api/ui/settings', { alarmsEnabled: ev.target.checked }, ev.target.checked ? '알람을 켰어요' : '알람을 껐어요') }), h('span', { class: 'tr' }), h('b', null, '알람')),
@@ -1663,8 +1663,8 @@ function pageDaily() {
     whoBar,
     h('div', { style: 'margin-top:10px' }, days),
     packBox,
-    h('section', { class: 'sec' }, secHead('내가 매일 할 일', `${people.length}개 · 알람은 정한 시각에 이 컴퓨터에 뜹니다`), people.length ? h('ul', { class: 'routines' }, people.map(row)) : h('div', { class: 'empty' }, '없습니다')),
-    h('section', { class: 'sec' }, secHead('AI 직원이 매일 할 일', `${ais.length}개`), ais.length ? h('ul', { class: 'routines' }, ais.map(row)) : h('div', { class: 'empty' }, '없습니다. 위에 적으면 맞는 AI 직원에게 배분합니다.')));
+    h('section', { class: 'sec' }, secHead('AI 자동 루틴', `${ais.length}개 · 시간이나 주기마다 AI가 실행합니다`), ais.length ? h('ul', { class: 'routines' }, ais.map(row)) : h('div', { class: 'empty' }, '없습니다. 위에서 담당 AI를 골라 추가하거나 실습 루틴 팩을 담아 보세요.')),
+    h('section', { class: 'sec' }, secHead('대표 루틴 (알람)', `${people.length}개 · 알람은 정한 시각에 이 컴퓨터에 뜹니다`), people.length ? h('ul', { class: 'routines' }, people.map(row)) : h('div', { class: 'empty' }, '없습니다')));
 }
 
 // ───────── 내 직원 ─────────
@@ -1841,8 +1841,8 @@ function pageStaff() {
   const total = d.employees.reduce((s, e) => s + (Number(e.salary) || 0), 0);
   const unknown = d.employees.filter((e) => e.salary === null || e.salary === undefined).length;
   return h('div', null,
-    h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, '내 직원')),
-      h('div', { class: 'sub' }, `AI 직원 ${d.employees.length}명 · 월급 합계 월 ${won(total)}${unknown ? ` · 미입력 ${unknown}명` : ''}`)),
+    h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, 'AI 직원')),
+      h('div', { class: 'sub' }, `AI 직원 ${d.employees.length}명 · 월급 합계 월 ${won(total)}${unknown ? ` · 미입력 ${unknown}명` : ''} · 토큰 한도 시 대체 직원으로 자동 전환`)),
     h('div', { class: 'row' },
       h('button', { class: 'btn sm', onclick: openConnectModal }, 'AI 도구 연결 (MCP · 스킬)'),
       h('button', { class: 'btn dark sm', onclick: openAddEmployee }, '직원 추가'))),
@@ -1855,7 +1855,7 @@ function pageStaff() {
         h('div', { class: 'cards' }, list.map(empCard)));
     }),
     quietLine(),
-    h('p', { class: 'small muted', style: 'margin-top:16px' }, '실행: 꺼짐 = 앱이 실행하지 않음 · 누를 때만 = 할 일에서 실행 버튼 · 자동 실행 = 매일 할 일이 시간이 되면 혼자 시작. 복사해서 맡기는 직원은 실행 설정이 필요 없어요.'));
+    h('p', { class: 'small muted', style: 'margin-top:16px' }, '실행: 꺼짐 = 앱이 실행하지 않음 · 누를 때만 = 할 일에서 실행 버튼 · 자동 실행 = 자동 루틴이 시간이 되면 혼자 시작. 복사해서 맡기는 직원은 실행 설정이 필요 없어요.'));
 }
 
 // ───────── 내 리소스 ─────────
@@ -1978,7 +1978,7 @@ function musePanel() {
   const line = !m.enabled ? '' : `${m.statusText || ''}${m.lastRunAt ? ` · ${stamp(m.lastRunAt)}` : ''}`;
   const hostPick = h('div', { class: 'picker', role: 'group', 'aria-label': 'Muse 를 읽을 곳' },
     h('button', { type: 'button', class: `chip${host === 'local' ? ' on' : ''}`, 'aria-pressed': host === 'local' ? 'true' : 'false', onclick: () => host !== 'local' && setHost('local') }, '이 컴퓨터'),
-    h('button', { type: 'button', class: `chip${host === 'office' ? ' on' : ''}`, 'aria-pressed': host === 'office' ? 'true' : 'false', disabled: !offices.length, title: offices.length ? '' : '내 리소스에서 사무실 기계의 ssh 별칭을 넣으면 고를 수 있어요', onclick: () => host !== 'office' && setHost('office') }, officeLabel));
+    h('button', { type: 'button', class: `chip${host === 'office' ? ' on' : ''}`, 'aria-pressed': host === 'office' ? 'true' : 'false', disabled: !offices.length, title: offices.length ? '' : 'AI 사무실에서 사무실 컴퓨터의 ssh 별칭을 넣으면 고를 수 있어요', onclick: () => host !== 'office' && setHost('office') }, officeLabel));
   const how = host === 'office' ? `한 번만: 화면 공유로 ${place}에 들어가 Ego Lite를 열고 Muse에 직접 로그인해 두세요.` : '한 번만: 이 컴퓨터에서 Ego Lite를 열고 Muse에 직접 로그인해 두세요.';
   return h('section', { class: 'sec' }, secHead('Muse'),
     h('div', { class: 'lan' },
@@ -2429,8 +2429,8 @@ function pageResources() {
   const add = () => submitInput(name, 'add-res', (v) => act('POST', '/api/ui/resources', { name: v, kind: kind.value }, '추가했어요'));
   name.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) add(); });
   return h('div', null,
-    h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, '내 리소스')),
-      h('div', { class: 'sub' }, '여기에 한 번만 넣어 두면 할 일 프롬프트에 이름만 써도 AI가 알아서 연결합니다.')),
+    h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, 'AI 사무실')),
+      h('div', { class: 'sub' }, '브라우저 · 계정 · 오픈소스 · 디자인 · 컴퓨터를 한 번만 등록하면 오늘 할 일과 자동 루틴에 즉시 적용됩니다.')),
     h('button', { class: 'btn', onclick: () => { loadOffice(); loadTools(); } }, '다시 읽기')),
     h('div', { class: 'picker', style: 'margin-bottom:20px' }, tabs.map(([k, label]) => h('button', {
       type: 'button', class: `chip${tab === k ? ' on' : ''}`, onclick: () => { ui.resTab = k; render(); },
@@ -2547,7 +2547,7 @@ function pageStart() {
     const chips = ['Mac mini', 'Mac Studio', 'MacBook Pro', 'MacBook Air', 'Windows PC'];
     const toggle = (set, v) => { if (set.has(v)) set.delete(v); else set.add(v); render(); };
     const done = async () => { const r = await obSend({ machines: [...ob.machines], sshHosts: [...ob.ssh], browsers: [...ob.browsers], openSource: [...ob.oss] }); if (r) next(4); };
-    return obShell(3, '컴퓨터와 도구를 확인해 주세요.', '이 컴퓨터는 본사로 자동 등록돼요. 웹 자동화에 쓸 브라우저와 설치된 도구를 골라 두세요 (나중에 내 리소스에서 바꿀 수 있어요).',
+    return obShell(3, '컴퓨터와 도구를 확인해 주세요.', '이 컴퓨터는 본사로 자동 등록돼요. 웹 자동화에 쓸 브라우저와 설치된 도구를 골라 두면 바로 적용됩니다 (나중에 AI 사무실에서 바꿀 수 있어요).',
       h('div', null,
         h('div', { class: 'card' }, h('div', { class: 'row' }, h('b', null, '이 컴퓨터 · 본사'), h('span', { class: 'tag' }, '자동')),
           h('div', { class: 'small muted' }, [M.chip, M.memoryGB ? `메모리 ${M.memoryGB}GB` : '', M.diskFreeGB ? `여유 ${M.diskFreeGB}GB` : ''].filter(Boolean).join(' · ') || '읽는 중')),
@@ -2633,10 +2633,10 @@ function pageStart() {
     ui.ob = null;
     location.hash = '#home';
   });
-  return obShell(6, '돈과 공개는 대표님 손으로만', '결제, 업로드, 게시, 삭제, 메시지 발송이 들어간 일은 대표님이 누를 때까지 AI가 시작하지 못해요. 원하시면 첫 매일 루틴도 하나 골라 바로 시작해 보세요.',
+  return obShell(6, '돈과 공개는 대표님 손으로만', '결제, 업로드, 게시, 삭제, 메시지 발송이 들어간 일은 대표님이 누를 때까지 AI가 시작하지 못해요. 원하시면 첫 자동 루틴도 하나 골라 바로 시작해 보세요.',
     h('div', null,
       h('div', { class: 'ob-assign' }, h('span', { class: 'who-chip ai' }, 'AI'), h('div', null, h('b', null, '광고비 5만원 결제'), h('div', { class: 'small muted' }, '결제가 들어간 일 → 사람')), h('span', { class: 'btn sm dark', 'aria-hidden': 'true' }, '결제 확인')),
-      h('div', { class: 'ob-group' }, h('div', { class: 'small muted' }, '첫 매일 루틴 하나 담아 볼까요? (선택, 프롬프트까지 채워서 들어갑니다)'),
+      h('div', { class: 'ob-group' }, h('div', { class: 'small muted' }, '첫 자동 루틴 하나 담아 볼까요? (선택, 프롬프트까지 채워서 들어갑니다)'),
         h('div', { class: 'ob-routines' }, STARTER_ROUTINES.map((rt) => {
           const on = ob.routines.has(rt.key);
           const sched = rt.intervalMin ? `${rt.intervalMin}분마다` : rt.time;
