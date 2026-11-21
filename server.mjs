@@ -84,6 +84,14 @@ function migrate(d) {
     e.model = e.model || '';
     e.runMode = e.runMode || (e.runEnabled ? 'manual' : 'off');
     delete e.runEnabled;
+    if (e.userPaused === undefined) e.userPaused = false;
+    // 이 컴퓨터에 실행 가능한 CLI·로컬 AI 가 설치되어 있고 대표가 직접 끈 적이 없으면 자동으로 '자동 실행(auto)' 활성화
+    const allowAutoBoot = process.env.AIHQ_DISPATCH !== '0' || process.env.AIHQ_AUTO_ENABLE === '1';
+    if (allowAutoBoot && !e.userPaused && e.runMode === 'off') {
+      const cliReady = CLI_ENGINES.includes(e.engine) && Boolean(runnerInfo(e.engine)?.bin);
+      const localReady = e.engine === 'local' && Boolean(e.model);
+      if (cliReady || localReady) e.runMode = 'auto';
+    }
     e.manual = e.manual || '';
     e.resources = e.resources || [];
     e.abilities = e.abilities || [];
@@ -2286,6 +2294,7 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
   if (body.runMode !== undefined) {
     if (!RUN_MODES.includes(body.runMode)) throw new HttpError(400, '실행 방식은 꺼짐, 누를 때만, 자동 실행 중 하나입니다.');
     e.runMode = e.engine === 'none' || e.engine === 'web' ? 'off' : body.runMode;
+    e.userPaused = body.runMode === 'off';
   }
   if (body.fallbackTo !== undefined) {
     if (!body.fallbackTo) e.fallbackTo = null;
@@ -2352,9 +2361,11 @@ function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, 
   const eng = ENGINES.includes(engine) ? engine : 'web';
   const avKey = avatar && AVATAR_PRESETS.some((a) => a.key === avatar) ? avatar : defaultAvatarFor({ name, role });
   const avStyle = avatarStyle && AVATAR_STYLES.some((s) => s.key === avatarStyle) ? avatarStyle : 'studio';
+  const defaultRun = (CLI_ENGINES.includes(eng) && Boolean(runnerInfo(eng)?.bin)) || (eng === 'local' && Boolean(model)) ? 'auto' : 'off';
   const e = {
     id, name, group: g, role: role || '', tools: [], runsOn: '', command: '', salary: null, engine: eng, model: model || '',
-    runMode: eng === 'web' || eng === 'none' ? 'off' : (RUN_MODES.includes(runMode) ? runMode : 'off'),
+    runMode: eng === 'web' || eng === 'none' ? 'off' : (RUN_MODES.includes(runMode) ? runMode : defaultRun),
+    userPaused: runMode === 'off',
     webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: '', resources: [], abilities: [],
     avatar: avKey, avatarStyle: avStyle, avatarName: text(avatarName || '', 40), avatarImage: avatarImage || '', persona: text(persona || '', 80),
     fallbackTo: null, cooldownUntil: null, cooldownReason: '',
@@ -2396,6 +2407,7 @@ route('POST', '/api/ui/employees/enable-auto', async () => {
       const localOk = e.engine === 'local' && Boolean(e.model);
       if ((cliOk || localOk) && e.runMode !== 'auto') {
         e.runMode = 'auto';
+        e.userPaused = false;
         ids.push(e.id);
       }
     }

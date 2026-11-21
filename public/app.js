@@ -720,30 +720,23 @@ function taskRow(t, { draggable = true, overdue = false } = {}) {
   const msgs = S.data.messages.filter((m) => m.thread === `task:${t.id}` && m.fromKind !== 'system').length;
   const stLen = (t.steps || []).length;
   const stDone = stLen ? t.steps.filter((s) => s.status === '완료').length : 0;
+  const nowHm = `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
+  const isFutureScheduled = Boolean(!done && t.date === S.today && t.time && t.time > nowHm && e && e.runMode === 'auto');
   const quickRun = (!done && !gated && e && !t.officeRun && !workJob)
-    ? (canRun(e)
-      ? h('button', {
-        type: 'button', class: 'btn sm dark', title: `${shortName(e.id)} 지금 바로 실행`,
-        onclick: (ev) => {
-          ev.stopPropagation();
-          once(`qrun-${t.id}`, async () => {
-            const r = await act('POST', `/api/ui/tasks/${t.id}/run`, {});
-            if (r?.queued) toast(`⏳ 대기열: ${r.reason || '여유 생기면 자동 시작해요'}`);
-            else if (r) toast(`${shortName(r.empId || e.id)}이(가) 작업을 시작했어요`);
-          });
-        },
-      }, t.status === '막힘' ? '재시도' : '실행')
-      : (isInstalledCli(e) && e.runMode === 'off')
+    ? (isFutureScheduled
+      ? h('span', { class: 'tag', title: `${t.time}이 되면 ${shortName(e.id)}이(가) 자동으로 시작합니다` }, `예약 ${t.time}`)
+      : canRun(e)
         ? h('button', {
-          type: 'button', class: 'btn sm', title: `${e.name} 자동 실행을 켜고 지금 바로 실행`,
+          type: 'button', class: 'btn sm dark', title: `${shortName(e.id)} 지금 바로 실행`,
           onclick: (ev) => {
             ev.stopPropagation();
             once(`qrun-${t.id}`, async () => {
-              const r = await act('POST', `/api/ui/tasks/${t.id}/run`, { enableAuto: true });
-              if (r) toast(`${shortName(e.id)} 자동 실행을 켜고 작업을 시작했어요`);
+              const r = await act('POST', `/api/ui/tasks/${t.id}/run`, {});
+              if (r?.queued) toast(`⏳ 대기열: ${r.reason || '여유 생기면 자동 시작해요'}`);
+              else if (r) toast(`${shortName(r.empId || e.id)}이(가) 작업을 시작했어요`);
             });
           },
-        }, '켜고 실행')
+        }, t.status === '막힘' ? '재시도' : '실행')
         : (e.engine === 'web' ? h('span', { class: 'tag dash', title: '웹 전용 AI — 눌러서 설치된 AI로 바로 실행하거나 지시문 복사' }, '웹 복사') : null))
     : null;
   const right = h('div', { class: 'right' },
@@ -1757,18 +1750,6 @@ function pageHome() {
     !d.employees.length ? h('div', { class: 'callout' },
       h('div', null, h('b', null, '먼저 쓰는 AI를 직원으로 추가하세요.'), h('div', { class: 'small muted' }, 'ChatGPT, Claude, Gemini 처럼 이미 쓰는 AI를 고르면, 적은 일을 알맞은 AI에게 나눠 줍니다.')),
       h('button', { class: 'btn dark', onclick: openAddEmployee }, '직원 추가')) : null,
-    (() => {
-      const offInstalled = d.employees.filter((e) => (isInstalledCli(e) || (e.engine === 'local' && e.model)) && e.runMode === 'off');
-      if (!offInstalled.length) return null;
-      return h('div', { class: 'health-banner', style: 'margin-top:16px;margin-bottom:0' },
-        h('div', null,
-          h('span', { class: 'tag solid', style: 'margin-right:8px' }, '자동 실행 꺼짐'),
-          h('span', { class: 'small' }, `${offInstalled.map((e) => shortName(e.id)).join(' · ')} 자동 실행을 한 번만 켜두면, 할 일 추가·예약 시각에 누르지 않아도 알아서 실행됩니다.`)),
-        h('button', {
-          type: 'button', class: 'btn sm dark',
-          onclick: () => once('enable-auto-all', () => act('POST', '/api/ui/employees/enable-auto', {}, `${offInstalled.map((e) => shortName(e.id)).join(' · ')} 자동 실행을 켰어요`)),
-        }, '전원 자동 실행 켜기'));
-    })(),
     pendingApprs.length ? h('section', { class: 'sec' }, secHead('대표 확인 대기', `${pendingApprs.length}건 · 승인 전에 내용을 고칠 수 있어요`),
       pendingApprs.map(approvalInlineCard)) : null,
     overdue.length ? h('section', { class: 'sec' }, secHead('지난 날짜, 아직 안 끝남', `${overdue.length}개`), taskList(overdue, { draggable: false, overdue: true })) : null,
