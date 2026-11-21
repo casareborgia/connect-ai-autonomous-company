@@ -515,104 +515,336 @@
     return svg;
   }
 
-  // AI 직원 화이트·블랙 미니멀 캐릭터 아바타 (8종 SVG, 상태별 애니메이션)
-  function avatarSvg(key = 'bot', { size = 44, state = 'idle' } = {}) {
+  // CONNECT AI LAB 오리지널 컬러 크루 8종 (코딩 모션그래픽 · 픽셀 펫 · 컬러 미니멀)
+  const CREW_PALETTE = {
+    nova: { bg: '#FFF3EE', main: '#FF7A59', sub: '#FDE68A', skin: '#FFE4D1', hair: '#4A3728', accent: '#34D399' },
+    volt: { bg: '#EFF9FF', main: '#38BDF8', sub: '#FACC15', skin: '#FFE7D6', hair: '#2B3A55', accent: '#60A5FA' },
+    lumi: { bg: '#F4F0FF', main: '#8B5CF6', sub: '#FDE047', skin: '#FFE6DC', hair: '#3B2F63', accent: '#C4B5FD' },
+    momo: { bg: '#FFF0F7', main: '#F472B6', sub: '#38BDF8', skin: '#FFFFFF', hair: '#FBCFE8', accent: '#FDE047' },
+    coco: { bg: '#ECFDF5', main: '#10B981', sub: '#FACC15', skin: '#FFE5D4', hair: '#334155', accent: '#FB7185' },
+    bobo: { bg: '#FFFBEB', main: '#FBBF24', sub: '#22C55E', skin: '#1E293B', hair: '#F59E0B', accent: '#F472B6' },
+    pip:  { bg: '#FFF5EB', main: '#FB923C', sub: '#2DD4BF', skin: '#FFE4D1', hair: '#43302B', accent: '#38BDF8' },
+    zing: { bg: '#FFF0F3', main: '#FDE047', sub: '#FB7185', skin: '#FEF08A', hair: '#F43F5E', accent: '#38BDF8' },
+  };
+
+  // 16x16 컬러 픽셀 아트 도트맵 (문자별 색 매핑)
+  const PIXEL_GRIDS = {
+    nova: [
+      '.....mmmmmm.....',
+      '....mmmmmmmm....',
+      '...mhhhhhhhm....',
+      '...hsssssssh....',
+      '..hhssksSksshh..',
+      '..hssskssskssh..',
+      '..hssppssppssh..',
+      '...hsssssssssh..',
+      '....hsssssssh...',
+      '...mmmssssmmm...',
+      '..mmmmmmmmmmmm..',
+      '..mmmmaaaammmm..',
+      '..mmmmmmmmmmmm..',
+      '...mm......mm...',
+    ],
+    volt: [
+      '....mmmmmmmm....',
+      '...mmmmmmmmmm...',
+      '..ummhhhhhhmmu..',
+      '..umhsssssshmu..',
+      '..umssksSkssmu..',
+      '..umssksssksmu..',
+      '..umsppssppsmu..',
+      '...mssssssssm...',
+      '...mmmmmmmmmm...',
+      '..mmmmmmmmmmmm..',
+      '..mmmaaaaaammm..',
+      '..mmmaauuaammm..',
+      '..mmmmmmmmmmmm..',
+      '...mm......mm...',
+    ],
+    lumi: [
+      '....mmmmmmmm....',
+      '...mmmmmmummm...',
+      '..mmmhhhhhhmmm..',
+      '..mmhsssssshmm..',
+      '..mmssksSkssmm..',
+      '..mmssksssksmm..',
+      '..mmsppssppsmm..',
+      '..mmmssssssmmm..',
+      '...mmmmmmmmmm...',
+      '..mmmmmmmmmmmm..',
+      '..mmmmaaaammmm..',
+      '..mmmaauuaammm..',
+      '..mmmmmmmmmmmm..',
+      '...mm......mm...',
+    ],
+    momo: [
+      '.....wwwwww.....',
+      '...wwwwwwwwww...',
+      '..wwwwwwwwwwww..',
+      '..wwwwwwwwwwww..',
+      '.wwwkwwwwwwkwww.',
+      '.wwppwwwwwwppww.',
+      '.wwwwwwkkwwwwww.',
+      '..wwwwwwwwwwww..',
+      '..mmmmmmmmmmmm..',
+      '...mmmmmmmmmm...',
+      '..wwwwmmmmwwww..',
+      '..wwwuuuuuuwww..',
+      '...wwuuuuuuww...',
+      '....wwwwwwww....',
+    ],
+    coco: [
+      '...mmmmmmmmmm...',
+      '..mmmmmmmmmmmm..',
+      '..mmhhhhhhhhmm..',
+      '...hssssssssh...',
+      '..hhssksSksshh..',
+      '..hssskssskssh..',
+      '..hssppssppssh..',
+      '...hsssssssssh..',
+      '...mmmuuuummm...',
+      '..mmmuummmmmmm..',
+      '..mmummmaaammm..',
+      '..mmmmmmaaammm..',
+      '...mmmmmmmmmm...',
+      '...mm......mm...',
+    ],
+    bobo: [
+      '.......uu.......',
+      '......uuuu......',
+      '.......uu.......',
+      '...mmmmmmmmmm...',
+      '..mmmmmmmmmmmm..',
+      '..mmkkkkkkkkmm..',
+      '..mmkwwkkwwkmm..',
+      '..mmkpkwwkpkmm..',
+      '..mmkkkkkkkkmm..',
+      '..mmmmmmmmmmmm..',
+      '..mmmmaaaammmm..',
+      '..mmmmmmmmmmmm..',
+      '...mmmmmmmmmm...',
+      '....mm....mm....',
+    ],
+    pip: [
+      '....mmmmmmmm....',
+      '...mmmmmmmmmm...',
+      '...mhhhhhhhhm...',
+      '...hssssssssh...',
+      '..hhssksSksshh..',
+      '..hssskssskssh..',
+      '..hssppssppssh..',
+      '...hsssssssssh..',
+      '...wwwmmmmwww...',
+      '..mmmmmmmmmmmm..',
+      '..mmuuuuuuuumm..',
+      '..mmukukukukmm..',
+      '..mmuuuuuuuumm..',
+      '...mm......mm...',
+    ],
+    zing: [
+      '.......mm.......',
+      '......mmmm......',
+      '.....mmmmmm.....',
+      '..mmmmmmmmmmmm..',
+      '.mmuuummmmuuumm.',
+      '.mmuukmmmmkuumm.',
+      '..mmmmkmmkmmmm..',
+      '...mmppmmppmm...',
+      '....mmmmmmmm....',
+      '...mmmmmmmmmm...',
+      '..mmmmmmmmmmmm..',
+      '..mmmaaaaaammm..',
+      '...mmm....mmm...',
+      '...mm......mm...',
+    ],
+  };
+
+  function pixelAvatarSvg(key, pal, { size, state }) {
     const working = state === 'working';
     const cooling = state === 'cooling';
-    const bg = working ? INK : '#f5f5f5';
-    const stroke = working ? '#ffffff' : INK;
-    const fillMain = working ? '#ffffff' : INK;
-    const fillSub = working ? '#111111' : '#ffffff';
-    const bd = working ? INK : cooling ? '#a8a8a8' : '#e0e0e0';
-
     const svg = s('svg', {
-      viewBox: '0 0 48 48',
-      width: size,
-      height: size,
-      class: `avatar-svg${working ? ' working' : ''}${cooling ? ' cool' : ''}`,
-      role: 'img',
-      'aria-label': `AI 직원 캐릭터 ${key}`,
+      viewBox: '0 0 20 20', width: size, height: size,
+      class: `avatar-svg av-pixel${working ? ' working' : ''}${cooling ? ' cool' : ''}`,
+      'shape-rendering': 'crispEdges', role: 'img', 'aria-label': `AI 직원 픽셀 캐릭터 ${key}`,
+    });
+    svg.appendChild(s('rect', { x: 0, y: 0, width: 20, height: 20, rx: 4.5, fill: pal.bg }));
+    const colorMap = {
+      m: pal.main, u: pal.sub, s: pal.skin, h: pal.hair, a: pal.accent,
+      w: '#FFFFFF', k: '#1E293B', S: '#1E293B', p: '#FF9EBB',
+    };
+    const grid = PIXEL_GRIDS[key] || PIXEL_GRIDS.bobo;
+    const body = s('g', { class: 'av-px-body' });
+    grid.forEach((row, r) => {
+      for (let c = 0; c < row.length; c++) {
+        const ch = row[c];
+        const fill = colorMap[ch];
+        if (!fill) continue;
+        body.appendChild(s('rect', { x: c + 2, y: r + 3, width: 1, height: 1, fill }));
+      }
+    });
+    svg.appendChild(body);
+    if (working) {
+      svg.appendChild(s('rect', { x: 16, y: 2, width: 2, height: 2, fill: pal.main, class: 'av-spark1' }));
+      svg.appendChild(s('rect', { x: 2, y: 3, width: 1.5, height: 1.5, fill: pal.sub, class: 'av-spark2' }));
+    } else if (cooling) {
+      svg.appendChild(s('rect', { x: 13, y: 1.5, width: 5.5, height: 3.6, rx: 1.5, fill: '#111' }));
+      svg.appendChild(s('text', { x: 15.7, y: 4.2, 'text-anchor': 'middle', 'font-size': 2.8, 'font-weight': 700, fill: '#fff', 'font-family': 'Pretendard, sans-serif' }, 'zZ'));
+    }
+    return svg;
+  }
+
+  function avatarSvg(key = 'bobo', { size = 44, state = 'idle', style = 'motion' } = {}) {
+    const legacy = { fox: 'nova', cat: 'volt', owl: 'lumi', whale: 'momo', rabbit: 'coco', bot: 'bobo', bear: 'pip', spark: 'zing' };
+    const k = CREW_PALETTE[key] ? key : (legacy[key] || 'bobo');
+    const pal = CREW_PALETTE[k];
+    if (style === 'pixel') return pixelAvatarSvg(k, pal, { size, state });
+
+    const working = state === 'working';
+    const cooling = state === 'cooling';
+    const animated = style === 'motion';
+    const svg = s('svg', {
+      viewBox: '0 0 64 64', width: size, height: size,
+      class: `avatar-svg${animated ? ' av-motion' : ''}${working ? ' working' : ''}${cooling ? ' cool' : ''}`,
+      role: 'img', 'aria-label': `AI 직원 캐릭터 ${k}`,
     });
 
+    // 컬러 파스텔 배경 + 깔끔한 라운드 프레임
     svg.appendChild(s('rect', {
-      x: 1.5, y: 1.5, width: 45, height: 45, rx: 12,
-      fill: bg, stroke: bd, 'stroke-width': working ? 1.5 : 1,
-      'stroke-dasharray': cooling ? '3 2.5' : null,
+      x: 1.5, y: 1.5, width: 61, height: 61, rx: 16,
+      fill: pal.bg,
+      stroke: working ? pal.main : cooling ? '#cbd5e1' : 'rgba(17,17,17,0.08)',
+      'stroke-width': working ? 2.2 : 1.2,
+      'stroke-dasharray': cooling ? '4 3' : null,
     }));
 
-    const g = s('g', { fill: 'none', stroke, 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+    // 부드러운 바닥 그림자
+    svg.appendChild(s('ellipse', { cx: 32, cy: 55.5, rx: 14, ry: 3, fill: pal.main, opacity: 0.16 }));
 
-    if (key === 'fox') {
-      // 전략가 여우
-      g.appendChild(s('path', { d: 'M13 14 L18 22 L30 22 L35 14 L36 28 L24 37 L12 28 Z', fill: fillSub }));
-      g.appendChild(s('path', { d: 'M13 14 L16 20 M35 14 L32 20' }));
-      g.appendChild(s('circle', { cx: 19.5, cy: 26.5, r: 1.4, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('circle', { cx: 28.5, cy: 26.5, r: 1.4, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('polygon', { points: '22,31.5 26,31.5 24,34', fill: fillMain, stroke: 'none' }));
-    } else if (key === 'owl') {
-      // 리서처 부엉이 (둥근 안경)
-      g.appendChild(s('rect', { x: 13, y: 14, width: 22, height: 22, rx: 10, fill: fillSub }));
-      g.appendChild(s('path', { d: 'M14 15 L17 12 L20 15 M34 15 L31 12 L28 15' }));
-      g.appendChild(s('circle', { cx: 19.5, cy: 24, r: 4 }));
-      g.appendChild(s('circle', { cx: 28.5, cy: 24, r: 4 }));
-      g.appendChild(s('line', { x1: 23.5, y1: 24, x2: 24.5, y2: 24 }));
-      g.appendChild(s('circle', { cx: 19.5, cy: 24, r: 1.2, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('circle', { cx: 28.5, cy: 24, r: 1.2, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('path', { d: 'M22.5 29.5 L24 31.5 L25.5 29.5' }));
-    } else if (key === 'cat') {
-      // 자동화 고양이 (바이저 느낌)
-      g.appendChild(s('path', { d: 'M14 20 L15 13 L21 17 L27 17 L33 13 L34 20 C35 29 31 35 24 35 C17 35 13 29 14 20 Z', fill: fillSub }));
-      g.appendChild(s('rect', { x: 17, y: 22, width: 14, height: 5, rx: 2.5, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('circle', { cx: 20.5, cy: 24.5, r: 1.1, fill: fillSub, stroke: 'none' }));
-      g.appendChild(s('circle', { cx: 27.5, cy: 24.5, r: 1.1, fill: fillSub, stroke: 'none' }));
-      g.appendChild(s('path', { d: 'M11 26 L15 26.5 M11 29 L15 28.5 M37 26 L33 26.5 M37 29 L33 28.5', 'stroke-width': 1.3 }));
-    } else if (key === 'whale') {
-      // 오케스트라 범고래 (Orca 마스코트)
-      g.appendChild(s('path', { d: 'M12 28 C12 19 19 15 27 16 C33 17 36 22 36 27 C36 31 32 33 26 33 L16 33 C13 33 12 31 12 28 Z', fill: fillMain }));
-      g.appendChild(s('path', { d: 'M24 16 L26 11 L29 16', fill: fillMain }));
-      g.appendChild(s('ellipse', { cx: 20, cy: 23.5, rx: 3.4, ry: 2, fill: fillSub, stroke: 'none', transform: 'rotate(-14 20 23.5)' }));
-      g.appendChild(s('path', { d: 'M16 30 C20 28.5 26 28.5 31 30', stroke: fillSub, 'stroke-width': 1.6 }));
-    } else if (key === 'rabbit') {
-      // 스피드 토끼
-      g.appendChild(s('rect', { x: 16.5, y: 10, width: 4.5, height: 12, rx: 2.2, fill: fillSub }));
-      g.appendChild(s('rect', { x: 27, y: 10, width: 4.5, height: 12, rx: 2.2, fill: fillSub }));
-      g.appendChild(s('circle', { cx: 24, cy: 28, r: 9.5, fill: fillSub }));
-      g.appendChild(s('circle', { cx: 20.5, cy: 27, r: 1.3, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('circle', { cx: 27.5, cy: 27, r: 1.3, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('path', { d: 'M22.5 31 Q24 32.5 25.5 31' }));
-    } else if (key === 'bear') {
-      // 스튜디오 곰
-      g.appendChild(s('circle', { cx: 15, cy: 16, r: 4, fill: fillSub }));
-      g.appendChild(s('circle', { cx: 33, cy: 16, r: 4, fill: fillSub }));
-      g.appendChild(s('circle', { cx: 24, cy: 26, r: 10.5, fill: fillSub }));
-      g.appendChild(s('circle', { cx: 20, cy: 24, r: 1.3, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('circle', { cx: 28, cy: 24, r: 1.3, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('ellipse', { cx: 24, cy: 29.5, rx: 4, ry: 2.8 }));
-      g.appendChild(s('circle', { cx: 24, cy: 28.5, r: 1.1, fill: fillMain, stroke: 'none' }));
-    } else if (key === 'spark') {
-      // 마케팅 스타
-      g.appendChild(s('path', { d: 'M24 10 L28 20 L38 24 L28 28 L24 38 L20 28 L10 24 L20 20 Z', fill: fillSub }));
-      g.appendChild(s('circle', { cx: 21.5, cy: 24, r: 1.3, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('circle', { cx: 26.5, cy: 24, r: 1.3, fill: fillMain, stroke: 'none' }));
+    const body = s('g', { class: 'av-body' });
+
+    // 공통 귀여운 눈 + 반짝임 + 볼터치 헬퍼
+    const addFace = (cx, cy, { darkScreen = false, smile = true } = {}) => {
+      const eyeG = s('g', { class: 'av-eyes' });
+      const eyeFill = darkScreen ? '#FFFFFF' : '#1E293B';
+      if (cooling) {
+        // 졸린 눈 (u u)
+        eyeG.appendChild(s('path', { d: `M${cx - 8} ${cy} Q${cx - 5.5} ${cy + 3} ${cx - 3} ${cy}`, fill: 'none', stroke: eyeFill, 'stroke-width': 2, 'stroke-linecap': 'round' }));
+        eyeG.appendChild(s('path', { d: `M${cx + 3} ${cy} Q${cx + 5.5} ${cy + 3} ${cx + 8} ${cy}`, fill: 'none', stroke: eyeFill, 'stroke-width': 2, 'stroke-linecap': 'round' }));
+      } else if (working) {
+        // 신난 반달 눈 (^ ^)
+        eyeG.appendChild(s('path', { d: `M${cx - 8.5} ${cy + 1} Q${cx - 5.5} ${cy - 3.2} ${cx - 2.5} ${cy + 1}`, fill: 'none', stroke: eyeFill, 'stroke-width': 2.2, 'stroke-linecap': 'round' }));
+        eyeG.appendChild(s('path', { d: `M${cx + 2.5} ${cy + 1} Q${cx + 5.5} ${cy - 3.2} ${cx + 8.5} ${cy + 1}`, fill: 'none', stroke: eyeFill, 'stroke-width': 2.2, 'stroke-linecap': 'round' }));
+      } else {
+        // 동글동글 반짝이는 눈
+        eyeG.appendChild(s('circle', { cx: cx - 5.8, cy, r: 2.7, fill: eyeFill }));
+        eyeG.appendChild(s('circle', { cx: cx + 5.8, cy, r: 2.7, fill: eyeFill }));
+        if (!darkScreen) {
+          eyeG.appendChild(s('circle', { cx: cx - 6.6, cy: cy - 1, r: 1, fill: '#fff' }));
+          eyeG.appendChild(s('circle', { cx: cx + 5, cy: cy - 1, r: 1, fill: '#fff' }));
+        }
+      }
+      body.appendChild(eyeG);
+      // 핑크 볼터치
+      body.appendChild(s('ellipse', { cx: cx - 10.5, cy: cy + 3.5, rx: 3.1, ry: 1.8, fill: '#FF8FAB', opacity: darkScreen ? 0.85 : 0.55 }));
+      body.appendChild(s('ellipse', { cx: cx + 10.5, cy: cy + 3.5, rx: 3.1, ry: 1.8, fill: '#FF8FAB', opacity: darkScreen ? 0.85 : 0.55 }));
+      if (smile) {
+        body.appendChild(s('path', { d: `M${cx - 2.6} ${cy + 4.8} Q${cx} ${cy + 7.2} ${cx + 2.6} ${cy + 4.8}`, fill: 'none', stroke: eyeFill, 'stroke-width': 1.8, 'stroke-linecap': 'round' }));
+      }
+    };
+
+    if (k === 'bobo') {
+      // 보보 (버터 옐로우 새싹 봇)
+      const leaf = s('g', { class: 'av-wiggle' });
+      leaf.appendChild(s('path', { d: 'M32 16 L32 11', stroke: '#16A34A', 'stroke-width': 2.2, 'stroke-linecap': 'round' }));
+      leaf.appendChild(s('path', { d: 'M32 12 C26 9 25 5 31 7 C32 8 32 10 32 12 Z', fill: '#22C55E' }));
+      leaf.appendChild(s('path', { d: 'M32 12 C38 9 39 5 33 7 C32 8 32 10 32 12 Z', fill: '#4ADE80' }));
+      body.appendChild(leaf);
+      body.appendChild(s('rect', { x: 14, y: 16, width: 36, height: 30, rx: 12, fill: pal.main, stroke: '#D97706', 'stroke-width': 1.2 }));
+      body.appendChild(s('rect', { x: 19, y: 21, width: 26, height: 18, rx: 7, fill: '#1E293B' }));
+      addFace(32, 29, { darkScreen: true });
+      body.appendChild(s('rect', { x: 22, y: 46, width: 20, height: 7, rx: 3.5, fill: '#FDE68A' }));
+      body.appendChild(s('circle', { cx: 32, cy: 49.5, r: 2, fill: '#F472B6' }));
+    } else if (k === 'momo') {
+      // 모모 (파스텔 구름 요정)
+      body.appendChild(s('path', { d: 'M18 42 C11 42 10 31 17 29 C16 20 25 14 33 17 C41 14 49 21 47 29 C54 31 53 42 46 42 Z', fill: '#FFFFFF', stroke: '#F9A8D4', 'stroke-width': 1.5 }));
+      // 진주 헤어밴드 + 스카프
+      body.appendChild(s('circle', { cx: 26, cy: 17, r: 2.2, fill: pal.sub }));
+      body.appendChild(s('circle', { cx: 32, cy: 15.5, r: 2.4, fill: pal.main }));
+      body.appendChild(s('circle', { cx: 38, cy: 17, r: 2.2, fill: pal.accent }));
+      addFace(32, 30);
+      body.appendChild(s('rect', { x: 20, y: 40, width: 24, height: 7, rx: 3.5, fill: pal.main }));
+      body.appendChild(s('rect', { x: 36, y: 44, width: 6, height: 9, rx: 3, fill: '#EC4899' }));
+      // 미니 편지봉투
+      body.appendChild(s('rect', { x: 15, y: 44, width: 12, height: 8, rx: 2, fill: pal.sub }));
+      body.appendChild(s('path', { d: 'M15 44 L21 48.5 L27 44', fill: 'none', stroke: '#fff', 'stroke-width': 1.3 }));
+    } else if (k === 'zing') {
+      // 징 (파스텔 스파크 스타)
+      body.appendChild(s('path', { d: 'M32 9 L39 22 L53 25 L43 35 L46 49 L32 43 L18 49 L21 35 L11 25 L25 22 Z', fill: pal.main, stroke: '#F59E0B', 'stroke-width': 1.4, 'stroke-linejoin': 'round' }));
+      // 하트 선글라스 (머리 위)
+      body.appendChild(s('circle', { cx: 27, cy: 20, r: 4, fill: pal.sub }));
+      body.appendChild(s('circle', { cx: 37, cy: 20, r: 4, fill: pal.sub }));
+      body.appendChild(s('line', { x1: 31, y1: 20, x2: 33, y2: 20, stroke: pal.sub, 'stroke-width': 2 }));
+      addFace(32, 32);
+      // 미니 메가폰
+      body.appendChild(s('polygon', { points: '44,41 54,36 54,47 44,44', fill: pal.accent }));
     } else {
-      // 상주 오퍼레이터 봇 (Dieter Rams 미니멀 로봇)
-      g.appendChild(s('line', { x1: 24, y1: 11, x2: 24, y2: 15 }));
-      g.appendChild(s('circle', { cx: 24, cy: 10, r: 1.5, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('rect', { x: 13, y: 15, width: 22, height: 19, rx: 5, fill: fillSub }));
-      g.appendChild(s('rect', { x: 16.5, y: 19.5, width: 15, height: 6.5, rx: 3, fill: fillMain, stroke: 'none' }));
-      g.appendChild(s('circle', { cx: 20.5, cy: 22.8, r: 1.3, fill: fillSub, stroke: 'none' }));
-      g.appendChild(s('circle', { cx: 27.5, cy: 22.8, r: 1.3, fill: fillSub, stroke: 'none' }));
-      g.appendChild(s('line', { x1: 20, y1: 30, x2: 28, y2: 30 }));
+      // 귀여운 치비 크루 5종 (nova, volt, lumi, coco, pip)
+      // 상체(후디/스웨터)
+      body.appendChild(s('path', { d: 'M18 53 C18 43 24 41 32 41 C40 41 46 43 46 53 Z', fill: pal.main }));
+      // 작은 CONNECT AI 배지 점
+      body.appendChild(s('circle', { cx: 38, cy: 48, r: 2.1, fill: '#fff', opacity: 0.9 }));
+      // 얼굴
+      body.appendChild(s('circle', { cx: 32, cy: 30, r: 14.5, fill: pal.skin }));
+      // 앞머리
+      body.appendChild(s('path', { d: 'M17.5 28 C18 17 25 14 32 14 C39 14 46 17 46.5 28 C42 24 38 22 32 23 C26 22 22 24 17.5 28 Z', fill: pal.hair }));
+
+      if (k === 'nova') {
+        // 코랄 베레모 + 동그란 금테 안경 + 펜
+        body.appendChild(s('ellipse', { cx: 32, cy: 16.5, rx: 16, ry: 6.5, fill: pal.main, class: 'av-wiggle' }));
+        body.appendChild(s('circle', { cx: 32, cy: 10.5, r: 2.2, fill: pal.main }));
+        addFace(32, 31);
+        body.appendChild(s('circle', { cx: 26.2, cy: 31, r: 4.8, fill: 'none', stroke: '#D97706', 'stroke-width': 1.4 }));
+        body.appendChild(s('circle', { cx: 37.8, cy: 31, r: 4.8, fill: 'none', stroke: '#D97706', 'stroke-width': 1.4 }));
+        body.appendChild(s('line', { x1: 31, y1: 31, x2: 33, y2: 31, stroke: '#D97706', 'stroke-width': 1.4 }));
+      } else if (k === 'volt') {
+        // 노란 헤드폰 + 민트 미니 노트북
+        body.appendChild(s('path', { d: 'M16 30 C16 14 48 14 48 30', fill: 'none', stroke: pal.sub, 'stroke-width': 3.5, 'stroke-linecap': 'round' }));
+        body.appendChild(s('rect', { x: 13.5, y: 26, width: 5, height: 10, rx: 2.5, fill: pal.sub }));
+        body.appendChild(s('rect', { x: 45.5, y: 26, width: 5, height: 10, rx: 2.5, fill: pal.sub }));
+        addFace(32, 31);
+        body.appendChild(s('rect', { x: 21, y: 45, width: 22, height: 9, rx: 2.5, fill: '#E0F2FE', stroke: '#38BDF8', 'stroke-width': 1.2 }));
+        body.appendChild(s('circle', { cx: 32, cy: 49.5, r: 1.8, fill: pal.sub }));
+      } else if (k === 'lumi') {
+        // 라벤더 후드 + 별 머리핀
+        body.appendChild(s('path', { d: 'M15 32 C15 15 22 11 32 11 C42 11 49 15 49 32', fill: 'none', stroke: pal.main, 'stroke-width': 4, 'stroke-linecap': 'round' }));
+        body.appendChild(s('polygon', { points: '42,17 43.4,20 46.5,20.3 44.1,22.4 44.8,25.4 42,23.8 39.2,25.4 39.9,22.4 37.5,20.3 40.6,20', fill: pal.sub, class: 'av-wiggle' }));
+        addFace(32, 31);
+      } else if (k === 'coco') {
+        // 민트 캡모자 + 옐로우 스트랩 + 코랄 스마트폰
+        body.appendChild(s('path', { d: 'M17 22 C18 12 46 12 47 22 Z', fill: pal.main }));
+        body.appendChild(s('rect', { x: 35, y: 19, width: 14, height: 4, rx: 2, fill: '#059669' }));
+        addFace(32, 31);
+        body.appendChild(s('line', { x1: 23, y1: 42, x2: 39, y2: 53, stroke: pal.sub, 'stroke-width': 3 }));
+        body.appendChild(s('rect', { x: 43, y: 41, width: 8, height: 12, rx: 2, fill: pal.accent }));
+      } else if (k === 'pip') {
+        // 오렌지 화가 베레모 + 미니 슬레이트
+        body.appendChild(s('ellipse', { cx: 31, cy: 16, rx: 16.5, ry: 6.5, fill: pal.main, transform: 'rotate(-8 31 16)', class: 'av-wiggle' }));
+        addFace(32, 31);
+        body.appendChild(s('rect', { x: 18, y: 44, width: 15, height: 10, rx: 2, fill: pal.sub }));
+        body.appendChild(s('rect', { x: 18, y: 44, width: 15, height: 3, rx: 1, fill: '#1E293B' }));
+      }
     }
 
-    svg.appendChild(g);
+    svg.appendChild(body);
 
+    // 상태별 살아 있는 모션 이펙트
     if (working) {
-      svg.appendChild(s('circle', { cx: 40, cy: 8, r: 4.5, fill: 'none', stroke: '#ffffff', 'stroke-width': 1, opacity: 0.65, class: 'pulse-ring' }));
-      svg.appendChild(s('circle', { cx: 40, cy: 8, r: 2.5, fill: '#ffffff' }));
+      svg.appendChild(s('path', { d: 'M51 11 L52.5 14.5 L56 16 L52.5 17.5 L51 21 L49.5 17.5 L46 16 L49.5 14.5 Z', fill: pal.main, class: 'av-spark1' }));
+      svg.appendChild(s('circle', { cx: 12, cy: 15, r: 2.5, fill: pal.sub, class: 'av-spark2' }));
     } else if (cooling) {
-      svg.appendChild(s('rect', { x: 29, y: 3, width: 16, height: 11, rx: 5.5, fill: INK }));
-      svg.appendChild(s('text', { x: 37, y: 11, 'text-anchor': 'middle', 'font-size': 7.5, 'font-weight': 700, fill: '#fff', 'font-family': 'Pretendard, sans-serif' }, 'zZ'));
+      svg.appendChild(s('g', { class: 'av-zzz' },
+        s('rect', { x: 41, y: 5, width: 18, height: 12, rx: 6, fill: '#111' }),
+        s('text', { x: 50, y: 13.5, 'text-anchor': 'middle', 'font-size': 8.5, 'font-weight': 700, fill: '#fff', 'font-family': 'Pretendard, sans-serif' }, 'zZ')));
     }
     return svg;
   }

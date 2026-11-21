@@ -23,7 +23,7 @@ import { readConnectors, summarize, normalizeSite } from './lib/revenue.mjs';
 import { splitUtterance, pickOllamaModel } from './lib/llm.mjs';
 import { ruleAssign, aiAssign, tokens, learnAssignMemory } from './lib/assign.mjs';
 import { detectGate, GATES } from './lib/gates.mjs';
-import { AI_CATALOG, DEFAULT_GROUPS, AVATAR_PRESETS, defaultAvatarFor, webUrlFor } from './lib/catalog.mjs';
+import { AI_CATALOG, DEFAULT_GROUPS, AVATAR_PRESETS, AVATAR_STYLES, defaultAvatarFor, webUrlFor } from './lib/catalog.mjs';
 import { localStatus, localStatusCached, clearLocalStatusCache, reach, validHostname } from './lib/machines.mjs';
 import { startScheduler, ensureRoutineTasks, notify, minutes, isQuiet, INTERVAL_MINS } from './lib/scheduler.mjs';
 import { listLocalModels, localReply, runOnce, runnerInfo, systemPrompt, quoteThread, notInstalled, findBin } from './lib/agents.mjs';
@@ -90,6 +90,7 @@ function migrate(d) {
     if (e.cooldownUntil === undefined) e.cooldownUntil = null;
     if (e.cooldownReason === undefined) e.cooldownReason = '';
     if (!e.avatar || !AVATAR_PRESETS.some((a) => a.key === e.avatar)) e.avatar = defaultAvatarFor(e);
+    if (!e.avatarStyle || !AVATAR_STYLES.some((s) => s.key === e.avatarStyle)) e.avatarStyle = 'studio';
     if (e.avatarImage === undefined) e.avatarImage = '';
     if (e.persona === undefined) e.persona = '';
     if (e.webUrl === undefined) e.webUrl = webUrlFor(e.name);
@@ -1218,7 +1219,7 @@ async function stateView(viaLan = false) {
     runtime: powerGuard.status(),
     bridges: detectDesktopBridges(),
     options: {
-      catalog: AI_CATALOG, avatarPresets: AVATAR_PRESETS, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
+      catalog: AI_CATALOG, avatarPresets: AVATAR_PRESETS, avatarStyles: AVATAR_STYLES, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
       gates: GATES, engines: ENGINES, runModes: RUN_MODES, resKinds: RES_KINDS, resStatus: RES_STATUS,
       phoneModes: PHONE_MODES,
       accountPlatforms: publicAccountCatalog(), accountCategories: ACCOUNT_CATEGORIES, accountPresets: ACCOUNT_PRESETS, permLevels: PERM_LEVELS,
@@ -2146,11 +2147,14 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
   if (body.avatar !== undefined) {
     if (AVATAR_PRESETS.some((a) => a.key === body.avatar)) e.avatar = body.avatar;
   }
+  if (body.avatarStyle !== undefined) {
+    if (AVATAR_STYLES.some((s) => s.key === body.avatarStyle)) e.avatarStyle = body.avatarStyle;
+  }
   if (body.avatarImage !== undefined) {
     const img = String(body.avatarImage || '').trim();
     if (!img) e.avatarImage = '';
-    else if (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(img) && img.length <= 65000) e.avatarImage = img;
-    else throw new HttpError(400, '캐릭터 이미지는 60KB 이하의 PNG/JPG/WebP만 넣을 수 있어요.');
+    else if (/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(img) && img.length <= 240000) e.avatarImage = img;
+    else throw new HttpError(400, '캐릭터 이미지는 180KB 이하의 PNG/JPG/WebP/GIF만 넣을 수 있어요.');
   }
   if (body.persona !== undefined) e.persona = text(body.persona, 80);
   if (body.salary !== undefined) {
@@ -2202,12 +2206,25 @@ function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, 
     id, name, group: g, role: role || '', tools: [], runsOn: '', command: '', salary: null, engine: eng, model: model || '',
     runMode: eng === 'web' || eng === 'none' ? 'off' : (RUN_MODES.includes(runMode) ? runMode : 'off'),
     webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: '', resources: [], abilities: [],
-    avatar: defaultAvatarFor({ name, role }), avatarImage: '', persona: '',
+    avatar: defaultAvatarFor({ name, role }), avatarStyle: 'studio', avatarImage: '', persona: '',
     fallbackTo: null, cooldownUntil: null, cooldownReason: '',
   };
   d.employees.push(e);
   return e;
 }
+
+// 전체 AI 직원의 캐릭터 스타일(스튜디오 3D / 코딩 모션 / 픽셀 펫 / 미니멀 라인)을 한 번에 통일
+route('POST', '/api/ui/employees/avatar-style', async ({ body }) => {
+  const style = String(body.avatarStyle || '').trim();
+  if (!AVATAR_STYLES.some((s) => s.key === style)) throw new HttpError(400, '올바른 캐릭터 스타일이 아니에요.');
+  return store.mutate((d) => {
+    for (const e of d.employees) {
+      e.avatarStyle = style;
+      if (body.clearCustom === true) e.avatarImage = '';
+    }
+    return { ok: true, avatarStyle: style, count: d.employees.length };
+  });
+}, UI);
 
 route('POST', '/api/ui/employees', async ({ body }) => {
   const cat = AI_CATALOG.find((c) => c.key === body.catalog);
@@ -2931,7 +2948,7 @@ function threadOf(d, thread) {
 
 // ───────── 정적 파일 ─────────
 
-const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon' };
 const IMG_TYPES = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' };
 
 async function serveStatic(req, res, pathname, viaLan) {

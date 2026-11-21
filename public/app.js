@@ -1879,22 +1879,32 @@ function fmtResetMin(m) {
   return m >= 60 ? `약 ${Math.floor(m / 60)}시간 ${m % 60}분 뒤 리셋` : `약 ${m}분 뒤 리셋`;
 }
 
-function avatarEl(e, { size = 44, clickable = false } = {}) {
-  const working = isWorking(e.id);
-  const cooling = isEmpCooling(e);
+const LEGACY_AVATAR = { fox: 'nova', cat: 'volt', owl: 'lumi', whale: 'momo', rabbit: 'coco', bot: 'bobo', bear: 'pip', spark: 'zing' };
+function normAvatarKey(k) { return LEGACY_AVATAR[k] || k || 'bobo'; }
+
+function avatarEl(e, { size = 44, clickable = false, stateOverride = null, styleOverride = null } = {}) {
+  const working = stateOverride ? stateOverride === 'working' : isWorking(e.id);
+  const cooling = stateOverride ? stateOverride === 'cooling' : isEmpCooling(e);
   const state = working ? 'working' : cooling ? 'cooling' : 'idle';
+  const style = styleOverride || e.avatarStyle || 'studio';
+  const key = normAvatarKey(e.avatar);
   let inner;
   if (e.avatarImage) {
     inner = h('div', { class: `avatar-img-wrap${working ? ' working' : ''}${cooling ? ' cool' : ''}`, style: `width:${size}px;height:${size}px` },
       h('img', { src: e.avatarImage, alt: `${e.name} 캐릭터`, width: size, height: size }),
       working ? h('i', { class: 'av-dot' }) : null,
       cooling ? h('span', { class: 'av-zz' }, 'zZ') : null);
+  } else if (style === 'studio') {
+    inner = h('div', { class: `avatar-img-wrap studio${working ? ' working' : ''}${cooling ? ' cool' : ''}`, style: `width:${size}px;height:${size}px` },
+      h('img', { src: `/mascots/${key}.jpg`, alt: `${e.name} 캐릭터`, width: size, height: size, loading: 'lazy' }),
+      working ? h('i', { class: 'av-dot' }) : null,
+      cooling ? h('span', { class: 'av-zz' }, 'zZ') : null);
   } else {
-    inner = C.avatarSvg(e.avatar || 'bot', { size, state });
+    inner = C.avatarSvg(key, { size, state, style });
   }
   if (!clickable) return inner;
   return h('button', {
-    type: 'button', class: 'avatar-btn', title: `${e.name} 캐릭터 바꾸기`,
+    type: 'button', class: 'avatar-btn', title: `${e.name} 캐릭터 스튜디오 열기`,
     onclick: (ev) => { ev.stopPropagation(); openAvatarModal(e); },
   }, inner);
 }
@@ -1918,10 +1928,15 @@ function resizeImageToDataUrl(file, grayscale = false) {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('파일을 읽을 수 없어요.'));
     reader.onload = () => {
+      // GIF 애니메이션은 180KB 이하면 움직임 그대로 유지
+      if (file.type === 'image/gif' && !grayscale && String(reader.result).length <= 235000) {
+        resolve(String(reader.result));
+        return;
+      }
       const img = new Image();
       img.onerror = () => reject(new Error('이미지가 아니에요.'));
       img.onload = () => {
-        const size = 144;
+        const size = 192;
         const canvas = document.createElement('canvas');
         canvas.width = size;
         canvas.height = size;
@@ -1931,7 +1946,7 @@ function resizeImageToDataUrl(file, grayscale = false) {
         const sy = (img.height - minSide) / 2;
         if (grayscale) ctx.filter = 'grayscale(100%) contrast(108%)';
         ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
-        resolve(canvas.toDataURL('image/jpeg', 0.82));
+        resolve(canvas.toDataURL('image/jpeg', 0.86));
       };
       img.src = String(reader.result);
     };
@@ -1939,73 +1954,154 @@ function resizeImageToDataUrl(file, grayscale = false) {
   });
 }
 
+function buildAvatarPrompt(emp, vibe, prop) {
+  const vibeDesc = {
+    '3d': 'Pop Mart x Pixar style ultra-cute full-color 3D matte clay vinyl toy bust figurine, soft pastel studio lighting',
+    illust: 'Warm editorial Korean kawaii full-color character illustration, clean soft outlines, rosy cheeks, cheerful pastel palette',
+    pixel: 'Cute vibrant 16-bit full-color retro pixel art character portrait, crisp pixel edges, pastel studio background',
+    clay: 'Soft squishy handmade colorful polymer clay chibi character bust, studio macro lighting, joyful expression',
+  }[vibe] || 'ultra-cute full-color 3D chibi vinyl toy bust portrait';
+  const roleHint = emp.role ? `representing the AI role: "${emp.role}"` : 'for a 1-person AI company teammate';
+  const propHint = prop ? `, holding or wearing: ${prop}` : '';
+  return `1:1 square centered bust portrait of an original cute human-chibi or desk-companion spirit character (NOT an animal) for CONNECT AI LAB, ${roleHint}${propHint}. Style: ${vibeDesc}. Joyful big glossy kawaii eyes, rosy cheeks, vibrant harmonious colors, clean solid soft pastel background with generous padding, zero text, zero watermark.`;
+}
+
 function openAvatarModal(e) {
   const dlg = document.getElementById('dlg');
   dlg.className = 'wide';
   const presets = S.options.avatarPresets || [];
-  let pickedKey = e.avatar || 'bot';
+  const styles = S.options.avatarStyles || [
+    { key: 'studio', name: '스튜디오 3D', hint: 'CONNECT AI LAB 컬러 3D 피규어' },
+    { key: 'motion', name: '코딩 모션', hint: '눈 깜빡임 · 호흡 · 타자 컬러 모션' },
+    { key: 'pixel', name: '픽셀 펫', hint: '귀여운 컬러 도트 모션' },
+    { key: 'flat', name: '컬러 미니멀', hint: '깔끔한 컬러 플랫' },
+  ];
+  let pickedKey = normAvatarKey(e.avatar);
+  let pickedStyle = e.avatarStyle || 'studio';
   let customImg = e.avatarImage || '';
+  let previewState = 'idle';
+  let genVibe = '3d';
   const personaIn = h('input', { class: 'in', value: e.persona || '', placeholder: '예: 새벽에도 안 자는 자동화 집사 · 초안 3초 컷 작가', maxlength: '80' });
-  const grayChk = h('input', { type: 'checkbox', checked: true });
-  const previewWrap = h('div', { class: 'row', style: 'gap:12px;margin-bottom:14px' });
+  const propIn = h('input', { class: 'in sm', placeholder: '추가 소품 (선택, 예: 아이스커피, 카메라, 별핀)' });
+  const grayChk = h('input', { type: 'checkbox', checked: false });
+  const previewWrap = h('div', { class: 'av-preview-bar' });
+  const styleBar = h('div', { class: 'picker' });
+  const grid = h('div', { class: 'avatar-grid' });
+  const promptPre = h('pre', { class: 'full', style: 'margin:8px 0 0;font-size:11px;max-height:110px' });
 
-  const renderPreview = () => {
-    const fakeEmp = { ...e, avatar: pickedKey, avatarImage: customImg };
-    previewWrap.replaceChildren(
-      avatarEl(fakeEmp, { size: 58 }),
-      h('div', null,
-        h('div', { style: 'font-weight:600;font-size:15px' }, e.name),
-        h('div', { class: 'small muted' }, customImg ? '직접 올린 캐릭터 이미지 사용 중' : (presets.find((p) => p.key === pickedKey)?.name || pickedKey))));
-  };
+  const syncPrompt = () => { promptPre.textContent = buildAvatarPrompt(e, genVibe, propIn.value.trim()); };
+  propIn.addEventListener('input', syncPrompt);
 
-  const presetBtns = [];
-  const grid = h('div', { class: 'avatar-grid' }, presets.map((p) => {
-    const b = h('button', {
-      type: 'button', class: `avatar-opt${!customImg && pickedKey === p.key ? ' on' : ''}`,
+  const renderStyleBar = () => {
+    styleBar.replaceChildren(...styles.map((st) => h('button', {
+      type: 'button', class: `chip${pickedStyle === st.key ? ' on' : ''}`,
       onclick: () => {
-        pickedKey = p.key;
+        pickedStyle = st.key;
         customImg = '';
-        presetBtns.forEach((x) => x.classList.toggle('on', x === b));
+        renderStyleBar();
+        renderGrid();
         renderPreview();
       },
-    }, C.avatarSvg(p.key, { size: 46 }), h('b', null, p.name), h('span', { class: 'small muted' }, p.hint));
-    presetBtns.push(b);
-    return b;
-  }));
+    }, st.name)));
+  };
 
-  const fileIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', style: 'display:none' });
+  const renderPreview = () => {
+    const fakeEmp = { ...e, avatar: pickedKey, avatarStyle: pickedStyle, avatarImage: customImg };
+    const stObj = styles.find((x) => x.key === pickedStyle);
+    const prObj = presets.find((x) => x.key === pickedKey);
+    const stateBtns = [['idle', '대기'], ['working', '근무 중'], ['cooling', '휴식']].map(([sk, sl]) => h('button', {
+      type: 'button', class: `chip sm${previewState === sk ? ' on' : ''}`,
+      onclick: () => { previewState = sk; renderPreview(); },
+    }, sl));
+    previewWrap.replaceChildren(
+      h('div', { class: 'row', style: 'gap:14px;align-items:center' },
+        avatarEl(fakeEmp, { size: 72, stateOverride: previewState, styleOverride: pickedStyle }),
+        h('div', null,
+          h('div', { style: 'font-weight:600;font-size:15px' }, e.name),
+          h('div', { class: 'small muted', style: 'margin-top:2px' }, customImg ? '직접 올린 이미지 · GIF 사용 중' : `${prObj?.name || pickedKey} · ${stObj?.name || pickedStyle}`),
+          h('div', { class: 'row', style: 'gap:5px;margin-top:8px' }, h('span', { class: 'small muted' }, '모션 미리보기'), stateBtns))),
+      h('button', {
+        type: 'button', class: 'btn sm',
+        title: '모든 AI 직원에게 이 캐릭터 스타일을 한 번에 적용합니다',
+        onclick: () => once('all-av-style', async () => {
+          await act('POST', '/api/ui/employees/avatar-style', { avatarStyle: pickedStyle }, `전체 직원을 "${stObj?.name || pickedStyle}" 스타일로 맞췄어요`);
+        }),
+      }, '전체 직원 통일'));
+  };
+
+  const renderGrid = () => {
+    grid.replaceChildren(...presets.map((p) => {
+      const fake = { id: `pre-${p.key}`, name: p.name, avatar: p.key, avatarStyle: pickedStyle, avatarImage: '' };
+      return h('button', {
+        type: 'button', class: `avatar-opt${!customImg && pickedKey === p.key ? ' on' : ''}`,
+        onclick: () => {
+          pickedKey = p.key;
+          customImg = '';
+          renderGrid();
+          renderPreview();
+        },
+      }, avatarEl(fake, { size: 46, stateOverride: 'idle', styleOverride: pickedStyle }), h('b', null, p.name), h('span', { class: 'small muted' }, p.hint));
+    }));
+  };
+
+  const fileIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', style: 'display:none' });
   fileIn.addEventListener('change', async () => {
     const f = fileIn.files?.[0];
     if (!f) return;
     try {
       customImg = await resizeImageToDataUrl(f, grayChk.checked);
-      presetBtns.forEach((x) => x.classList.remove('on'));
+      renderGrid();
       renderPreview();
-      toast('이미지를 캐릭터 크기로 맞췄어요');
+      toast('캐릭터 이미지를 적용했어요');
     } catch (err) {
       toast(err.message || '이미지 처리 오류');
     }
   });
 
+  const vibeBtns = [['3d', '3D 피규어'], ['illust', '귀여운 일러스트'], ['pixel', '컬러 픽셀'], ['clay', '말랑 클레이']].map(([vk, vl]) => h('button', {
+    type: 'button', class: `chip sm${genVibe === vk ? ' on' : ''}`,
+    onclick: (ev) => {
+      genVibe = vk;
+      for (const b of ev.currentTarget.parentElement.children) b.classList.toggle('on', b === ev.currentTarget);
+      syncPrompt();
+    },
+  }, vl));
+
+  renderStyleBar();
+  renderGrid();
   renderPreview();
+  syncPrompt();
+
   setDlg(dlg,
-    h('h3', null, `${e.name} · 캐릭터 설정`),
-    h('p', { class: 'small muted', style: 'margin:-8px 0 14px' }, 'AI 직원마다 캐릭터와 한 줄 성격을 정해 두면 대시보드와 스마트폰 포켓 뷰에서 한눈에 알아볼 수 있어요.'),
+    h('h3', null, `${e.name} · CONNECT AI LAB 캐릭터 스튜디오`),
+    h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '스튜디오 3D 피규어 · 코딩 모션그래픽 · 픽셀 펫 · 직접 생성 이미지 중 원하는 스타일을 직원마다 고를 수 있어요.'),
+    h('div', { style: 'margin-bottom:12px' }, styleBar),
     previewWrap,
     grid,
     h('div', { class: 'bp-bar' },
       h('div', { class: 'row' },
         fileIn,
-        h('button', { type: 'button', class: 'btn sm', onclick: () => fileIn.click() }, '내 이미지 올리기'),
-        h('label', { class: 'chk-l small' }, grayChk, '흑백 톤 맞추기')),
-      customImg ? h('button', { type: 'button', class: 'btn link', onclick: () => { customImg = ''; renderPreview(); } }, '기본 캐릭터로') : null),
+        h('button', { type: 'button', class: 'btn sm', onclick: () => fileIn.click() }, '내 이미지 · GIF 올리기'),
+        h('label', { class: 'chk-l small' }, grayChk, '흑백 필터')),
+      customImg ? h('button', { type: 'button', class: 'btn link', onclick: () => { customImg = ''; renderGrid(); renderPreview(); } }, '기본 크루로') : null),
+    h('details', { class: 'pack-box', style: 'margin-top:10px' },
+      h('summary', null, 'AI로 나만의 캐릭터 이미지 생성하기 (CONNECT AI LAB 프롬프트 1클릭 복사)'),
+      h('div', { style: 'margin-top:10px;display:flex;flex-direction:column;gap:8px' },
+        h('div', { class: 'picker' }, vibeBtns),
+        propIn,
+        promptPre,
+        h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:4px' },
+          h('div', { class: 'row' },
+            h('a', { class: 'btn sm', href: 'https://gemini.google.com/app', target: '_blank', rel: 'noopener noreferrer' }, 'Gemini 열기 ↗'),
+            h('a', { class: 'btn sm', href: 'https://chatgpt.com/', target: '_blank', rel: 'noopener noreferrer' }, 'ChatGPT 열기 ↗')),
+          h('button', { type: 'button', class: 'btn sm dark', onclick: async () => { await copyText(promptPre.textContent); toast('이미지 생성 프롬프트를 복사했어요'); } }, '프롬프트 복사')))),
     h('label', { class: 'field', style: 'margin-top:12px' }, '캐릭터 한 줄 소개 (폰 뷰에 표시, 선택)', personaIn),
     h('div', { class: 'bar' },
       h('button', { class: 'btn', onclick: () => { dlg.className = ''; dlg.close(); } }, '취소'),
       h('button', { class: 'btn dark', onclick: () => once(`av-${e.id}`, async () => {
         dlg.className = '';
         dlg.close();
-        await act('PATCH', `/api/ui/employees/${e.id}`, { avatar: pickedKey, avatarImage: customImg, persona: personaIn.value.trim() }, `${e.name} 캐릭터를 저장했어요`);
+        await act('PATCH', `/api/ui/employees/${e.id}`, { avatar: pickedKey, avatarStyle: pickedStyle, avatarImage: customImg, persona: personaIn.value.trim() }, `${e.name} 캐릭터를 저장했어요`);
       }) }, '저장')));
   dlg.showModal();
 }
@@ -2051,6 +2147,13 @@ function pagePocket() {
       h('div', { class: 'pocket-sec-h' },
         h('b', null, `내 AI 직원 (${d.employees.length}명)`),
         h('span', { class: 'small muted' }, '캐릭터를 탭해 꾸미기')),
+      h('div', { class: 'picker' }, (S.options.avatarStyles || []).map((st) => {
+        const allSame = d.employees.length > 0 && d.employees.every((x) => (x.avatarStyle || 'studio') === st.key && !x.avatarImage);
+        return h('button', {
+          type: 'button', class: `chip sm${allSame ? ' on' : ''}`,
+          onclick: () => once(`pstyle-${st.key}`, () => act('POST', '/api/ui/employees/avatar-style', { avatarStyle: st.key }, `캐릭터를 ${st.name} 스타일로 바꿨어요`)),
+        }, st.name);
+      })),
       h('div', { class: 'pocket-grid' }, d.employees.map((e) => {
         const w = S.working.find((x) => x.emp === e.id);
         const cooling = isEmpCooling(e);

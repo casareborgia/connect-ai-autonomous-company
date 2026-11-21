@@ -96,8 +96,9 @@ test('로컬 세션 기반 Claude · Codex 5시간 토큰 사용량 스캔 (중�
     assert.equal(map.claude.pct5h, 88);
     assert.equal(map.codex.pct5h, 64);
     assert.equal(AVATAR_PRESETS.length, 8);
-    assert.equal(defaultAvatarFor({ name: 'Claude 멤버십' }), 'fox');
-    assert.equal(defaultAvatarFor({ name: 'Codex 멤버십' }), 'cat');
+    assert.equal(defaultAvatarFor({ name: 'Claude 멤버십' }), 'nova');
+    assert.equal(defaultAvatarFor({ name: 'Codex 멤버십' }), 'volt');
+    assert.equal(defaultAvatarFor({ avatar: 'fox' }), 'nova');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -155,16 +156,26 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
       return { status: r.status, body: await r.json().catch(() => null) };
     };
 
-    // 1) 캐릭터 프리셋 + 안전한 PNG 업로드 허용, SVG XSS data URI 차단
+    // 1) 캐릭터 프리셋 + 스타일 선택(스튜디오 3D / 코딩 모션 / 픽셀 펫) + 안전한 PNG 업로드 허용, SVG XSS 차단
     const avOk = await ui('PATCH', '/api/ui/employees/claude', {
-      avatar: 'whale',
+      avatar: 'momo',
+      avatarStyle: 'motion',
       persona: '새벽에도 안 자는 기획자',
       avatarImage: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
       runMode: 'manual',
     });
     assert.equal(avOk.status, 200);
-    assert.equal(avOk.body.avatar, 'whale');
+    assert.equal(avOk.body.avatar, 'momo');
+    assert.equal(avOk.body.avatarStyle, 'motion');
     assert.equal(avOk.body.persona, '새벽에도 안 자는 기획자');
+
+    const bulkStyle = await ui('POST', '/api/ui/employees/avatar-style', { avatarStyle: 'pixel' });
+    assert.equal(bulkStyle.status, 200);
+    assert.equal(bulkStyle.body.avatarStyle, 'pixel');
+
+    const mascotRes = await fetch(`${origin}/mascots/nova.jpg`);
+    assert.equal(mascotRes.status, 200);
+    assert.match(mascotRes.headers.get('content-type') || '', /image\/jpeg/);
 
     const avBadSvg = await ui('PATCH', '/api/ui/employees/claude', {
       avatarImage: 'data:image/svg+xml;base64,PHN2Zz48c2NyaXB0Pjwvc2NyaXB0Pjwvc3ZnPg==',
