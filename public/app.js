@@ -2303,7 +2303,7 @@ function pagePocket() {
     h('div', { class: 'pocket-head' },
       h('div', null,
         h('div', { class: 'pocket-title' }, d.settings.companyName || 'CONNECT AI HQ'),
-        h('div', { class: 'small muted' }, `${d.owner.name || '대표'}의 주머니 속 AI 회사 · 완료 ${doneCnt}/${today.length}`)),
+        h('div', { class: 'small muted' }, `${d.owner.name || '대표'}의 삶과 AI 일을 최적화하는 주머니 속 본사 · 완료 ${doneCnt}/${today.length}`)),
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn sm', onclick: () => { location.hash = '#dashboard'; } }, '대시보드'),
         h('button', { type: 'button', class: 'btn sm dark', onclick: openHealthLogModal }, '컨디션'))),
@@ -3758,7 +3758,7 @@ function pageStart() {
     const go = () => { ob.name = name.value.trim(); ob.company = company.value.trim(); if (!ob.name) { name.focus(); return; } next(2); };
     for (const el of [name, company]) el.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) go(); });
     if (!ob.focused1) { ob.focused1 = true; setTimeout(() => document.querySelector('[data-k="ob-name"]')?.focus(), 0); }
-    return obShell(1, '나의 AI 자율 회사 본사를 차려 볼까요?', '1분이면 끝나요. 자세한 건 묻지 않아요. 모든 데이터는 이 컴퓨터 안에만 저장돼요.',
+    return obShell(1, '삶과 AI 일을 함께 최적화하는 본사를 차려 볼까요?', '인공지능 시대, 내 컨디션과 AI 직원 · 사무실을 한곳에서 최적화합니다. 1분이면 끝나요 — 모든 데이터는 이 컴퓨터 안에만 저장돼요.',
       h('div', { class: 'ob-fields' }, h('label', { class: 'field' }, '대표 이름', name), h('label', { class: 'field' }, '회사 이름 (나중에 정해도 돼요)', company)),
       [skip, h('button', { class: 'btn dark big', 'data-act': 'ob-next', onclick: go }, '시작하기')]);
   }

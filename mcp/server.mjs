@@ -164,7 +164,7 @@ async function onMessage(msg) {
       return reply(id, {
         protocolVersion: params?.protocolVersion || PROTOCOL,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'aihq', title: 'CONNECT AI HQ', version: '0.1.0' },
+        serverInfo: { name: 'aihq', title: 'CONNECT AI HQ', version: '2.0.0' },
         instructions: 'AI 회사 본사에 출근한 AI 직원용 도구입니다. whoami, list_my_tasks 로 시작하고, 일하기 전에 claim_task, 막히면 handoff, 끝나면 complete_task. 결제, 업로드, 게시, 삭제는 request_approval 뒤에 기다립니다.',
       });
     }

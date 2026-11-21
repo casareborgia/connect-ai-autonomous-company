@@ -26,7 +26,7 @@ function flag(name) {
 }
 const hasFlag = (...names) => names.some((n) => argv.includes(n));
 
-const HELP = `CONNECT AI HQ · AI Autonomous Company · 나의 AI 자율 회사 본사
+const HELP = `CONNECT AI HQ v2 · 인공지능 시대, 당신의 삶과 AI 일을 함께 최적화하는 본사
 
   npx github:wonseokjung/connect-ai-autonomous-company                 본사를 켜고 브라우저를 엽니다
       --port <번호>                 기본 8790
@@ -80,7 +80,7 @@ async function start() {
   fs.mkdirSync(process.env.AIHQ_DATA_DIR, { recursive: true, mode: 0o700 });
   fs.mkdirSync(process.env.AIHQ_WORKSPACES, { recursive: true });
 
-  console.log('\nCONNECT AI HQ · AI Autonomous Company · 나의 AI 자율 회사 본사');
+  console.log('\nCONNECT AI HQ v2 · 인공지능 시대, 당신의 삶과 AI 일을 함께 최적화하는 본사');
   console.log(`데이터: ${process.env.AIHQ_DATA_DIR} (이 컴퓨터 안에만 저장)`);
   await import(pathToFileURL(path.join(ROOT, 'server.mjs')).href);
   for (let i = 0; i < 40; i++) {
