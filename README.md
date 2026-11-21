@@ -87,6 +87,32 @@ npx github:wonseokjung/connect-ai-autonomous-company ask-approval "항공권 결
 npx github:wonseokjung/connect-ai-autonomous-company hq help
 ```
 
+## 자동화 직원 (이미 쓰는 스크립트를 본사에서 돌리기)
+
+이 컴퓨터에서 이미 돌리던 스크립트(수집, 정리, 리포트)를 직원으로 올리면, 매일 할 일의 켜짐 스위치와 시간, 할 일의 실행 버튼, 안전 정지가 그 스크립트에도 그대로 통합니다. 시간이 되면 본사가 직접 실행하고, 출력은 스레드의 결과로, 종료 코드는 완료(0)와 막힘(그 밖)으로 남습니다.
+
+1. 실행할 명령을 등록 파일에 적습니다. 위치는 데이터 폴더 옆 `~/.connect-ai-hq/automations.json` (`AIHQ_AUTOMATIONS` 로 바꿀 수 있음).
+
+```json
+{
+  "automations": [
+    { "id": "listen", "title": "마케팅 리스닝", "command": ["/usr/bin/python3", "/Users/me/tools/listen.py", "daily"], "timeoutMinutes": 20 }
+  ]
+}
+```
+
+2. `chmod 600 ~/.connect-ai-hq/automations.json` (다른 사용자가 고칠 수 있는 파일은 읽지 않습니다).
+3. 내 직원 → 편집 → 일 시키는 방법을 **자동화**로, 자동화를 골라 저장. 실행을 **자동 실행**으로 두면 매일 할 일의 시간에 혼자 시작합니다.
+
+지키는 것
+
+- 등록 파일에 있는 명령만 실행합니다. 명령은 화면과 API(CLI, MCP)로 바꿀 수 없고, 직원에 자동화를 붙이는 것도 대표가 화면에서만 합니다.
+- 명령은 인자 배열로 실행하고 셸을 거치지 않습니다. 실행 파일은 전체 경로여야 합니다.
+- 할 일의 제목, 메모, 대화는 명령에도 환경에도 들어가지 않습니다. 스크립트가 받는 것은 `AIHQ_TASK_ID`, `AIHQ_EMPLOYEE`, `AIHQ_TRIGGERED_BY_HQ=1` 뿐입니다.
+- 결제, 업로드, 게시, 삭제, 발송이 들어간 할 일은 다른 직원과 똑같이 대표가 누를 때까지 멈춥니다.
+- 직원 하나가 자동화 하나를 맡고, 한 번에 하나만 돕니다. `timeoutMinutes`(기본 15, 최대 180)가 넘으면 하위 프로세스까지 멈춥니다.
+- 본사가 꺼져 있으면 돌지 않습니다. 그날 안에 다시 켜지면 시간이 지난 일을 이어서 실행합니다.
+
 ## 할 일마다 스레드
 
 일마다 스레드 하나에 모든 직원의 대화, 결과, 작업 기록(두 줄 요약으로 접힘), 가져온 대화, 인수인계(한 것, 멈춘 곳, 이유)가 쌓입니다. 담당을 바꾸면 스레드 전체가 다음 담당에게 인용 데이터로 넘어갑니다. 지시로 넘기지 않습니다.
@@ -121,6 +147,7 @@ npx github:wonseokjung/connect-ai-autonomous-company hq help
 | AIHQ_OLLAMA_URL, AIHQ_LMSTUDIO_URL | 로컬 모델 주소 |
 | AIHQ_CLAUDE_BIN, AIHQ_CODEX_BIN, AIHQ_GEMINI_BIN | 실행 파일 경로 (없으면 PATH 에서 찾음) |
 | AIHQ_NO_OPEN | `1` 이면 브라우저를 열지 않음 (`--no-open` 과 같음) |
+| AIHQ_AUTOMATIONS | 자동화 등록 파일 경로 (기본 데이터 폴더 옆 `automations.json`) |
 | AIHQ_DISPATCH | `0` 이면 배차, Muse 읽기, 모델 확인을 켜지 않음 (시험용) |
 
 ## 보안
@@ -136,7 +163,7 @@ npx github:wonseokjung/connect-ai-autonomous-company hq help
 npm test
 ```
 
-안전 정지, 배분, 배차 화이트리스트, 모델 기록, Muse 읽기 (가짜 화면, 읽는 곳), AI 도구 연결 명령, 자는 시간을 봅니다. macOS 에서 만들고 시험했습니다.
+안전 정지, 배분, 배차 화이트리스트, 모델 기록, Muse 읽기 (가짜 화면, 읽는 곳), AI 도구 연결 명령, 자는 시간, 자동화 직원(등록 검사, 실행, 서버째 시험)을 봅니다. macOS 에서 만들고 시험했습니다.
 
 ## 라이선스
 

@@ -32,6 +32,7 @@ import { startDispatcher, isOffice, officeName, guessSshAlias, validAlias, ssh, 
 import { TEMPLATES, validateJob } from './lib/jobspec.mjs';
 import { MUSE_DEFAULTS, MUSE_HOSTS, runMuseOnce } from './lib/muse.mjs';
 import { modelFor, recordModels, UNKNOWN as MODEL_UNKNOWN } from './lib/models.mjs';
+import { automationsFile, loadAutomations, findAutomation, automationEnv, runAutomation, resultText } from './lib/automations.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -41,7 +42,8 @@ const WORKSPACES = process.env.AIHQ_WORKSPACES || path.join(ROOT, 'workspaces');
 const PORT = Number(process.env.AIHQ_PORT || 8790);
 const HOST = process.env.AIHQ_HOST || '127.0.0.1';
 const LAN = HOST !== '127.0.0.1' && HOST !== 'localhost';
-const ENGINES = ['web', 'none', 'local', 'claude', 'codex', 'agy'];
+const ENGINES = ['web', 'none', 'local', 'claude', 'codex', 'agy', 'script'];
+const AUTOMATIONS_FILE = automationsFile(DATA_DIR);
 const RUN_MODES = ['off', 'manual', 'auto'];
 const RES_KINDS = ['기계', '멤버십', '계정', '폴더'];
 const RES_STATUS = ['사용 가능', '사용 중', '꺼짐', '확인 필요'];
@@ -381,8 +383,14 @@ function threadLines(d, taskId) {
 
 // ───────── 실행: 로컬 모델은 앱 안에서, Claude Code, Codex, agy 는 작업 폴더에서 한 번 ─────────
 
+// 자동화 직원: 등록 파일에 있는 명령만 실행한다 (lib/automations.mjs)
+const automations = () => loadAutomations(AUTOMATIONS_FILE);
+const automationOf = (emp) => (emp?.engine === 'script' ? findAutomation(automations().list, emp.automation) : null);
+
 function canRun(emp) {
-  return emp && emp.runMode !== 'off' && (emp.engine === 'local' ? Boolean(emp.model) : ['claude', 'codex', 'agy'].includes(emp.engine));
+  if (!emp || emp.runMode === 'off') return false;
+  if (emp.engine === 'script') return Boolean(automationOf(emp));
+  return emp.engine === 'local' ? Boolean(emp.model) : ['claude', 'codex', 'agy'].includes(emp.engine);
 }
 
 function runPrompt(d, emp, t) {
@@ -475,15 +483,17 @@ async function startRun(taskId, trigger) {
     if (info.missing) throw new HttpError(400, info.missing);
     if (!info.bin) throw new HttpError(400, notInstalled(emp.engine));
   }
+  const auto = automationOf(emp);
+  if (emp.engine === 'script' && !auto) throw new HttpError(400, `${emp.name}: 등록된 자동화를 찾지 못했어요. 내 직원에서 자동화를 고르거나 등록 파일을 확인해 주세요.`);
   if (!canRun(emp)) throw new HttpError(403, emp.runMode === 'off' ? `${emp.name}: 실행이 꺼져 있습니다. 내 직원에서 켜 주세요.` : `${emp.name}: 이 앱에서 실행할 수 없습니다 (연결 방식이나 모델을 확인하세요).`);
   if (t.gate && !t.gateApprovedAt) throw new HttpError(403, `${gateK(t.gate)} 들어간 일입니다. 대표가 먼저 확인을 눌러야 합니다.`);
   if (working.has(emp.id)) throw new HttpError(409, `${emp.name}: 이미 일하는 중입니다.`);
   if (t.officeRun) throw new HttpError(409, '사무실에서 실행이 켜져 있어요. 사무실에서 돌거나, 스위치를 끈 뒤 이 맥에서 실행해 주세요.');
   if (t.remote && ACTIVE.includes(t.remote.state)) throw new HttpError(409, '사무실에서 실행 중이에요.');
   const thread = `task:${t.id}`;
-  const prompt = runPrompt(d, emp, t);
-  const label = emp.engine === 'local' ? `로컬 모델 ${emp.model.replace(/^(ollama|lmstudio):/, '')}` : runnerInfo(emp.engine).label;
-  const runModel = emp.engine === 'local' ? emp.model.replace(/^(ollama|lmstudio):/, '') : (modelFor(emp)?.name || modelOf(emp) || MODEL_UNKNOWN);
+  const prompt = auto ? '' : runPrompt(d, emp, t);
+  const label = auto ? `자동화 · ${auto.title}` : emp.engine === 'local' ? `로컬 모델 ${emp.model.replace(/^(ollama|lmstudio):/, '')}` : runnerInfo(emp.engine).label;
+  const runModel = auto ? null : emp.engine === 'local' ? emp.model.replace(/^(ollama|lmstudio):/, '') : (modelFor(emp)?.name || modelOf(emp) || MODEL_UNKNOWN);
   const job = { emp: emp.id, thread, taskId: t.id, kind: emp.engine === 'local' ? 'local' : 'run', since: nowIso(), label };
   working.set(emp.id, job);
   await store.mutate((x) => {
@@ -491,7 +501,7 @@ async function startRun(taskId, trigger) {
     tt.status = '진행';
     tt.runStartedAt = job.since;
     pushHistory(tt, emp.id, '진행', trigger === 'auto' ? '자동 실행' : '대표가 실행');
-    sys(x, thread, `실행 시작: ${emp.name} (${label}${emp.engine === 'local' ? '' : ` · 모델 ${runModel}`}${emp.engine === 'local' ? '' : `, 작업 폴더 workspaces/${emp.id}`}, ${trigger === 'auto' ? '자동 실행' : '대표가 누름'})`);
+    sys(x, thread, `실행 시작: ${emp.name} (${label}${emp.engine === 'local' || auto ? '' : ` · 모델 ${runModel}`}${emp.engine === 'local' || auto ? '' : `, 작업 폴더 workspaces/${emp.id}`}, ${trigger === 'auto' ? '자동 실행' : '대표가 누름'})`);
   });
   const finish = (output, ok, code) => store.mutate((x) => {
     addMsg(x, { thread, from: emp.id, fromKind: 'ai', kind: 'result', text: String(output || '(출력 없음)').slice(-6000), to: ['jay'], run: { label, code, model: runModel } });
@@ -500,7 +510,9 @@ async function startRun(taskId, trigger) {
     const tt = x.tasks.find((y) => y.id === t.id);
     if (tt && tt.status === '진행') { tt.status = ok ? '완료' : '막힘'; pushHistory(tt, emp.id, tt.status, ok ? '실행 끝' : `실행 실패 (코드 ${code})`); }
   });
-  const run = emp.engine === 'local'
+  const run = auto
+    ? runAutomation(auto, { env: automationEnv(process.env, t, emp) }).then((r) => finish(resultText(r, auto.timeoutMinutes), r.code === 0, r.code ?? r.signal))
+    : emp.engine === 'local'
     ? localReply(emp, d.owner.name, [{ role: 'user', content: prompt }]).then((out) => finish(out, true, 0))
     : runOnce({ engine: emp.engine, workspace: path.join(WORKSPACES, emp.id), prompt }).then((r) => finish(r.out || r.err, r.code === 0, r.code));
   run.catch((e) => store.mutate((x) => {
@@ -578,6 +590,7 @@ async function stateView() {
     officeTemplates: Object.entries(TEMPLATES).map(([key, v]) => ({ key, label: v.label })),
     assigning: [...assigning],
     runners: { claude: Boolean(runnerInfo('claude').bin), codex: Boolean(runnerInfo('codex').bin), agy: Boolean(runnerInfo('agy').bin && !runnerInfo('agy').missing) },
+    automations: { file: AUTOMATIONS_FILE, list: automations().list.map((a) => ({ id: a.id, title: a.title })), problems: automations().problems },
   };
 }
 
@@ -994,6 +1007,11 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
     const mdl = text(body.model, 200);
     if (mdl && !/^(ollama|lmstudio):[\w.:/\-]+$/.test(mdl)) throw new HttpError(400, '모델 형식이 아닙니다.');
     e.model = mdl;
+  }
+  if (body.automation !== undefined) {
+    const id = text(body.automation, 60);
+    if (id && !findAutomation(automations().list, id)) throw new HttpError(400, '등록 파일에 없는 자동화입니다.');
+    e.automation = id;
   }
   if (body.runMode !== undefined) {
     if (!RUN_MODES.includes(body.runMode)) throw new HttpError(400, '실행 방식은 꺼짐, 누를 때만, 자동 실행 중 하나입니다.');

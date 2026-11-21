@@ -118,12 +118,16 @@ function toast(msg) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => t.classList.remove('show'), 2600);
 }
-const ENGINE_LABEL = { web: '복사해서 맡기기', none: '스스로 보고 (MCP, CLI)', local: '로컬 모델', claude: 'Claude Code', codex: 'Codex', agy: 'agy' };
+const ENGINE_LABEL = { web: '복사해서 맡기기', none: '스스로 보고 (MCP, CLI)', local: '로컬 모델', claude: 'Claude Code', codex: 'Codex', agy: 'agy', script: '자동화' };
+// 등록 파일(automations.json)에 있는 자동화. 직원 하나가 하나를 맡는다.
+const automationList = () => (S.automations && S.automations.list) || [];
+const automationOf = (e) => automationList().find((a) => a.id === e.automation) || null;
 const RUN_LABEL = { off: '꺼짐', manual: '누를 때만', auto: '자동 실행' };
 // 이 앱이 직접 일을 시킬 수 있는가 (로컬 모델, 또는 이 맥에 설치된 Claude Code, Codex)
 function canRun(e) {
   if (!e || e.runMode === 'off') return false;
   if (e.engine === 'local') return Boolean(e.model);
+  if (e.engine === 'script') return Boolean(automationOf(e));
   if (['claude', 'codex', 'agy'].includes(e.engine)) return Boolean(S.runners[e.engine]);
   return false;
 }
@@ -374,7 +378,7 @@ function workBox(t, e) {
   if (canRun(e)) {
     const local = e.engine === 'local';
     return h('div', { class: 'work' },
-      h('div', { class: 'small' }, local ? `${e.name}: 이 맥 안에서 바로 답해요.` : `${e.name}: 이 맥에서 한 번 실행해요 (작업 폴더 workspaces/${e.id}).`),
+      h('div', { class: 'small' }, local ? `${e.name}: 이 맥 안에서 바로 답해요.` : e.engine === 'script' ? `${e.name}: 등록된 자동화(${automationOf(e).title})를 한 번 실행해요.` : `${e.name}: 이 맥에서 한 번 실행해요 (작업 폴더 workspaces/${e.id}).`),
       locked ? h('div', { class: 'small muted' }, `${gateK(t.gate)} 들어간 일이라 대표 확인 뒤에 시킬 수 있어요.`) : null,
       h('button', { class: 'btn dark', 'data-act': 'run', disabled: isWorking(e.id) || locked,
         onclick: () => { if (local || confirm(`${e.name}: 지금 한 번 실행할까요?`)) once(`run-${t.id}`, () => act('POST', `/api/ui/tasks/${t.id}/run`, {}, local ? `${josa(shortName(e.id), '이', '가')} 쓰는 중이에요` : `시켰습니다: ${e.name}`)); } },
@@ -790,10 +794,13 @@ function empCard(e) {
     engine: h('select', { class: 'in sm', 'data-k': k('engine'), onchange: (ev) => { e.engine = ev.target.value; render(); } },
       [['web', '복사해서 맡기기 (ChatGPT, Claude, Gemini 웹 등)'], ['local', '로컬 모델 (이 맥 안에서 바로 답)'],
         ['claude', `Claude Code (${S.runners.claude ? '이 맥에 설치됨' : '이 맥에 없음'})`], ['codex', `Codex (${S.runners.codex ? '이 맥에 설치됨' : '이 맥에 없음'})`],
-        ['none', '스스로 보고 (MCP, CLI 로 연결한 AI)'], ...(S.runners.agy || e.engine === 'agy' ? [['agy', 'agy']] : [])].map(([v, t]) => h('option', { value: v, selected: e.engine === v }, t))),
+        ['none', '스스로 보고 (MCP, CLI 로 연결한 AI)'], ...(S.runners.agy || e.engine === 'agy' ? [['agy', 'agy']] : []),
+        ...(automationList().length || e.engine === 'script' ? [['script', '자동화 (등록된 명령을 실행)']] : [])].map(([v, t]) => h('option', { value: v, selected: e.engine === v }, t))),
     webUrl: h('input', { class: 'in sm', value: e.webUrl || '', placeholder: 'https://', 'data-k': k('webUrl') }),
     model: h('select', { class: 'in sm', 'data-k': k('model') }, h('option', { value: '' }, ui.models && ui.models.length ? '모델 고르기' : '로컬 모델을 찾는 중이거나 없음'),
       (ui.models || []).map((m) => h('option', { value: m.id, selected: e.model === m.id }, `${m.label}${m.size ? ` · ${m.size}` : ''}`))),
+    automation: h('select', { class: 'in sm', 'data-k': k('automation') }, h('option', { value: '' }, automationList().length ? '자동화 고르기' : '등록된 자동화가 없음'),
+      automationList().map((a) => h('option', { value: a.id, selected: e.automation === a.id }, a.title))),
     manual: h('textarea', { class: 'in', rows: 6, 'data-k': k('manual'), placeholder: '이 직원이 일하는 방식, 말투, 하지 말아야 할 것' }, e.manual || ''),
   };
   const fld = (label, el) => h('label', { class: 'field' }, label, el);
@@ -802,6 +809,7 @@ function empCard(e) {
       role: f.role.value, tools: f.tools.value, runsOn: f.runsOn.value, command: f.command.value,
       salary: f.salary.value.trim() === '' ? null : f.salary.value, engine: f.engine.value,
       model: f.engine.value === 'local' ? f.model.value : undefined, manual: f.manual.value,
+      automation: f.engine.value === 'script' ? f.automation.value : undefined,
       webUrl: f.engine.value === 'web' ? f.webUrl.value : undefined,
       resources: [...document.querySelectorAll('.res-box')].filter((x) => x.checked).map((x) => x.value),
     }, '저장했습니다');
@@ -809,9 +817,11 @@ function empCard(e) {
   };
   return h('div', { class: 'card wide' },
     h('h3', null, `${e.name} 편집`),
-    h('div', { class: 'f-grid' }, fld('역할', f.role), fld('도구', f.tools), fld('근무 위치', f.runsOn), fld('명령 방법', f.command), fld('월급 (월, 원)', f.salary), fld('일 시키는 방법', f.engine), e.engine === 'local' ? fld('로컬 모델', f.model) : null, e.engine === 'web' ? fld('열 주소 (선택)', f.webUrl) : null),
+    h('div', { class: 'f-grid' }, fld('역할', f.role), fld('도구', f.tools), fld('근무 위치', f.runsOn), fld('명령 방법', f.command), fld('월급 (월, 원)', f.salary), fld('일 시키는 방법', f.engine), e.engine === 'local' ? fld('로컬 모델', f.model) : null, e.engine === 'script' ? fld('자동화', f.automation) : null, e.engine === 'web' ? fld('열 주소 (선택)', f.webUrl) : null),
     h('div', { style: 'margin-top:16px' }, h('div', { class: 'small', style: 'color:#555;margin-bottom:6px' }, '쓸 수 있는 리소스'), h('div', { class: 'chk-wrap' }, resBoxes)),
     h('div', { style: 'margin-top:16px' }, fld('업무 매뉴얼', f.manual), h('div', { class: 'warn' }, '비밀번호, 인증 코드, 카드 번호는 여기에 쓰지 마세요. 이 글은 AI에게 그대로 전달됩니다.')),
+    e.engine === 'script' ? h('p', { class: 'small muted' }, `실행하면 등록된 명령을 그대로 돌립니다. 할 일의 글은 명령에 들어가지 않아요. 명령은 화면에서 바꿀 수 없고 등록 파일에서만 바꿉니다: ${(S.automations && S.automations.file) || 'automations.json'}`) : null,
+    e.engine === 'script' && S.automations && S.automations.problems.length ? h('div', { class: 'warn' }, `등록 파일에서 받지 않은 항목: ${S.automations.problems.join(' / ')}`) : null,
     ['claude', 'codex', 'agy'].includes(e.engine) ? h('p', { class: 'small muted' }, S.runners[e.engine] ? `실행을 누르면 ${ENGINE_LABEL[e.engine]}를 workspaces/${e.id} 폴더에서 한 번 실행합니다. 권한을 건너뛰는 옵션은 쓰지 않아요.` : `이 맥에 ${ENGINE_LABEL[e.engine]}가 없어요. 그래도 할 일에서 복사해서 맡기기로 같은 일을 시킬 수 있어요.`) : null,
     h('div', { class: 'row', style: 'justify-content:space-between;margin-top:16px' },
       h('button', { class: 'btn sm', onclick: () => { if (confirm(`${e.name}, 명단에서 뺄까요?`)) { ui.editingEmp = null; act('DELETE', `/api/ui/employees/${e.id}`, undefined, '명단에서 뺐습니다'); } } }, '명단에서 빼기'),
@@ -831,6 +841,7 @@ function engineText(e) {
   if (e.engine === 'web') return `복사해서 맡기기${e.webUrl ? ` · ${e.webUrl.replace(/^https:\/\//, '').replace(/\/.*$/, '')}` : ''}`;
   if (e.engine === 'local') return `로컬 모델 · ${e.model ? e.model.replace(/^(ollama|lmstudio):/, '') : '모델을 골라 주세요'}`;
   if (['claude', 'codex'].includes(e.engine)) return `${ENGINE_LABEL[e.engine]} · ${S.runners[e.engine] ? '이 맥에 설치됨' : '이 맥에 없음, 복사해서 맡기기로 씀'}`;
+  if (e.engine === 'script') return `자동화 · ${automationOf(e) ? automationOf(e).title : '자동화를 골라 주세요'}`;
   return ENGINE_LABEL[e.engine] || e.engine;
 }
 
