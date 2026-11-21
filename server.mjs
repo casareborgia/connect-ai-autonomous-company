@@ -23,7 +23,7 @@ import { readConnectors, summarize, normalizeSite } from './lib/revenue.mjs';
 import { splitUtterance, pickOllamaModel } from './lib/llm.mjs';
 import { ruleAssign, aiAssign, tokens, learnAssignMemory } from './lib/assign.mjs';
 import { detectGate, GATES } from './lib/gates.mjs';
-import { AI_CATALOG, DEFAULT_GROUPS, webUrlFor } from './lib/catalog.mjs';
+import { AI_CATALOG, DEFAULT_GROUPS, AVATAR_PRESETS, defaultAvatarFor, webUrlFor } from './lib/catalog.mjs';
 import { localStatus, localStatusCached, clearLocalStatusCache, reach, validHostname } from './lib/machines.mjs';
 import { startScheduler, ensureRoutineTasks, notify, minutes, isQuiet, INTERVAL_MINS } from './lib/scheduler.mjs';
 import { listLocalModels, localReply, runOnce, runnerInfo, systemPrompt, quoteThread, notInstalled, findBin } from './lib/agents.mjs';
@@ -34,6 +34,8 @@ import { MUSE_DEFAULTS, MUSE_HOSTS, runMuseOnce } from './lib/muse.mjs';
 import { modelFor, recordModels, UNKNOWN as MODEL_UNKNOWN } from './lib/models.mjs';
 import { BROWSER_CATALOG, PHONE_MODES, OSS_CATALOG, DESIGN_PRESETS, parseOpenSourceInput, detectBrowsers, detectOpenSource, detectDesktopBridges, pickBrowser, pickPhone, phonePromptBlock, pickTools, pickDesigns } from './lib/tools.mjs';
 import { ensureHealth, rotateHealthToken, ingestHealthEntry, evaluateHealth } from './lib/health.mjs';
+import { createPowerGuard, DEFAULT_HANG_MS } from './lib/runtime.mjs';
+import { scanLocalUsageCached, buildEmployeeUsageMap } from './lib/usage.mjs';
 import {
   ACCOUNT_PLATFORMS, ACCOUNT_CATEGORIES, ACCOUNT_PRESETS, PERM_LEVELS, PERM_LABELS, HARD_GUARDRAILS,
   platformByKey, inferPlatform, presetPermissions, normalizePermissions, detectPreset, accountConfig,
@@ -87,6 +89,9 @@ function migrate(d) {
     if (e.fallbackTo === undefined) e.fallbackTo = null;
     if (e.cooldownUntil === undefined) e.cooldownUntil = null;
     if (e.cooldownReason === undefined) e.cooldownReason = '';
+    if (!e.avatar || !AVATAR_PRESETS.some((a) => a.key === e.avatar)) e.avatar = defaultAvatarFor(e);
+    if (e.avatarImage === undefined) e.avatarImage = '';
+    if (e.persona === undefined) e.persona = '';
     if (e.webUrl === undefined) e.webUrl = webUrlFor(e.name);
     if (!d.groups.some((g) => g.id === e.group)) e.group = d.groups[0].id;
   }
@@ -111,6 +116,7 @@ function migrate(d) {
   }
   if (!d.settings.assignMemory || typeof d.settings.assignMemory !== 'object') d.settings.assignMemory = {};
   if (d.settings.autoOptimize === undefined) d.settings.autoOptimize = true;
+  if (d.settings.preventSleep === undefined) d.settings.preventSleep = true;
   // 배차: 본사 아이디 (사무실 작업 폴더에 남겨 내 것인지 알아본다), 기계의 ssh 별칭 (~/.ssh/config 에서 한 번 찾아 둠)
   if (!d.settings.instanceId) d.settings.instanceId = crypto.randomBytes(8).toString('hex');
   ensureHealth(d);
@@ -150,6 +156,9 @@ const gateK = (g) => `${g}${hasBatchim(g) ? '이' : '가'}`;
 
 // 지금 일하는 중인 AI (메모리에만)
 const working = new Map();
+// 작업 중 맥 잠자기 방지 (macOS caffeinate)
+const powerGuard = createPowerGuard();
+const syncPower = () => powerGuard.sync(working.size, store.data?.settings?.preventSleep !== false);
 // 로컬 AI 가 배분을 다시 보는 중인 할 일
 const assigning = new Set();
 
@@ -969,8 +978,9 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
   const prompt = runPrompt(d, emp, t);
   const label = emp.engine === 'local' ? `로컬 모델 ${emp.model.replace(/^(ollama|lmstudio):/, '')}` : runnerInfo(emp.engine).label;
   const runModel = emp.engine === 'local' ? emp.model.replace(/^(ollama|lmstudio):/, '') : (modelFor(emp)?.name || modelOf(emp) || MODEL_UNKNOWN);
-  const job = { emp: emp.id, thread, taskId: t.id, kind: emp.engine === 'local' ? 'local' : 'run', since: nowIso(), label };
+  const job = { emp: emp.id, thread, taskId: t.id, kind: emp.engine === 'local' ? 'local' : 'run', since: nowIso(), label, statusLine: '작업 준비 중' };
   working.set(emp.id, job);
+  syncPower();
   await store.mutate((x) => {
     const tt = getTask(x, t.id);
     tt.status = '진행';
@@ -1023,8 +1033,34 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
     return true;
   };
 
-  const finish = (output, ok, code) => store.mutate((x) => {
-    addMsg(x, { thread, from: emp.id, fromKind: 'ai', kind: 'result', text: String(output || '(출력 없음)').slice(-6000), to: ['jay'], run: { label, code, model: runModel } });
+  const handleFailureHang = (x, tt, hangSec) => {
+    sys(x, thread, `⚠️ ${emp.name} 무응답(먹통) 감지 (${hangSec}초 동안 출력 없음) — 프로세스를 안전하게 종료했어요.`);
+    if (x.settings?.autoOptimize !== false && depth < 2) {
+      const nextTried = new Set([...tried, emp.id]);
+      const otherWorking = new Set([...working.keys()].filter((id) => id !== emp.id));
+      const fb = pickFallbackEmployee(x, emp.id, { task: tt, workingIds: otherWorking, canRunFn: canRun, requireRunnable: true, excludeIds: nextTried });
+      if (fb) {
+        tt.assignee = fb.emp.id;
+        tt.status = '대기';
+        tt.runStartedAt = null;
+        tt.queued = false;
+        tt.queueReason = '';
+        tt.retryAfter = null;
+        tt.reason = `${emp.name} 무응답 → ${fb.emp.name} 자동 인계`;
+        pushHistory(tt, 'system', '대기', `${emp.name} 무응답(먹통) → ${fb.emp.name} 자동 인계`);
+        sys(x, thread, `⚡ 먹통 감지 → 대체 직원 ${fb.emp.name}에게 자동으로 넘겨서 이어서 처리합니다`);
+        nextFailover = { taskId: tt.id, trigger, depth: depth + 1, triedEmps: nextTried };
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const finish = (output, ok, code, meta = {}) => store.mutate((x) => {
+    const outText = meta.hung
+      ? `${output ? `${output}\n\n` : ''}[먹통 감시] ${meta.hangSec || Math.round(DEFAULT_HANG_MS / 1000)}초 동안 응답이 없어 실행을 중단했습니다.`
+      : String(output || '(출력 없음)');
+    addMsg(x, { thread, from: emp.id, fromKind: 'ai', kind: 'result', text: outText.slice(-6000), to: ['jay'], run: { label, code, model: runModel, hung: Boolean(meta.hung) } });
     x.worklog.push({ emp: emp.id, start: job.since, end: nowIso(), label: t.title });
     if (x.worklog.length > 3000) x.worklog = x.worklog.slice(-3000);
     const tt = x.tasks.find((y) => y.id === t.id);
@@ -1033,11 +1069,12 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
     tt.lastRunAt = nowIso();
     if (tt.status === '진행') {
       if (!ok && handleFailureQuota(x, tt, output)) return;
+      if (meta.hung && handleFailureHang(x, tt, meta.hangSec || Math.round(DEFAULT_HANG_MS / 1000))) return;
       if (ok && Array.isArray(tt.steps) && tt.steps.length) {
         completeActiveStepFromRun(x, tt, emp.id, String(output || '').slice(0, 2000), '실행 끝');
       } else {
         tt.status = ok ? '완료' : '막힘';
-        pushHistory(tt, emp.id, tt.status, ok ? '실행 끝' : `실행 실패 (코드 ${code})`);
+        pushHistory(tt, emp.id, tt.status, ok ? '실행 끝' : meta.hung ? '무응답(먹통) 중단' : `실행 실패 (코드 ${code})`);
         syncRoutineLog(x, tt);
       }
     }
@@ -1045,7 +1082,14 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
 
   const run = emp.engine === 'local'
     ? localReply(emp, d.owner.name, [{ role: 'user', content: prompt }]).then((out) => finish(out, true, 0))
-    : runOnce({ engine: emp.engine, workspace: path.join(WORKSPACES, emp.id), prompt, env: { AIHQ_URL: `http://127.0.0.1:${PORT}`, HQ_EMPLOYEE: emp.id } }).then((r) => finish(r.out || r.err, r.code === 0, r.code));
+    : runOnce({
+      engine: emp.engine,
+      workspace: path.join(WORKSPACES, emp.id),
+      prompt,
+      hangMs: DEFAULT_HANG_MS,
+      onProgress: (line) => { job.statusLine = line; },
+      env: { AIHQ_URL: `http://127.0.0.1:${PORT}`, HQ_EMPLOYEE: emp.id },
+    }).then((r) => finish(r.out || r.err, r.code === 0 && !r.hung, r.code, { hung: r.hung, hangSec: r.hangSec }));
   run.catch((e) => store.mutate((x) => {
     const errText = String(e.message || e);
     const tt = x.tasks.find((y) => y.id === t.id);
@@ -1058,6 +1102,7 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
     }
   })).finally(() => {
     working.delete(emp.id);
+    syncPower();
     if (nextFailover) {
       const f = nextFailover;
       setTimeout(() => startRun(f.taskId, f.trigger, { depth: f.depth, triedEmps: f.triedEmps }).catch((err) => console.log(`[자동 우회 실패] ${f.taskId} ${err.message}`)), 150);
@@ -1153,6 +1198,7 @@ async function stateView(viaLan = false) {
   const healthSummary = evaluateHealth(d.health, ymd(), new Date().getHours());
   const lanIps = lanAddresses();
   const ingestUrls = lanIps.map((ip) => `http://${ip}:${PORT}/api/health/ingest`);
+  const employeeUsage = buildEmployeeUsageMap(d, scanLocalUsageCached(), ymd());
   return {
     rev: store.rev,
     today: ymd(),
@@ -1168,9 +1214,11 @@ async function stateView(viaLan = false) {
       localIngestUrl: `http://127.0.0.1:${PORT}/api/health/ingest`,
       token: viaLan ? undefined : d.health?.token,
     },
+    employeeUsage,
+    runtime: powerGuard.status(),
     bridges: detectDesktopBridges(),
     options: {
-      catalog: AI_CATALOG, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
+      catalog: AI_CATALOG, avatarPresets: AVATAR_PRESETS, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
       gates: GATES, engines: ENGINES, runModes: RUN_MODES, resKinds: RES_KINDS, resStatus: RES_STATUS,
       phoneModes: PHONE_MODES,
       accountPlatforms: publicAccountCatalog(), accountCategories: ACCOUNT_CATEGORIES, accountPresets: ACCOUNT_PRESETS, permLevels: PERM_LEVELS,
@@ -2095,6 +2143,16 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
       e.fallbackTo = target.id;
     }
   }
+  if (body.avatar !== undefined) {
+    if (AVATAR_PRESETS.some((a) => a.key === body.avatar)) e.avatar = body.avatar;
+  }
+  if (body.avatarImage !== undefined) {
+    const img = String(body.avatarImage || '').trim();
+    if (!img) e.avatarImage = '';
+    else if (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(img) && img.length <= 65000) e.avatarImage = img;
+    else throw new HttpError(400, '캐릭터 이미지는 60KB 이하의 PNG/JPG/WebP만 넣을 수 있어요.');
+  }
+  if (body.persona !== undefined) e.persona = text(body.persona, 80);
   if (body.salary !== undefined) {
     if (body.salary === null || body.salary === '') e.salary = null;
     else {
@@ -2144,6 +2202,7 @@ function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, 
     id, name, group: g, role: role || '', tools: [], runsOn: '', command: '', salary: null, engine: eng, model: model || '',
     runMode: eng === 'web' || eng === 'none' ? 'off' : (RUN_MODES.includes(runMode) ? runMode : 'off'),
     webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: '', resources: [], abilities: [],
+    avatar: defaultAvatarFor({ name, role }), avatarImage: '', persona: '',
     fallbackTo: null, cooldownUntil: null, cooldownReason: '',
   };
   d.employees.push(e);
@@ -2410,6 +2469,7 @@ route('POST', '/api/ui/resources/:id/check', async ({ params }) => {
 route('PATCH', '/api/ui/settings', async ({ body }) => store.mutate((d) => {
   if (body.alarmsEnabled !== undefined) d.settings.alarmsEnabled = Boolean(body.alarmsEnabled);
   if (body.autoOptimize !== undefined) d.settings.autoOptimize = Boolean(body.autoOptimize);
+  if (body.preventSleep !== undefined) d.settings.preventSleep = Boolean(body.preventSleep);
   if (body.ownerName !== undefined) { const s = text(body.ownerName, 40); if (s) d.owner.name = s; }
   if (body.companyName !== undefined) d.settings.companyName = text(body.companyName, 60);
   if (body.onboarded !== undefined) d.settings.onboarded = Boolean(body.onboarded);
@@ -2419,7 +2479,7 @@ route('PATCH', '/api/ui/settings', async ({ body }) => store.mutate((d) => {
     for (const k of Object.keys(d.settings.features)) if (body.features[k] !== undefined) d.settings.features[k] = Boolean(body.features[k]);
   }
   return d.settings;
-}), UI);
+}).then((s) => { syncPower(); return s; }), UI);
 
 route('POST', '/api/ui/lan', async ({ body }) => {
   const on = Boolean(body.on);
@@ -3028,7 +3088,7 @@ async function main() {
       extraTick: async () => { maybeReadMuse(); maybeRefreshModels(); },
     });
   }
-  const stop = () => { server.close(); process.exit(0); };
+  const stop = () => { powerGuard.stop(); server.close(); process.exit(0); };
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
 }

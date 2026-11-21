@@ -515,5 +515,107 @@
     return svg;
   }
 
-  window.Charts = { spark, paybar, timelineRow, flow, ring, ramChart, healthChart, workloadBars, companyGraph, habitGrid };
+  // AI 직원 화이트·블랙 미니멀 캐릭터 아바타 (8종 SVG, 상태별 애니메이션)
+  function avatarSvg(key = 'bot', { size = 44, state = 'idle' } = {}) {
+    const working = state === 'working';
+    const cooling = state === 'cooling';
+    const bg = working ? INK : '#f5f5f5';
+    const stroke = working ? '#ffffff' : INK;
+    const fillMain = working ? '#ffffff' : INK;
+    const fillSub = working ? '#111111' : '#ffffff';
+    const bd = working ? INK : cooling ? '#a8a8a8' : '#e0e0e0';
+
+    const svg = s('svg', {
+      viewBox: '0 0 48 48',
+      width: size,
+      height: size,
+      class: `avatar-svg${working ? ' working' : ''}${cooling ? ' cool' : ''}`,
+      role: 'img',
+      'aria-label': `AI 직원 캐릭터 ${key}`,
+    });
+
+    svg.appendChild(s('rect', {
+      x: 1.5, y: 1.5, width: 45, height: 45, rx: 12,
+      fill: bg, stroke: bd, 'stroke-width': working ? 1.5 : 1,
+      'stroke-dasharray': cooling ? '3 2.5' : null,
+    }));
+
+    const g = s('g', { fill: 'none', stroke, 'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+
+    if (key === 'fox') {
+      // 전략가 여우
+      g.appendChild(s('path', { d: 'M13 14 L18 22 L30 22 L35 14 L36 28 L24 37 L12 28 Z', fill: fillSub }));
+      g.appendChild(s('path', { d: 'M13 14 L16 20 M35 14 L32 20' }));
+      g.appendChild(s('circle', { cx: 19.5, cy: 26.5, r: 1.4, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('circle', { cx: 28.5, cy: 26.5, r: 1.4, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('polygon', { points: '22,31.5 26,31.5 24,34', fill: fillMain, stroke: 'none' }));
+    } else if (key === 'owl') {
+      // 리서처 부엉이 (둥근 안경)
+      g.appendChild(s('rect', { x: 13, y: 14, width: 22, height: 22, rx: 10, fill: fillSub }));
+      g.appendChild(s('path', { d: 'M14 15 L17 12 L20 15 M34 15 L31 12 L28 15' }));
+      g.appendChild(s('circle', { cx: 19.5, cy: 24, r: 4 }));
+      g.appendChild(s('circle', { cx: 28.5, cy: 24, r: 4 }));
+      g.appendChild(s('line', { x1: 23.5, y1: 24, x2: 24.5, y2: 24 }));
+      g.appendChild(s('circle', { cx: 19.5, cy: 24, r: 1.2, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('circle', { cx: 28.5, cy: 24, r: 1.2, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('path', { d: 'M22.5 29.5 L24 31.5 L25.5 29.5' }));
+    } else if (key === 'cat') {
+      // 자동화 고양이 (바이저 느낌)
+      g.appendChild(s('path', { d: 'M14 20 L15 13 L21 17 L27 17 L33 13 L34 20 C35 29 31 35 24 35 C17 35 13 29 14 20 Z', fill: fillSub }));
+      g.appendChild(s('rect', { x: 17, y: 22, width: 14, height: 5, rx: 2.5, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('circle', { cx: 20.5, cy: 24.5, r: 1.1, fill: fillSub, stroke: 'none' }));
+      g.appendChild(s('circle', { cx: 27.5, cy: 24.5, r: 1.1, fill: fillSub, stroke: 'none' }));
+      g.appendChild(s('path', { d: 'M11 26 L15 26.5 M11 29 L15 28.5 M37 26 L33 26.5 M37 29 L33 28.5', 'stroke-width': 1.3 }));
+    } else if (key === 'whale') {
+      // 오케스트라 범고래 (Orca 마스코트)
+      g.appendChild(s('path', { d: 'M12 28 C12 19 19 15 27 16 C33 17 36 22 36 27 C36 31 32 33 26 33 L16 33 C13 33 12 31 12 28 Z', fill: fillMain }));
+      g.appendChild(s('path', { d: 'M24 16 L26 11 L29 16', fill: fillMain }));
+      g.appendChild(s('ellipse', { cx: 20, cy: 23.5, rx: 3.4, ry: 2, fill: fillSub, stroke: 'none', transform: 'rotate(-14 20 23.5)' }));
+      g.appendChild(s('path', { d: 'M16 30 C20 28.5 26 28.5 31 30', stroke: fillSub, 'stroke-width': 1.6 }));
+    } else if (key === 'rabbit') {
+      // 스피드 토끼
+      g.appendChild(s('rect', { x: 16.5, y: 10, width: 4.5, height: 12, rx: 2.2, fill: fillSub }));
+      g.appendChild(s('rect', { x: 27, y: 10, width: 4.5, height: 12, rx: 2.2, fill: fillSub }));
+      g.appendChild(s('circle', { cx: 24, cy: 28, r: 9.5, fill: fillSub }));
+      g.appendChild(s('circle', { cx: 20.5, cy: 27, r: 1.3, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('circle', { cx: 27.5, cy: 27, r: 1.3, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('path', { d: 'M22.5 31 Q24 32.5 25.5 31' }));
+    } else if (key === 'bear') {
+      // 스튜디오 곰
+      g.appendChild(s('circle', { cx: 15, cy: 16, r: 4, fill: fillSub }));
+      g.appendChild(s('circle', { cx: 33, cy: 16, r: 4, fill: fillSub }));
+      g.appendChild(s('circle', { cx: 24, cy: 26, r: 10.5, fill: fillSub }));
+      g.appendChild(s('circle', { cx: 20, cy: 24, r: 1.3, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('circle', { cx: 28, cy: 24, r: 1.3, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('ellipse', { cx: 24, cy: 29.5, rx: 4, ry: 2.8 }));
+      g.appendChild(s('circle', { cx: 24, cy: 28.5, r: 1.1, fill: fillMain, stroke: 'none' }));
+    } else if (key === 'spark') {
+      // 마케팅 스타
+      g.appendChild(s('path', { d: 'M24 10 L28 20 L38 24 L28 28 L24 38 L20 28 L10 24 L20 20 Z', fill: fillSub }));
+      g.appendChild(s('circle', { cx: 21.5, cy: 24, r: 1.3, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('circle', { cx: 26.5, cy: 24, r: 1.3, fill: fillMain, stroke: 'none' }));
+    } else {
+      // 상주 오퍼레이터 봇 (Dieter Rams 미니멀 로봇)
+      g.appendChild(s('line', { x1: 24, y1: 11, x2: 24, y2: 15 }));
+      g.appendChild(s('circle', { cx: 24, cy: 10, r: 1.5, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('rect', { x: 13, y: 15, width: 22, height: 19, rx: 5, fill: fillSub }));
+      g.appendChild(s('rect', { x: 16.5, y: 19.5, width: 15, height: 6.5, rx: 3, fill: fillMain, stroke: 'none' }));
+      g.appendChild(s('circle', { cx: 20.5, cy: 22.8, r: 1.3, fill: fillSub, stroke: 'none' }));
+      g.appendChild(s('circle', { cx: 27.5, cy: 22.8, r: 1.3, fill: fillSub, stroke: 'none' }));
+      g.appendChild(s('line', { x1: 20, y1: 30, x2: 28, y2: 30 }));
+    }
+
+    svg.appendChild(g);
+
+    if (working) {
+      svg.appendChild(s('circle', { cx: 40, cy: 8, r: 4.5, fill: 'none', stroke: '#ffffff', 'stroke-width': 1, opacity: 0.65, class: 'pulse-ring' }));
+      svg.appendChild(s('circle', { cx: 40, cy: 8, r: 2.5, fill: '#ffffff' }));
+    } else if (cooling) {
+      svg.appendChild(s('rect', { x: 29, y: 3, width: 16, height: 11, rx: 5.5, fill: INK }));
+      svg.appendChild(s('text', { x: 37, y: 11, 'text-anchor': 'middle', 'font-size': 7.5, 'font-weight': 700, fill: '#fff', 'font-family': 'Pretendard, sans-serif' }, 'zZ'));
+    }
+    return svg;
+  }
+
+  window.Charts = { spark, paybar, timelineRow, flow, ring, ramChart, healthChart, workloadBars, companyGraph, habitGrid, avatarSvg };
 })();

@@ -223,9 +223,10 @@ async function act(method, url, body, okMsg) {
 function stateSignature(st) {
   const mh = st.machineHealth || {};
   const mhSig = Object.values(mh).map((x) => `${x.id}:${x.level}:${x.ramPct ?? ''}`).join(',');
-  const wSig = (st.working || []).map((w) => `${w.emp}:${w.taskId}`).join(',');
+  const wSig = (st.working || []).map((w) => `${w.emp}:${w.taskId}:${w.statusLine || ''}`).join(',');
   const oSig = (st.offices || []).map((o) => `${o.id}:${o.state}:${o.log || ''}`).join(',');
-  return `${st.rev || 0}|${wSig}|${(st.assigning || []).join(',')}|${oSig}|${mhSig}|${(st.ramHistory || []).length}|${st.health?.lastSyncAt || ''}|${st.health?.score ?? ''}`;
+  const uSig = Object.entries(st.employeeUsage || {}).map(([id, u]) => `${id}:${u.pct5h ?? ''}`).join(',');
+  return `${st.rev || 0}|${wSig}|${(st.assigning || []).join(',')}|${oSig}|${mhSig}|${(st.ramHistory || []).length}|${st.health?.lastSyncAt || ''}|${st.health?.score ?? ''}|${uSig}|${st.runtime?.active ? 1 : 0}`;
 }
 
 async function load({ background = false } = {}) {
@@ -357,12 +358,14 @@ function openSettingsModal() {
   const fMsg = h('input', { type: 'checkbox', checked: Boolean(f.messenger) });
   const fRev = h('input', { type: 'checkbox', checked: Boolean(f.revenue) });
   const fOpt = h('input', { type: 'checkbox', checked: d.settings.autoOptimize !== false });
+  const fSleep = h('input', { type: 'checkbox', checked: d.settings.preventSleep !== false });
   const memCount = Object.keys(d.settings.assignMemory || {}).length;
   const save = () => once('save-set', async () => {
     const patch = {
       ownerName: ownerName.value.trim() || undefined,
       companyName: companyName.value.trim(),
       autoOptimize: fOpt.checked,
+      preventSleep: fSleep.checked,
       features: { approvals: fAppr.checked, messenger: fMsg.checked, revenue: fRev.checked, channel: fRev.checked },
     };
     if (qFrom.value && qTo.value && qFrom.value !== qTo.value) patch.quietHours = { from: qFrom.value, to: qTo.value };
@@ -380,8 +383,9 @@ function openSettingsModal() {
       h('label', { class: 'field' }, '자는 시간 시작 (선택)', qFrom),
       h('label', { class: 'field' }, '일어나는 시간 (선택)', qTo)),
     h('div', { style: 'margin-top:16px' },
-      h('div', { class: 'small muted', style: 'margin-bottom:8px' }, '성능 · 자동 최적화'),
-      h('label', { class: 'chk-l' }, fOpt, '토큰 한도 도달 시 대체 AI 전환 · RAM 85% 초과 시 대체 컴퓨터 우회/대기열 보호')),
+      h('div', { class: 'small muted', style: 'margin-bottom:8px' }, '성능 · 런타임 안정화'),
+      h('label', { class: 'chk-l' }, fOpt, '토큰 한도 도달 시 대체 AI 전환 · RAM 85% 초과 시 대체 컴퓨터 우회/대기열 보호'),
+      h('label', { class: 'chk-l', style: 'margin-top:6px' }, fSleep, `작업 중 맥 잠자기 방지 (caffeinate · 먹통 감시 ${S.runtime?.hangWatchdogSec || 180}초)`)),
     h('div', { style: 'margin-top:16px' },
       h('div', { class: 'small muted', style: 'margin-bottom:8px' }, '선택 메뉴 표시 (기본은 4개 핵심 메뉴만 깔끔하게 보여요)'),
       h('div', { class: 'chk-wrap' },
@@ -421,7 +425,7 @@ function hiddenOn() { return (window.HIDDEN || []).filter((x) => features()[x.fl
 
 function pageFor(route) {
   if (!S.data.settings.onboarded) return pageStart;
-  const base = { home: pageHome, dashboard: pageDashboard, daily: pageDaily, staff: pageStaff, resources: pageResources }[route];
+  const base = { home: pageHome, dashboard: pageDashboard, pocket: pagePocket, daily: pageDaily, staff: pageStaff, resources: pageResources }[route];
   if (base) return base;
   const hid = hiddenOn().find((x) => x.id === route);
   return hid ? hid.fn : pageHome;
@@ -452,7 +456,9 @@ function renderNav() {
     coolCnt || queueCnt
       ? h('div', { class: 'side-health' }, [coolCnt ? `토큰 휴식 ${coolCnt}명` : '', queueCnt ? `대기열 ${queueCnt}건` : ''].filter(Boolean).join(' · '))
       : h('div', null, `알람 ${d.settings.alarmsEnabled ? '켜짐' : '꺼짐'} · 최적화 ${d.settings.autoOptimize !== false ? '켜짐' : '꺼짐'}`),
-    h('button', { type: 'button', class: 'btn sm side-set-btn', onclick: openSettingsModal }, '설정'),
+    h('div', { class: 'row', style: 'margin-top:8px' },
+      h('button', { type: 'button', class: `btn sm${ui.route === 'pocket' ? ' dark' : ''}`, onclick: () => { location.hash = '#pocket'; } }, '폰 뷰'),
+      h('button', { type: 'button', class: 'btn sm', onclick: openSettingsModal }, '설정')),
   ].filter(Boolean);
   document.getElementById('side-foot').replaceChildren(...footNodes);
 }
@@ -1780,6 +1786,7 @@ function pageDashboard() {
         h('h1', null, h('b', null, '회사 대시보드')),
         h('div', { class: 'sub' }, `${d.settings.companyName || 'CONNECT AI HQ'} · 대표 컨디션 · AI 직원 ${d.employees.length}명 · 컴퓨터 ${machines.length}대${phones.length ? ` · 스마트폰 ${phones.length}대` : ''} · 자동 최적화 ${d.settings.autoOptimize !== false ? '켜짐' : '꺼짐'}`)),
       h('div', { class: 'row' },
+        h('button', { class: 'btn sm', onclick: () => { location.hash = '#pocket'; } }, '폰 뷰'),
         h('button', { class: 'btn sm', onclick: openHealthLogModal }, '컨디션 기록'),
         h('button', { class: 'btn sm', onclick: () => load() }, '새로고침'),
         h('button', { class: 'btn sm dark', onclick: openDailyReport }, '오늘 리포트'))),
@@ -1823,24 +1830,260 @@ function pageDashboard() {
           h('div', { class: 'gauge-box' }, C.ring(cpuLoadFrac, { label: 'CPU 부하' }),
             h('div', null, h('div', { class: 'g-k' }, 'CPU 부하'), h('div', { class: 'g-v' }, T ? `${T.load1} / ${T.cpus}코어` : '측정 중')))),
         C.ramChart(S.ramHistory || [], maxRamPct),
-        h('div', { class: 'dash-m-list' }, machines.map((m) => {
-          const mh = S.machineHealth?.[m.id];
-          const fb = m.fallbackTo && res(m.fallbackTo) ? res(m.fallbackTo).name : null;
-          return h('div', { class: 'dash-m-row' },
-            h('span', null, h('b', null, m.name), m.computerUse ? h('span', { class: 'tag', style: 'margin-left:6px' }, 'CU') : null, fb ? h('span', { class: 'muted' }, ` · 바쁘면 → ${fb}`) : null),
-            h('span', { class: 'row' },
-              h('span', { class: 'small muted mono' }, typeof mh?.ramPct === 'number' ? `RAM ${mh.ramPct}% / ${mh.maxRamPct}%` : (m.sshAlias || m.status)),
-              h('span', { class: `tag${mh?.level === 'overload' ? ' solid' : mh?.level === 'busy' ? ' dash' : ''}` }, healthLabel(mh?.level || (m.status === '꺼짐' ? 'down' : 'ok')))));
-        })))),
+        h('div', { class: 'dash-m-list' },
+          h('div', { class: 'dash-m-row runtime-strip' },
+            h('span', { class: 'small muted' }, `런타임 안정화 · 먹통 감시 ${S.runtime?.hangWatchdogSec || 180}초`),
+            h('span', { class: `tag${S.runtime?.active ? ' solid' : ''}` }, S.runtime?.active ? '잠자기 방지 작동 중' : S.runtime?.enabled ? '작업 시 잠자기 방지 대기' : '잠자기 방지 꺼짐')),
+          machines.map((m) => {
+            const mh = S.machineHealth?.[m.id];
+            const fb = m.fallbackTo && res(m.fallbackTo) ? res(m.fallbackTo).name : null;
+            return h('div', { class: 'dash-m-row' },
+              h('span', null, h('b', null, m.name), m.computerUse ? h('span', { class: 'tag', style: 'margin-left:6px' }, 'CU') : null, fb ? h('span', { class: 'muted' }, ` · 바쁘면 → ${fb}`) : null),
+              h('span', { class: 'row' },
+                h('span', { class: 'small muted mono' }, typeof mh?.ramPct === 'number' ? `RAM ${mh.ramPct}% / ${mh.maxRamPct}%` : (m.sshAlias || m.status)),
+                h('span', { class: `tag${mh?.level === 'overload' ? ' solid' : mh?.level === 'busy' ? ' dash' : ''}` }, healthLabel(mh?.level || (m.status === '꺼짐' ? 'down' : 'ok')))));
+          })))),
     h('section', { class: 'dash-card', style: 'margin-top:18px' },
       h('div', { class: 'dash-card-h' },
-        h('h2', null, 'AI 직원 업무 분포 · 24시간 근무 타임라인'),
+        h('h2', null, 'AI 직원 업무 · 5시간 토큰 한도 · 근무 타임라인'),
         h('div', { class: 'wbar-legend' },
           h('span', null, h('i', { style: 'background:#111' }), '완료'),
           h('span', null, h('i', { style: 'background:#9a9a9a' }), '진행 · 대기'))),
       h('div', { class: 'dash-staff-grid' },
-        h('div', null, barItems.length ? C.workloadBars(barItems) : h('div', { class: 'empty' }, 'AI 직원을 추가하면 업무 분포가 표시됩니다')),
+        h('div', null,
+          barItems.length ? C.workloadBars(barItems) : h('div', { class: 'empty' }, 'AI 직원을 추가하면 업무 분포가 표시됩니다'),
+          d.employees.length ? h('div', { class: 'dash-usage-list' }, d.employees.map((e) => {
+            const u = S.employeeUsage?.[e.id];
+            const pct = typeof u?.pct5h === 'number' ? u.pct5h : null;
+            const rst = u?.resetInMin ? (u.resetInMin >= 60 ? `${Math.floor(u.resetInMin / 60)}h ${u.resetInMin % 60}m` : `${u.resetInMin}m`) : '';
+            return h('div', { class: 'dash-usage-row', onclick: () => openAvatarModal(e), title: '클릭해 캐릭터 설정' },
+              h('div', { class: 'row', style: 'gap:8px;min-width:0' },
+                avatarEl(e, { size: 28 }),
+                h('span', { class: 'u-name' }, shortName(e.id))),
+              h('div', { class: 'u-right' },
+                pct !== null
+                  ? [
+                    h('div', { class: 'ram-bar', style: 'width:76px' }, h('div', { class: `ram-fill${pct >= 80 ? ' over' : ''}`, style: `width:${Math.min(100, pct)}%` })),
+                    h('span', { class: 'small mono', style: 'min-width:34px;text-align:right' }, `${pct}%`),
+                    rst ? h('span', { class: 'small muted', style: 'min-width:44px;text-align:right' }, rst) : null,
+                  ]
+                  : h('span', { class: 'small muted' }, u?.source || '대기')));
+          })) : null),
         h('div', null, timeline()))));
+}
+
+// ───────── AI 직원 캐릭터 · 5시간 토큰 바 · 스마트폰 포켓 라이브 뷰 (#pocket) ─────────
+
+function fmtResetMin(m) {
+  if (!m) return '';
+  return m >= 60 ? `약 ${Math.floor(m / 60)}시간 ${m % 60}분 뒤 리셋` : `약 ${m}분 뒤 리셋`;
+}
+
+function avatarEl(e, { size = 44, clickable = false } = {}) {
+  const working = isWorking(e.id);
+  const cooling = isEmpCooling(e);
+  const state = working ? 'working' : cooling ? 'cooling' : 'idle';
+  let inner;
+  if (e.avatarImage) {
+    inner = h('div', { class: `avatar-img-wrap${working ? ' working' : ''}${cooling ? ' cool' : ''}`, style: `width:${size}px;height:${size}px` },
+      h('img', { src: e.avatarImage, alt: `${e.name} 캐릭터`, width: size, height: size }),
+      working ? h('i', { class: 'av-dot' }) : null,
+      cooling ? h('span', { class: 'av-zz' }, 'zZ') : null);
+  } else {
+    inner = C.avatarSvg(e.avatar || 'bot', { size, state });
+  }
+  if (!clickable) return inner;
+  return h('button', {
+    type: 'button', class: 'avatar-btn', title: `${e.name} 캐릭터 바꾸기`,
+    onclick: (ev) => { ev.stopPropagation(); openAvatarModal(e); },
+  }, inner);
+}
+
+function usageBarEl(e) {
+  const u = S.employeeUsage?.[e.id];
+  if (!u) return null;
+  const pct = typeof u.pct5h === 'number' ? u.pct5h : null;
+  if (pct === null && u.source === 'HQ 실행 기록') return null;
+  return h('div', { class: 'usage-line' },
+    pct !== null ? h('div', { class: 'ram-bar', style: 'width:82px', title: `5시간 토큰 사용량 추정 ${pct}%` },
+      h('div', { class: `ram-fill${pct >= 80 ? ' over' : ''}`, style: `width:${Math.min(100, pct)}%` })) : null,
+    h('span', { class: 'small muted' }, pct !== null
+      ? `5시간 한도 ${pct}%${u.resetInMin ? ` · ${fmtResetMin(u.resetInMin)}` : ''}`
+      : u.source),
+    u.warning80 ? h('span', { class: 'tag solid' }, u.cooling ? '휴식 중' : '한도 주의') : null);
+}
+
+function resizeImageToDataUrl(file, grayscale = false) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('파일을 읽을 수 없어요.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('이미지가 아니에요.'));
+      img.onload = () => {
+        const size = 144;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const minSide = Math.min(img.width, img.height);
+        const sx = (img.width - minSide) / 2;
+        const sy = (img.height - minSide) / 2;
+        if (grayscale) ctx.filter = 'grayscale(100%) contrast(108%)';
+        ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, size, size);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function openAvatarModal(e) {
+  const dlg = document.getElementById('dlg');
+  dlg.className = 'wide';
+  const presets = S.options.avatarPresets || [];
+  let pickedKey = e.avatar || 'bot';
+  let customImg = e.avatarImage || '';
+  const personaIn = h('input', { class: 'in', value: e.persona || '', placeholder: '예: 새벽에도 안 자는 자동화 집사 · 초안 3초 컷 작가', maxlength: '80' });
+  const grayChk = h('input', { type: 'checkbox', checked: true });
+  const previewWrap = h('div', { class: 'row', style: 'gap:12px;margin-bottom:14px' });
+
+  const renderPreview = () => {
+    const fakeEmp = { ...e, avatar: pickedKey, avatarImage: customImg };
+    previewWrap.replaceChildren(
+      avatarEl(fakeEmp, { size: 58 }),
+      h('div', null,
+        h('div', { style: 'font-weight:600;font-size:15px' }, e.name),
+        h('div', { class: 'small muted' }, customImg ? '직접 올린 캐릭터 이미지 사용 중' : (presets.find((p) => p.key === pickedKey)?.name || pickedKey))));
+  };
+
+  const presetBtns = [];
+  const grid = h('div', { class: 'avatar-grid' }, presets.map((p) => {
+    const b = h('button', {
+      type: 'button', class: `avatar-opt${!customImg && pickedKey === p.key ? ' on' : ''}`,
+      onclick: () => {
+        pickedKey = p.key;
+        customImg = '';
+        presetBtns.forEach((x) => x.classList.toggle('on', x === b));
+        renderPreview();
+      },
+    }, C.avatarSvg(p.key, { size: 46 }), h('b', null, p.name), h('span', { class: 'small muted' }, p.hint));
+    presetBtns.push(b);
+    return b;
+  }));
+
+  const fileIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', style: 'display:none' });
+  fileIn.addEventListener('change', async () => {
+    const f = fileIn.files?.[0];
+    if (!f) return;
+    try {
+      customImg = await resizeImageToDataUrl(f, grayChk.checked);
+      presetBtns.forEach((x) => x.classList.remove('on'));
+      renderPreview();
+      toast('이미지를 캐릭터 크기로 맞췄어요');
+    } catch (err) {
+      toast(err.message || '이미지 처리 오류');
+    }
+  });
+
+  renderPreview();
+  setDlg(dlg,
+    h('h3', null, `${e.name} · 캐릭터 설정`),
+    h('p', { class: 'small muted', style: 'margin:-8px 0 14px' }, 'AI 직원마다 캐릭터와 한 줄 성격을 정해 두면 대시보드와 스마트폰 포켓 뷰에서 한눈에 알아볼 수 있어요.'),
+    previewWrap,
+    grid,
+    h('div', { class: 'bp-bar' },
+      h('div', { class: 'row' },
+        fileIn,
+        h('button', { type: 'button', class: 'btn sm', onclick: () => fileIn.click() }, '내 이미지 올리기'),
+        h('label', { class: 'chk-l small' }, grayChk, '흑백 톤 맞추기')),
+      customImg ? h('button', { type: 'button', class: 'btn link', onclick: () => { customImg = ''; renderPreview(); } }, '기본 캐릭터로') : null),
+    h('label', { class: 'field', style: 'margin-top:12px' }, '캐릭터 한 줄 소개 (폰 뷰에 표시, 선택)', personaIn),
+    h('div', { class: 'bar' },
+      h('button', { class: 'btn', onclick: () => { dlg.className = ''; dlg.close(); } }, '취소'),
+      h('button', { class: 'btn dark', onclick: () => once(`av-${e.id}`, async () => {
+        dlg.className = '';
+        dlg.close();
+        await act('PATCH', `/api/ui/employees/${e.id}`, { avatar: pickedKey, avatarImage: customImg, persona: personaIn.value.trim() }, `${e.name} 캐릭터를 저장했어요`);
+      }) }, '저장')));
+  dlg.showModal();
+}
+
+function pagePocket() {
+  const d = S.data;
+  const today = d.tasks.filter((t) => t.date === S.today);
+  const doneCnt = today.filter((t) => t.status === '완료').length;
+  const H = S.health || {};
+  const thisMac = d.resources.find((r) => r.kind === '기계' && r.isThisMac) || d.resources.find((r) => r.kind === '기계');
+  const localH = thisMac ? S.machineHealth?.[thisMac.id] : null;
+  const ramPct = S.localTelemetry?.ramPct ?? localH?.ramPct ?? null;
+  const pendingApprs = d.approvals.filter((a) => a.status === '대기');
+  const pendingGates = today.filter((t) => t.gate && !t.gateApprovedAt && t.status !== '완료' && t.assignee !== 'jay');
+
+  const pickEmpId = ui.pocketPick || (d.employees[0]?.id || 'jay');
+  const cmdIn = h('input', { class: 'in', placeholder: '폰에서 바로 일 시키기 (예: 오늘 댓글 요약해 줘)', 'data-k': 'pocket-cmd', 'aria-label': '빠른 지시' });
+  const sendCmd = () => submitInput(cmdIn, 'pocket-add', async (v) => {
+    const r = await act('POST', '/api/ui/tasks', { title: v, assignee: pickEmpId }, `${shortName(pickEmpId)}에게 바로 맡겼어요`);
+    return r;
+  });
+  cmdIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) sendCmd(); });
+
+  return h('div', { class: 'pocket' },
+    h('div', { class: 'pocket-head' },
+      h('div', null,
+        h('div', { class: 'pocket-title' }, d.settings.companyName || 'CONNECT AI HQ'),
+        h('div', { class: 'small muted' }, `${d.owner.name || '대표'}의 주머니 속 AI 회사 · 완료 ${doneCnt}/${today.length}`)),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn sm', onclick: () => { location.hash = '#dashboard'; } }, '대시보드'),
+        h('button', { type: 'button', class: 'btn sm dark', onclick: openHealthLogModal }, '컨디션'))),
+    h('div', { class: 'pocket-pills' },
+      h('div', { class: 'pocket-pill', onclick: openHealthLogModal },
+        h('span', { class: 'small muted' }, '대표 컨디션'),
+        h('b', null, H.score != null ? `${H.score}점` : '기록 전')),
+      h('div', { class: 'pocket-pill', onclick: () => { location.hash = '#resources'; } },
+        h('span', { class: 'small muted' }, '본사 RAM'),
+        h('b', null, ramPct != null ? `${ramPct}%` : '—')),
+      h('div', { class: 'pocket-pill' },
+        h('span', { class: 'small muted' }, '안정화'),
+        h('b', null, S.runtime?.active ? '절전방지 ON' : '감시 ON'))),
+    h('section', { class: 'pocket-sec' },
+      h('div', { class: 'pocket-sec-h' },
+        h('b', null, `내 AI 직원 (${d.employees.length}명)`),
+        h('span', { class: 'small muted' }, '캐릭터를 탭해 꾸미기')),
+      h('div', { class: 'pocket-grid' }, d.employees.map((e) => {
+        const w = S.working.find((x) => x.emp === e.id);
+        const cooling = isEmpCooling(e);
+        const coolMin = empCooldownMin(e);
+        const cnt = today.filter((t) => t.assignee === e.id && t.status !== '완료').length;
+        const u = S.employeeUsage?.[e.id];
+        const pct = typeof u?.pct5h === 'number' ? u.pct5h : null;
+        return h('div', { class: `pocket-card${w ? ' working' : ''}${cooling ? ' cool' : ''}` },
+          h('div', { class: 'pocket-card-top' },
+            avatarEl(e, { size: 52, clickable: true }),
+            h('span', { class: `tag${w || cooling ? ' solid' : ''}` }, w ? '근무 중' : cooling ? `휴식 ${coolMin}m` : cnt ? `오늘 ${cnt}` : '대기')),
+          h('div', { class: 'pocket-name' }, shortName(e.id)),
+          h('div', { class: 'pocket-sub' }, w?.statusLine || e.persona || e.role || ENGINE_LABEL[e.engine]),
+          pct !== null ? h('div', { class: 'pocket-meter' },
+            h('div', { class: 'ram-bar', style: 'flex:1;width:auto' }, h('div', { class: `ram-fill${pct >= 80 ? ' over' : ''}`, style: `width:${Math.min(100, pct)}%` })),
+            h('span', { class: 'mono', style: 'font-size:10px' }, `${pct}%`)) : null,
+          h('div', { class: 'pocket-acts' },
+            h('button', { type: 'button', class: `chip sm${pickEmpId === e.id ? ' on' : ''}`, onclick: () => { ui.pocketPick = e.id; render(); cmdIn.focus(); } }, '지시'),
+            cooling
+              ? h('button', { type: 'button', class: 'chip sm', onclick: () => act('POST', `/api/ui/employees/${e.id}/cooldown`, { minutes: 0 }, `${shortName(e.id)} 복귀`) }, '복귀')
+              : h('button', { type: 'button', class: 'chip sm', onclick: () => openCooldownModal(e) }, '휴식')));
+      }))),
+    (pendingApprs.length || pendingGates.length) ? h('section', { class: 'pocket-sec' },
+      h('div', { class: 'pocket-sec-h' }, h('b', null, `대표 확인 대기 (${pendingApprs.length + pendingGates.length}건)`)),
+      pendingGates.map((t) => h('div', { class: 'pocket-appr' },
+        h('div', null, h('div', { style: 'font-weight:600;font-size:13px' }, t.title), h('div', { class: 'small muted' }, `${shortName(t.assignee)} · ${t.gate} 확인 필요`)),
+        h('button', { type: 'button', class: 'btn sm dark', onclick: () => act('POST', `/api/ui/tasks/${t.id}/approve-gate`, {}, '승인했어요') }, '승인'))),
+      pendingApprs.map((a) => h('div', { class: 'pocket-appr' },
+        h('div', null, h('div', { style: 'font-weight:600;font-size:13px' }, a.title || a.kind), h('div', { class: 'small muted' }, a.summary || a.body || '')),
+        h('button', { type: 'button', class: 'btn sm dark', onclick: () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인' }, '승인했어요') }, '승인')))) : null,
+    h('section', { class: 'pocket-cmd' },
+      h('div', { class: 'small muted', style: 'margin-bottom:6px' }, `받는 직원: `, h('b', null, shortName(pickEmpId))),
+      h('div', { class: 'row' }, cmdIn, h('button', { type: 'button', class: 'btn dark', onclick: sendCmd }, '보내기'))));
 }
 
 // ───────── 워크플로우 청사진 공유 (수강생·팀 배포용) ─────────
@@ -2185,11 +2428,19 @@ function empCard(e) {
       ? h('button', { class: 'btn sm dark', onclick: () => once(`cd0-${e.id}`, () => act('POST', `/api/ui/employees/${e.id}/cooldown`, { minutes: 0 }, `${e.name} 휴식을 해제했어요`)) }, '휴식 해제')
       : h('button', { class: 'btn sm', title: '멤버십 토큰이 다 썼을 때 대체 AI로 넘김', onclick: () => openCooldownModal(e) }, '한도 휴식');
     const channels = accessChannelsOf(e);
+    const workJob = S.working.find((w) => w.emp === e.id);
     return h('div', { class: 'card' },
       h('div', { class: 'row', style: 'justify-content:space-between;align-items:flex-start' },
-        h('div', null, h('h3', null, e.name, h('span', { class: 'emp-id', title: 'CLI · MCP 직원 아이디' }, e.id)), h('div', { class: 'small muted' }, how), modelLine(e)),
+        h('div', { class: 'row', style: 'gap:12px;align-items:flex-start;min-width:0' },
+          avatarEl(e, { size: 46, clickable: true }),
+          h('div', { style: 'min-width:0' },
+            h('h3', null, e.name, h('span', { class: 'emp-id', title: 'CLI · MCP 직원 아이디' }, e.id)),
+            e.persona ? h('div', { class: 'small', style: 'color:var(--ink-2);margin-top:2px' }, e.persona) : null,
+            h('div', { class: 'small muted' }, workJob?.statusLine ? `진행 중: ${workJob.statusLine}` : how),
+            modelLine(e))),
         cooling ? h('span', { class: 'tag solid', title: e.cooldownReason || '토큰 한도 휴식 중' }, `토큰 휴식 · ${coolMin}분`)
-          : isWorking(e.id) ? h('span', { class: 'tag solid' }, '일하는 중') : today.length ? h('span', { class: 'tag' }, `오늘 ${today.length}`) : null),
+          : workJob ? h('span', { class: 'tag solid' }, '일하는 중') : today.length ? h('span', { class: 'tag' }, `오늘 ${today.length}`) : null),
+      usageBarEl(e),
       channels.length ? h('div', { class: 'access-badges' }, channels.map((c) => h('span', { class: 'tag' }, c))) : null,
       h('dl', { class: 'kv' },
         h('dt', null, '역할'), h('dd', null, valOr(e.role, 'role')),
@@ -2315,6 +2566,7 @@ function pageStaff() {
     h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, 'AI 직원')),
       h('div', { class: 'sub' }, `AI 직원 ${d.employees.length}명 · 월급 합계 월 ${won(total)}${unknown ? ` · 미입력 ${unknown}명` : ''} · 토큰 한도 시 대체 직원으로 자동 전환`)),
     h('div', { class: 'row' },
+      h('button', { class: 'btn sm', onclick: () => { location.hash = '#pocket'; } }, '폰 라이브 뷰'),
       h('button', { class: 'btn sm', onclick: openConnectModal }, 'AI 도구 연결 (MCP · 스킬)'),
       h('button', { class: 'btn dark sm', onclick: openAddEmployee }, '직원 추가'))),
     !d.employees.length ? h('div', { class: 'empty' }, '아직 직원이 없어요. 직원 추가를 눌러 지금 쓰는 AI를 고르세요.') : null,
