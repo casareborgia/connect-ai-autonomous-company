@@ -658,6 +658,40 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .side-health b { color: var(--ink); font-weight: 600; }
 .tag.dash { border-style: dashed; color: var(--ink-2); }
 
+/* ───── 회사 대시보드 (White & Black SVG 그래프) ───── */
+.dash-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+.dash-kpi { border: 1px solid var(--line-2); border-radius: 12px; background: #fff; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
+.dash-kpi .k-lbl { font-size: 11px; color: var(--ink-3); letter-spacing: 0.04em; }
+.dash-kpi .k-val { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.dash-kpi .k-sub { font-size: 12px; color: var(--ink-2); }
+.dash-kpi .k-bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 2px; }
+.dash-kpi .k-bar > i { display: block; height: 100%; background: var(--ink); border-radius: 2px; }
+.dash-card { border: 1px solid var(--line-2); border-radius: 14px; background: #fff; padding: 20px 22px; margin-bottom: 18px; }
+.dash-card-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.dash-card-h h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.dash-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+.dash-grid .dash-card { margin-bottom: 0; }
+.topo-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.topo-svg { display: block; width: 100%; min-width: 720px; height: auto; }
+.topo-edge { transition: opacity .15s, stroke .15s, stroke-width .15s; }
+.topo-edge.hi { stroke: var(--ink) !important; stroke-width: 2 !important; opacity: 1 !important; }
+.topo-edge.dim { opacity: 0.14; }
+.topo-node { transition: opacity .15s; }
+.topo-node.dim { opacity: 0.25; }
+.topo-node:hover rect:first-child { stroke: var(--ink); }
+@keyframes pulseRing { 0% { opacity: 0.6; transform: scale(1); } 70% { opacity: 0; transform: scale(1.45); } 100% { opacity: 0; transform: scale(1.45); } }
+.pulse-ring { transform-box: fill-box; transform-origin: center; animation: pulseRing 1.8s ease-out infinite; }
+.ram-svg, .wbar-svg { display: block; width: 100%; height: auto; }
+.gauge-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.gauge-box { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 12px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--fill); min-width: 0; }
+.gauge-box svg { width: 52px; height: 52px; flex: none; }
+.gauge-box .g-k { font-size: 11px; color: var(--ink-3); }
+.gauge-box .g-v { font-size: 12px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; margin-top: 1px; }
+.wbar-legend { display: flex; align-items: center; gap: 14px; font-size: 11px; color: var(--ink-3); }
+.wbar-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.dash-m-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.dash-m-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+
 /* 폰 연결 화면 (pair.html) */
 .pair { max-width: 400px; margin: 72px auto; padding: 0 20px; }
 .pair h1 { font-size: 24px; font-weight: 600; margin: 0 0 8px; }
@@ -681,4 +715,9 @@ body.onboarding .shell { grid-template-columns: 1fr; }
   .res > .row { flex-wrap: wrap; justify-content: flex-end; }
   .ob-actions { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
   dialog.wide { width: calc(100vw - 24px); padding: 20px; }
+  .dash-kpis { grid-template-columns: 1fr 1fr; }
+  .dash-grid { grid-template-columns: 1fr; }
+  .gauge-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .gauge-box { padding: 10px 4px; }
+  .gauge-box .g-v { font-size: 11px; }
 }

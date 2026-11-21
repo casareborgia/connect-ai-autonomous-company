@@ -787,18 +787,33 @@ function webUrlOf(emp) {
   return /^https:\/\/[^\s]+$/i.test(u) ? u : '';
 }
 
+const ramHistory = [];
+let lastRamSampleAt = 0;
+
+function recordRamSample(st) {
+  if (!st?.memory?.total) return;
+  const now = Date.now();
+  if (ramHistory.length && now - lastRamSampleAt < 10000) return;
+  lastRamSampleAt = now;
+  const ramPct = Math.round((1 - Math.max(0, st.memory.available ?? 0) / st.memory.total) * 100);
+  const load1 = Number(st.load?.[0]) || 0;
+  ramHistory.push({ at: new Date(now).toISOString(), ramPct, load1 });
+  if (ramHistory.length > 36) ramHistory.shift();
+}
+
 async function currentLocalStat(fresh = false) {
   if (fresh) clearLocalStatusCache();
-  const st = await localStatusCached(5000).catch(() => null);
+  let st = await localStatusCached(5000).catch(() => null);
   const testPct = process.env.AIHQ_TEST_RAM_PCT !== undefined && process.env.AIHQ_TEST_RAM_PCT !== '' ? Number(process.env.AIHQ_TEST_RAM_PCT) : null;
   if (Number.isFinite(testPct) && testPct >= 0 && testPct <= 100) {
     const total = st?.memory?.total || 32 * 1024 ** 3;
     const avail = Math.round(total * ((100 - testPct) / 100));
-    return {
+    st = {
       ...(st || { hostname: os.hostname(), chip: 'Test CPU', cpus: 8, uptimeSec: 100, load: [1, 1, 1], disk: { total: 500 * 1024 ** 3, used: 100 * 1024 ** 3, free: 400 * 1024 ** 3 } }),
       memory: { total, available: avail },
     };
   }
+  if (st) recordRamSample(st);
   return st;
 }
 
@@ -1112,6 +1127,17 @@ async function stateView() {
   const workingList = [...working.values(), ...officeWorking()];
   const offices = dispatcher ? dispatcher.view() : [];
   const machineHealth = Object.fromEntries(buildMachineHealthMap(d, { localStat, offices, workingList }));
+  const localTelemetry = localStat ? {
+    chip: localStat.chip || '',
+    cpus: localStat.cpus || 1,
+    load1: Number(localStat.load?.[0]) || 0,
+    uptimeSec: localStat.uptimeSec || 0,
+    ramPct: localStat.memory?.total ? Math.round((1 - Math.max(0, localStat.memory.available ?? 0) / localStat.memory.total) * 100) : null,
+    availGB: localStat.memory?.available != null ? Math.round((localStat.memory.available / 1024 ** 3) * 10) / 10 : null,
+    totalGB: localStat.memory?.total ? Math.round((localStat.memory.total / 1024 ** 3) * 10) / 10 : null,
+    diskPct: localStat.disk?.total ? Math.round(((localStat.disk.total - localStat.disk.free) / localStat.disk.total) * 100) : null,
+    diskFreeGB: localStat.disk?.free != null ? Math.round((localStat.disk.free / 1024 ** 3) * 10) / 10 : null,
+  } : null;
   return {
     rev: store.rev,
     today: ymd(),
@@ -1135,6 +1161,8 @@ async function stateView() {
     working: workingList,
     offices,
     machineHealth,
+    localTelemetry,
+    ramHistory: [...ramHistory],
     officeTemplates: Object.entries(TEMPLATES).map(([key, v]) => ({ key, label: v.label })),
     assigning: [...assigning],
     runners: { claude: Boolean(runnerInfo('claude').bin), codex: Boolean(runnerInfo('codex').bin), agy: Boolean(runnerInfo('agy').bin && !runnerInfo('agy').missing) },

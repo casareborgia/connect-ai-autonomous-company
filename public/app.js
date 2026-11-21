@@ -199,7 +199,7 @@ function stateSignature(st) {
   const mhSig = Object.values(mh).map((x) => `${x.id}:${x.level}:${x.ramPct ?? ''}`).join(',');
   const wSig = (st.working || []).map((w) => `${w.emp}:${w.taskId}`).join(',');
   const oSig = (st.offices || []).map((o) => `${o.id}:${o.state}:${o.log || ''}`).join(',');
-  return `${st.rev || 0}|${wSig}|${(st.assigning || []).join(',')}|${oSig}|${mhSig}`;
+  return `${st.rev || 0}|${wSig}|${(st.assigning || []).join(',')}|${oSig}|${mhSig}|${(st.ramHistory || []).length}`;
 }
 
 async function load({ background = false } = {}) {
@@ -390,12 +390,12 @@ function render() {
   ui.lastThread = ui.open;
 }
 
-const NAV = [['home', '오늘 할 일'], ['daily', '자동 루틴'], ['staff', 'AI 직원'], ['resources', 'AI 사무실']];
+const NAV = [['home', '오늘 할 일'], ['dashboard', '대시보드'], ['daily', '자동 루틴'], ['staff', 'AI 직원'], ['resources', 'AI 사무실']];
 function hiddenOn() { return (window.HIDDEN || []).filter((x) => features()[x.flag]); }
 
 function pageFor(route) {
   if (!S.data.settings.onboarded) return pageStart;
-  const base = { home: pageHome, daily: pageDaily, staff: pageStaff, resources: pageResources }[route];
+  const base = { home: pageHome, dashboard: pageDashboard, daily: pageDaily, staff: pageStaff, resources: pageResources }[route];
   if (base) return base;
   const hid = hiddenOn().find((x) => x.id === route);
   return hid ? hid.fn : pageHome;
@@ -1373,6 +1373,263 @@ function pageHome() {
       today.length ? todayList(today) : h('div', { class: 'empty' }, '오늘 할 일이 없습니다. 위에 적어 보세요.')),
     later.length ? h('section', { class: 'sec' }, secHead('예정', `${later.length}개`), taskList(later, { draggable: false })) : null,
     h('div', { class: 'cols home-foot' }, timeline(), recentTalk()));
+}
+
+// ───────── 회사 대시보드 (White & Black SVG 라이브 구조도 · 텔레메트리) ─────────
+
+function buildTopologyModel() {
+  const d = S.data;
+  const today = d.tasks.filter((t) => t.date === S.today);
+  const aiRoutines = d.routines.filter((r) => r.enabled !== false && !r.feature && r.assignee && r.assignee !== 'jay');
+  const machines = d.resources.filter((r) => r.kind === '기계');
+  const browsers = d.resources.filter((r) => r.kind === '브라우저' && r.status !== '꺼짐');
+  const accounts = d.resources.filter((r) => r.kind === '계정' && r.status !== '꺼짐');
+  const ossList = d.resources.filter((r) => r.kind === '오픈소스' && r.status !== '꺼짐');
+  const designs = d.resources.filter((r) => r.kind === '디자인' && r.status !== '꺼짐');
+  const thisMac = machines.find((m) => m.isThisMac) || machines[0] || null;
+  const studio = machines.find((m) => /(스튜디오|studio)/i.test(m.name)) || null;
+
+  // 왼쪽 열: 대표 본사 + 활성 AI 자동 루틴
+  const left = [{
+    key: 'ceo', route: 'home', solid: true, dot: 'idle',
+    title: `${d.owner.name || '대표'} · 본사`,
+    badge: d.settings.autoOptimize !== false ? '최적화 ON' : '수동',
+    sub: `오늘 할 일 ${today.filter((t) => t.status !== '완료').length}건 · 완료 ${today.filter((t) => t.status === '완료').length}건`,
+    tooltip: '오늘 할 일로 이동',
+  }];
+  for (const r of aiRoutines.slice(0, 4)) {
+    const sched = r.intervalMin ? (r.intervalMin === 60 ? '매1h' : `매${r.intervalMin}분`) : (r.time || '매일');
+    left.push({
+      key: `rt:${r.id}`, route: 'daily',
+      title: r.title,
+      badge: sched,
+      sub: `${shortName(r.assignee)}${(r.steps || []).length ? ` · ${r.steps.length}단계 협업` : ''}`,
+      tooltip: `${r.title} (${sched}) · 클릭 시 자동 루틴으로 이동`,
+    });
+  }
+  const adHocAi = today.filter((t) => t.assignee && t.assignee !== 'jay' && !t.routineId && t.status !== '완료');
+  if (adHocAi.length || !aiRoutines.length) {
+    left.push({
+      key: 'adhoc', route: 'home',
+      title: adHocAi.length ? `오늘 AI 할 일 (${adHocAi.length}건)` : '자동 루틴 시작하기',
+      badge: adHocAi.length ? '진행' : '루틴 팩',
+      sub: adHocAi.length ? adHocAi.slice(0, 2).map((x) => x.title).join(', ') : '5분 이메일 · 8시 영상 편집',
+      tooltip: adHocAi.length ? '오늘 할 일로 이동' : '자동 루틴에서 1클릭 팩 담기',
+    });
+  }
+
+  // 가운데 열: AI 직원
+  const employees = d.employees.map((e) => {
+    const working = isWorking(e.id);
+    const cooling = isEmpCooling(e);
+    const rem = empCooldownMin(e);
+    const cnt = today.filter((t) => t.assignee === e.id && t.status !== '완료').length;
+    const fb = e.fallbackTo && emp(e.fallbackTo) ? shortName(e.fallbackTo) : null;
+    return {
+      key: `emp:${e.id}`, route: 'staff', empId: e.id,
+      solid: working,
+      cooling,
+      highlight: cnt > 0 && !cooling,
+      dot: working ? 'working' : cooling ? 'cool' : 'idle',
+      title: shortName(e.id),
+      badge: working ? '근무 중' : cooling ? `휴식 ${rem}m` : cnt ? `오늘 ${cnt}` : '대기',
+      badgeSolid: cnt > 0 && !cooling,
+      sub: cooling && fb ? `토큰 휴식 → ${fb} 자동 대체` : (e.role || ENGINE_LABEL[e.engine] || e.engine),
+      tooltip: `${e.name}${fb ? ` · 막히면 대체: ${fb}` : ''} · 클릭 시 AI 직원으로 이동`,
+    };
+  });
+
+  // 오른쪽 열: AI 사무실 (컴퓨터 + 브라우저/계정 + 오픈소스/디자인)
+  const right = machines.map((m) => {
+    const mh = S.machineHealth?.[m.id];
+    const ramPct = typeof mh?.ramPct === 'number' ? mh.ramPct : null;
+    const lvl = mh?.level || (m.status === '꺼짐' ? 'down' : 'ok');
+    const fb = m.fallbackTo && res(m.fallbackTo) ? res(m.fallbackTo).name : null;
+    return {
+      key: `res:${m.id}`, route: 'resources', resTab: 'office',
+      highlight: m.isThisMac || lvl === 'overload',
+      cooling: lvl === 'down',
+      dot: lvl === 'overload' ? 'over' : lvl === 'down' ? 'cool' : 'idle',
+      title: m.name,
+      badge: healthLabel(lvl),
+      badgeSolid: lvl === 'overload',
+      ramPct,
+      maxRamPct: m.maxRamPct || 85,
+      sub: ramPct === null ? [m.sshAlias ? `ssh ${m.sshAlias}` : '대기', fb ? `바쁘면 → ${fb}` : ''].filter(Boolean).join(' · ') : '',
+      tooltip: `${m.name} · RAM 상한 ${m.maxRamPct || 85}%${fb ? ` · 바쁘면 → ${fb}` : ''} · 클릭 시 AI 사무실로 이동`,
+    };
+  });
+  right.push({
+    key: 'stack:web', route: 'resources', resTab: 'web',
+    title: browsers[0] ? `${browsers[0].name} · 계정` : '브라우저 · 계정',
+    badge: `${accounts.length}개`,
+    sub: accounts.slice(0, 3).map((a) => a.name.split(' · ')[0].split(' (')[0]).join(', ') || '계정 연결 전',
+    tooltip: 'AI 사무실 (브라우저 · 계정)으로 이동',
+  });
+  right.push({
+    key: 'stack:tools', route: 'resources', resTab: 'tools',
+    title: '오픈소스 · 디자인',
+    badge: `${ossList.length + designs.length}개`,
+    sub: [...designs.map((x) => x.name), ...ossList.map((x) => x.name)].slice(0, 2).join(' · ') || '도구 · 디자인 등록 전',
+    tooltip: 'AI 사무실 (오픈소스 · 디자인)으로 이동',
+  });
+
+  // 연결선 구성
+  const edges = [];
+  const edgeSeen = new Set();
+  const pushEdge = (ed) => {
+    const k = `${ed.from}->${ed.to}:${ed.dashed ? 'd' : 's'}`;
+    if (edgeSeen.has(k)) return;
+    edgeSeen.add(k);
+    edges.push(ed);
+  };
+
+  // 왼쪽 → 가운데 (루틴/할 일 → AI 직원)
+  for (const r of aiRoutines.slice(0, 4)) {
+    pushEdge({ from: `rt:${r.id}`, to: `emp:${r.assignee}`, active: true, label: `${r.title} → ${shortName(r.assignee)}` });
+  }
+  for (const t of adHocAi) {
+    pushEdge({ from: 'adhoc', to: `emp:${t.assignee}`, active: true, label: `${t.title} → ${shortName(t.assignee)}` });
+  }
+  for (const e of d.employees) {
+    const hasLeft = edges.some((x) => x.to === `emp:${e.id}`);
+    if (!hasLeft) pushEdge({ from: 'ceo', to: `emp:${e.id}`, active: isWorking(e.id), label: `대표 → ${e.name}` });
+  }
+
+  // 가운데 내부: AI 토큰 소진 대체 순위(fallbackTo) 점선 곡선
+  for (const e of d.employees) {
+    if (e.fallbackTo && d.employees.some((x) => x.id === e.fallbackTo)) {
+      pushEdge({
+        from: `emp:${e.id}`, to: `emp:${e.fallbackTo}`,
+        dashed: true, active: isEmpCooling(e), gutterX: 590,
+        label: `토큰 한도 시 대체: ${shortName(e.id)} → ${shortName(e.fallbackTo)}`,
+      });
+    }
+  }
+
+  // 가운데 → 오른쪽 (AI 직원 → 최적 컴퓨터 / 브라우저·도구)
+  for (const e of d.employees) {
+    const activeTask = today.find((t) => t.assignee === e.id && t.status !== '완료' && t.resource && res(t.resource)?.kind === '기계');
+    const isHeavyEmp = /(영상|blender|블렌더|3d|렌더)/i.test(`${e.role} ${(e.tools || []).join(' ')}`);
+    const targetMachine = activeTask ? res(activeTask.resource) : (isHeavyEmp && studio ? studio : thisMac);
+    if (e.group === 'home-cloud') {
+      pushEdge({ from: `emp:${e.id}`, to: 'stack:web', active: isWorking(e.id) || today.some((t) => t.assignee === e.id && t.status !== '완료'), label: `${shortName(e.id)} → 클라우드 · 계정` });
+    } else if (targetMachine) {
+      pushEdge({ from: `emp:${e.id}`, to: `res:${targetMachine.id}`, active: isWorking(e.id) || Boolean(activeTask), label: `${shortName(e.id)} → ${targetMachine.name}` });
+    }
+    if ((e.tools || []).length || isHeavyEmp) {
+      pushEdge({ from: `emp:${e.id}`, to: 'stack:tools', active: false, label: `${shortName(e.id)} → 오픈소스 · 디자인` });
+    }
+  }
+
+  // 오른쪽 내부: 컴퓨터 RAM 과부하 시 대체 컴퓨터(fallbackTo) 점선 곡선
+  for (const m of machines) {
+    if (m.fallbackTo && machines.some((x) => x.id === m.fallbackTo)) {
+      const mh = S.machineHealth?.[m.id];
+      pushEdge({
+        from: `res:${m.id}`, to: `res:${m.fallbackTo}`,
+        dashed: true, active: mh?.level === 'overload', gutterX: 912,
+        label: `RAM 과부하·혼잡 시 우회: ${m.name} → ${res(m.fallbackTo)?.name || ''}`,
+      });
+    }
+  }
+
+  return { left, employees, right, edges };
+}
+
+function pageDashboard() {
+  const d = S.data;
+  const today = d.tasks.filter((t) => t.date === S.today);
+  const doneCnt = today.filter((t) => t.status === '완료').length;
+  const pctDone = today.length ? Math.round((doneCnt / today.length) * 100) : 0;
+  const workingCnt = S.working.length;
+  const coolCnt = d.employees.filter(isEmpCooling).length;
+  const queueCnt = d.tasks.filter((t) => t.queued && t.status !== '완료').length;
+  const waitAppr = d.approvals.filter((a) => a.status === '대기').length + d.tasks.filter((t) => t.gate && !t.gateApprovedAt && t.status !== '완료' && t.assignee !== 'jay').length;
+  const aiRoutines = d.routines.filter((r) => r.enabled !== false && !r.feature && r.assignee && r.assignee !== 'jay');
+
+  const machines = d.resources.filter((r) => r.kind === '기계');
+  const thisMac = machines.find((m) => m.isThisMac) || machines[0] || null;
+  const localH = thisMac ? S.machineHealth?.[thisMac.id] : null;
+  const T = S.localTelemetry || null;
+  const ramPct = T?.ramPct ?? localH?.ramPct ?? null;
+  const maxRamPct = thisMac?.maxRamPct || 85;
+  const diskPct = T?.diskPct ?? null;
+  const cpuLoadFrac = T && T.cpus ? Math.min(1, T.load1 / Math.max(1, T.cpus)) : null;
+
+  const kpi = (label, val, sub, barPct = null) => h('div', { class: 'dash-kpi' },
+    h('span', { class: 'k-lbl' }, label),
+    h('div', { class: 'k-val' }, val),
+    barPct !== null ? h('div', { class: 'k-bar' }, h('i', { style: `width:${Math.min(100, Math.max(0, barPct))}%` })) : null,
+    h('span', { class: 'k-sub' }, sub));
+
+  const topoModel = buildTopologyModel();
+  const topoSvg = C.companyGraph(topoModel, {
+    onSelect: (node) => {
+      if (node.resTab) ui.resTab = node.resTab;
+      location.hash = `#${node.route || 'home'}`;
+    },
+  });
+
+  const barItems = d.employees.map((e) => {
+    const list = today.filter((t) => t.assignee === e.id);
+    return {
+      name: shortName(e.id),
+      total: list.length,
+      done: list.filter((t) => t.status === '완료').length,
+      working: isWorking(e.id),
+      cooling: isEmpCooling(e),
+    };
+  });
+
+  return h('div', null,
+    h('div', { class: 'head' },
+      h('div', null,
+        h('h1', null, h('b', null, '회사 대시보드')),
+        h('div', { class: 'sub' }, `${d.settings.companyName || 'CONNECT AI HQ'} · AI 직원 ${d.employees.length}명 · 컴퓨터 ${machines.length}대 · 자동 최적화 ${d.settings.autoOptimize !== false ? '켜짐' : '꺼짐'}`)),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn sm', onclick: () => load() }, '새로고침'),
+        h('button', { class: 'btn sm dark', onclick: openDailyReport }, '오늘 리포트'))),
+    h('div', { class: 'dash-kpis' },
+      kpi('오늘 완료율', today.length ? `${pctDone}%` : '—', `완료 ${doneCnt} / 전체 ${today.length}건`, pctDone),
+      kpi('AI 직원 가동', `${d.employees.length}명`, workingCnt ? `근무 ${workingCnt} · 휴식 ${coolCnt}` : coolCnt ? `토큰 휴식 ${coolCnt}명` : '전원 대기 · 즉시 투입 가능'),
+      kpi('본사 RAM', ramPct !== null ? `${ramPct}%` : '—', T?.availGB != null ? `여유 ${T.availGB}GB · 상한 ${maxRamPct}%` : `상한 ${maxRamPct}%`, ramPct),
+      kpi('자동 루틴 · 대기열', `${aiRoutines.length}개`, `대기열 ${queueCnt}건 · 확인 대기 ${waitAppr}건`)),
+    h('section', { class: 'dash-card' },
+      h('div', { class: 'dash-card-h' },
+        h('h2', null, 'AI 회사 라이브 구조도'),
+        h('span', { class: 'small muted' }, '대표 · 자동 루틴 → AI 직원(대체 순위) → AI 사무실(컴퓨터 RAM · 도구)')),
+      h('div', { class: 'topo-wrap' }, topoSvg)),
+    h('div', { class: 'dash-grid' },
+      h('section', { class: 'dash-card' },
+        h('div', { class: 'dash-card-h' },
+          h('h2', null, 'AI 직원 업무 분포 · 근무 시간'),
+          h('div', { class: 'wbar-legend' },
+            h('span', null, h('i', { style: 'background:#111' }), '완료'),
+            h('span', null, h('i', { style: 'background:#9a9a9a' }), '진행 · 대기'))),
+        barItems.length ? C.workloadBars(barItems) : h('div', { class: 'empty' }, 'AI 직원을 추가하면 업무 분포가 표시됩니다'),
+        h('div', { style: 'margin-top:20px;padding-top:16px;border-top:1px solid var(--line)' }, timeline())),
+      h('section', { class: 'dash-card' },
+        h('div', { class: 'dash-card-h' },
+          h('h2', null, 'AI 사무실 리소스 · RAM 추이'),
+          h('span', { class: 'small muted' }, T?.chip || '이 컴퓨터')),
+        h('div', { class: 'gauge-grid' },
+          h('div', { class: 'gauge-box' }, C.ring(ramPct !== null ? ramPct / 100 : null, { label: 'RAM 사용률', capFrac: maxRamPct / 100 }),
+            h('div', null, h('div', { class: 'g-k' }, 'RAM'), h('div', { class: 'g-v' }, T?.availGB != null ? `${T.availGB}GB 여유` : '측정 중'))),
+          h('div', { class: 'gauge-box' }, C.ring(diskPct !== null ? diskPct / 100 : null, { label: '디스크 사용률' }),
+            h('div', null, h('div', { class: 'g-k' }, '디스크'), h('div', { class: 'g-v' }, T?.diskFreeGB != null ? `${T.diskFreeGB}GB 남음` : '측정 중'))),
+          h('div', { class: 'gauge-box' }, C.ring(cpuLoadFrac, { label: 'CPU 부하' }),
+            h('div', null, h('div', { class: 'g-k' }, 'CPU 부하'), h('div', { class: 'g-v' }, T ? `${T.load1} / ${T.cpus}코어` : '측정 중')))),
+        C.ramChart(S.ramHistory || [], maxRamPct),
+        h('div', { class: 'dash-m-list' }, machines.map((m) => {
+          const mh = S.machineHealth?.[m.id];
+          const fb = m.fallbackTo && res(m.fallbackTo) ? res(m.fallbackTo).name : null;
+          return h('div', { class: 'dash-m-row' },
+            h('span', null, h('b', null, m.name), fb ? h('span', { class: 'muted' }, ` · 바쁘면 → ${fb}`) : null),
+            h('span', { class: 'row' },
+              h('span', { class: 'small muted mono' }, typeof mh?.ramPct === 'number' ? `RAM ${mh.ramPct}% / ${mh.maxRamPct}%` : (m.sshAlias || m.status)),
+              h('span', { class: `tag${mh?.level === 'overload' ? ' solid' : mh?.level === 'busy' ? ' dash' : ''}` }, healthLabel(mh?.level || (m.status === '꺼짐' ? 'down' : 'ok')))));
+        })))));
 }
 
 // ───────── 워크플로우 청사진 공유 (수강생·팀 배포용) ─────────
