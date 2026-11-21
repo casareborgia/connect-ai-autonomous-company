@@ -32,7 +32,8 @@ import { startDispatcher, isOffice, officeName, guessSshAlias, validAlias, ssh, 
 import { TEMPLATES, validateJob } from './lib/jobspec.mjs';
 import { MUSE_DEFAULTS, MUSE_HOSTS, runMuseOnce } from './lib/muse.mjs';
 import { modelFor, recordModels, UNKNOWN as MODEL_UNKNOWN } from './lib/models.mjs';
-import { BROWSER_CATALOG, OSS_CATALOG, DESIGN_PRESETS, parseOpenSourceInput, detectBrowsers, detectOpenSource, pickBrowser, pickTools, pickDesigns } from './lib/tools.mjs';
+import { BROWSER_CATALOG, PHONE_MODES, OSS_CATALOG, DESIGN_PRESETS, parseOpenSourceInput, detectBrowsers, detectOpenSource, detectDesktopBridges, pickBrowser, pickPhone, phonePromptBlock, pickTools, pickDesigns } from './lib/tools.mjs';
+import { ensureHealth, rotateHealthToken, ingestHealthEntry, evaluateHealth } from './lib/health.mjs';
 import {
   ACCOUNT_PLATFORMS, ACCOUNT_CATEGORIES, ACCOUNT_PRESETS, PERM_LEVELS, PERM_LABELS, HARD_GUARDRAILS,
   platformByKey, inferPlatform, presetPermissions, normalizePermissions, detectPreset, accountConfig,
@@ -58,9 +59,9 @@ const WORKSPACES = process.env.AIHQ_WORKSPACES || path.join(ROOT, 'workspaces');
 const PORT = Number(process.env.AIHQ_PORT || 8790);
 const HOST = process.env.AIHQ_HOST || '127.0.0.1';
 const LAN = HOST !== '127.0.0.1' && HOST !== 'localhost';
-const ENGINES = ['web', 'none', 'local', 'claude', 'codex', 'agy'];
+const ENGINES = ['web', 'none', 'local', 'claude', 'codex', 'gemini', 'agy'];
 const RUN_MODES = ['off', 'manual', 'auto'];
-const RES_KINDS = ['기계', '브라우저', '오픈소스', '디자인', '멤버십', '계정', '폴더'];
+const RES_KINDS = ['기계', '스마트폰', '브라우저', '오픈소스', '디자인', '멤버십', '계정', '폴더'];
 const RES_STATUS = ['사용 가능', '사용 중', '꺼짐', '확인 필요'];
 
 // 데이터 파일이 없으면 빈 회사로 시작한다 (예시 회사는 AIHQ_SEED=jay 또는 example 일 때만, 이미 있는 데이터 파일은 그대로)
@@ -112,13 +113,20 @@ function migrate(d) {
   if (d.settings.autoOptimize === undefined) d.settings.autoOptimize = true;
   // 배차: 본사 아이디 (사무실 작업 폴더에 남겨 내 것인지 알아본다), 기계의 ssh 별칭 (~/.ssh/config 에서 한 번 찾아 둠)
   if (!d.settings.instanceId) d.settings.instanceId = crypto.randomBytes(8).toString('hex');
+  ensureHealth(d);
   for (const r of d.resources) {
     if (r.kind === '기계') {
       if (!r.isThisMac && r.sshAlias === undefined) r.sshAlias = guessSshAlias(r.hostname || '');
       if (!r.deviceKind) r.deviceKind = 'computer';
+      if (r.computerUse === undefined) r.computerUse = Boolean(r.isThisMac);
       if (r.maxRamPct === undefined) r.maxRamPct = DEFAULT_MAX_RAM_PCT;
       if (r.maxHeavy === undefined) r.maxHeavy = DEFAULT_MAX_HEAVY;
       if (r.fallbackTo === undefined) r.fallbackTo = null;
+    }
+    if (r.kind === '스마트폰') {
+      if (!PHONE_MODES.some((m) => m.key === r.phoneMode)) r.phoneMode = 'iphone-mirror';
+      if (r.hostMachine === undefined) r.hostMachine = d.resources.find((x) => x.kind === '기계' && x.isThisMac)?.id || null;
+      if (r.assignee === undefined) r.assignee = null;
     }
     if (r.kind === '계정') {
       const cfg = accountConfig(r);
@@ -642,7 +650,7 @@ function threadLines(d, taskId) {
 // ───────── 실행: 로컬 모델은 앱 안에서, Claude Code, Codex, agy 는 작업 폴더에서 한 번 ─────────
 
 function canRun(emp) {
-  return emp && emp.runMode !== 'off' && (emp.engine === 'local' ? Boolean(emp.model) : ['claude', 'codex', 'agy'].includes(emp.engine));
+  return emp && emp.runMode !== 'off' && (emp.engine === 'local' ? Boolean(emp.model) : ['claude', 'codex', 'gemini', 'agy'].includes(emp.engine));
 }
 
 function designPromptBlock(designs) {
@@ -674,10 +682,13 @@ function taskToolsInfo(d, t) {
   const explicitDesign = t.design ? [d.resources.find((r) => r.id === t.design && r.kind === '디자인')].filter(Boolean) : [];
   const detectedDesigns = pickDesigns(fullText, d.resources, tokens);
   const designs = [...new Map([...explicitDesign, ...detectedDesigns].map((x) => [x.id, x])).values()].slice(0, 2);
+  const phone = (t.resource ? d.resources.find((r) => r.id === t.resource && r.kind === '스마트폰') : null)
+    || pickPhone(fullText, d.resources);
   const policy = account ? evaluateAccountPolicy(account, fullText) : null;
   const accountBlock = account ? accountPromptBlock(account, browsers) : '';
+  const phoneBlock = phone ? phonePromptBlock(phone, d.resources, detectDesktopBridges()) : '';
   const designBlock = designPromptBlock(designs);
-  return { browser, oss, designs, account, policy, accountBlock, designBlock };
+  return { browser, phone, oss, designs, account, policy, accountBlock, phoneBlock, designBlock };
 }
 
 function assertAccountAllowed(d, t, extraText = '') {
@@ -690,7 +701,7 @@ function assertAccountAllowed(d, t, extraText = '') {
 function taskPromptCommon(d, emp, t) {
   const routine = t.routineId ? d.routines.find((r) => r.id === t.routineId) : null;
   const res = t.resource ? d.resources.find((r) => r.id === t.resource) : null;
-  const { browser, oss, accountBlock, designBlock } = taskToolsInfo(d, t);
+  const { browser, oss, accountBlock, phoneBlock, designBlock } = taskToolsInfo(d, t);
   const cost = sumEstCost(t);
   const noteTrim = String(t.note || '').trim();
   const instTrim = String(routine?.instruction || '').trim();
@@ -703,6 +714,7 @@ function taskPromptCommon(d, emp, t) {
     noteTrim ? `프롬프트(지시서):\n${noteTrim}` : '',
     res ? `쓸 리소스: ${res.name} (${res.kind}${res.path ? ` · 경로: ${res.path}` : ''})` : '',
     browser ? `쓸 브라우저: ${browser.name}${browser.guide ? ` (사용법: ${browser.guide})` : browser.command ? ` (명령: ${browser.command})` : ''}` : '',
+    phoneBlock,
     accountBlock,
     designBlock,
     stepsPromptBlock(d, t, emp?.id || null),
@@ -870,7 +882,7 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
   }
 
   if (['web', 'none'].includes(emp.engine)) throw new HttpError(400, `${emp.name}: 이 앱이 직접 실행하지 않는 직원이에요. 할 일에서 복사해서 맡기기를 써 주세요.`);
-  if (['claude', 'codex', 'agy'].includes(emp.engine)) {
+  if (['claude', 'codex', 'gemini', 'agy'].includes(emp.engine)) {
     const info = runnerInfo(emp.engine);
     if (info.missing) throw new HttpError(400, info.missing);
     if (!info.bin) throw new HttpError(400, notInstalled(emp.engine));
@@ -1117,7 +1129,7 @@ function officeWorking() {
   return (dispatcher ? dispatcher.view() : []).filter((o) => o.state === 'busy' && o.emp).map((o) => ({ emp: o.emp, thread: `task:${o.taskId}`, taskId: o.taskId, kind: 'office', since: o.since, label: o.label, office: o.name }));
 }
 
-async function stateView() {
+async function stateView(viaLan = false) {
   const d = store.data;
   const f = d.settings.features;
   const [connectors, localStat] = await Promise.all([
@@ -1138,6 +1150,9 @@ async function stateView() {
     diskPct: localStat.disk?.total ? Math.round(((localStat.disk.total - localStat.disk.free) / localStat.disk.total) * 100) : null,
     diskFreeGB: localStat.disk?.free != null ? Math.round((localStat.disk.free / 1024 ** 3) * 10) / 10 : null,
   } : null;
+  const healthSummary = evaluateHealth(d.health, ymd(), new Date().getHours());
+  const lanIps = lanAddresses();
+  const ingestUrls = lanIps.map((ip) => `http://${ip}:${PORT}/api/health/ingest`);
   return {
     rev: store.rev,
     today: ymd(),
@@ -1145,11 +1160,19 @@ async function stateView() {
     now: nowIso(),
     lan: LAN,
     lanInfo: lanInfo(false),
-    data: { ...d, settings: { ...d.settings, instanceId: undefined, muse: { ...d.settings.muse, seen: undefined } } },
+    data: { ...d, health: undefined, settings: { ...d.settings, instanceId: undefined, muse: { ...d.settings.muse, seen: undefined } } },
     revenue: f.revenue ? summarize(d, connectors) : null,
+    health: {
+      ...healthSummary,
+      ingestUrls,
+      localIngestUrl: `http://127.0.0.1:${PORT}/api/health/ingest`,
+      token: viaLan ? undefined : d.health?.token,
+    },
+    bridges: detectDesktopBridges(),
     options: {
       catalog: AI_CATALOG, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
       gates: GATES, engines: ENGINES, runModes: RUN_MODES, resKinds: RES_KINDS, resStatus: RES_STATUS,
+      phoneModes: PHONE_MODES,
       accountPlatforms: publicAccountCatalog(), accountCategories: ACCOUNT_CATEGORIES, accountPresets: ACCOUNT_PRESETS, permLevels: PERM_LEVELS,
       permLabels: PERM_LABELS, hardGuardrails: HARD_GUARDRAILS,
       stepModes: STEP_MODES, stepModeLabels: STEP_MODE_LABELS,
@@ -1165,7 +1188,12 @@ async function stateView() {
     ramHistory: [...ramHistory],
     officeTemplates: Object.entries(TEMPLATES).map(([key, v]) => ({ key, label: v.label })),
     assigning: [...assigning],
-    runners: { claude: Boolean(runnerInfo('claude').bin), codex: Boolean(runnerInfo('codex').bin), agy: Boolean(runnerInfo('agy').bin && !runnerInfo('agy').missing) },
+    runners: {
+      claude: Boolean(runnerInfo('claude').bin),
+      codex: Boolean(runnerInfo('codex').bin),
+      gemini: Boolean(runnerInfo('gemini').bin),
+      agy: Boolean(runnerInfo('agy').bin && !runnerInfo('agy').missing),
+    },
   };
 }
 
@@ -1179,7 +1207,7 @@ function route(method, pattern, handler, opts = {}) {
 }
 const UI = { human: true };
 
-route('GET', '/api/state', async () => stateView());
+route('GET', '/api/state', async ({ viaLan }) => stateView(viaLan));
 route('GET', '/api/office', async () => {
   const d = store.data;
   const local = await currentLocalStat(true);
@@ -1189,7 +1217,7 @@ route('GET', '/api/office', async () => {
   return { local, machineHealth, folders: { [WORKSPACES]: fssync.existsSync(WORKSPACES) }, resources: d.resources };
 });
 route('GET', '/api/models', async () => listLocalModels());
-route('GET', '/api/tools/detect', async () => ({ browsers: detectBrowsers(), openSource: detectOpenSource() }));
+route('GET', '/api/tools/detect', async () => ({ browsers: detectBrowsers(), openSource: detectOpenSource(), bridges: detectDesktopBridges() }));
 route('GET', '/api/ui/report/daily', async () => buildDailyReport(store.data, ymd()));
 route('GET', '/api/ui/blueprint/export', async () => exportBlueprint(store.data));
 route('POST', '/api/ui/blueprint/import', async ({ body }) => store.mutate((d) => {
@@ -1197,11 +1225,33 @@ route('POST', '/api/ui/blueprint/import', async ({ body }) => store.mutate((d) =
   catch (e) { throw new HttpError(400, e.message); }
 }), UI);
 
+// 대표 헬스 · 컨디션 수신 (아이폰 단축어 · Health Auto Export · 안드로이드 MacroDroid/Tasker 로컬 Webhook)
+route('POST', '/api/health/ingest', async ({ req, body, query, viaLan }) => {
+  const tok = String(req.headers['x-aihq-health-token'] || query.get('token') || body.token || '').trim();
+  const validTok = Boolean(tok && store.data.health?.token && safeEqual(tok, store.data.health.token));
+  if (!validTok) {
+    if (viaLan) throw new HttpError(401, '헬스 연동 토큰이 올바르지 않습니다. AI 사무실의 헬스 연동 토큰을 확인해 주세요.');
+    requireHuman(req);
+  }
+  const entry = await store.mutate((d) => ingestHealthEntry(d, body, ymd()));
+  return { ok: true, entry, health: evaluateHealth(store.data.health, ymd(), new Date().getHours()) };
+});
+
+route('POST', '/api/ui/health', async ({ body }) => {
+  const entry = await store.mutate((d) => ingestHealthEntry(d, { ...body, source: body.source || 'manual' }, ymd()));
+  return { ok: true, entry, health: evaluateHealth(store.data.health, ymd(), new Date().getHours()) };
+}, UI);
+
+route('POST', '/api/ui/health/token', async () => {
+  const token = await store.mutate((d) => rotateHealthToken(d));
+  return { ok: true, token };
+}, { human: true, macOnly: true });
+
 function buildPromptPreview(d, t) {
   const emp = d.employees.find((e) => e.id === t.assignee) || null;
   const info = taskToolsInfo(d, t);
   const res = t.resource ? d.resources.find((r) => r.id === t.resource) : null;
-  const mode = !emp ? 'human' : (['claude', 'codex', 'agy'].includes(emp.engine) && canRun(emp)) ? 'cli' : (emp.engine === 'local' && canRun(emp)) ? 'local' : 'handout';
+  const mode = !emp ? 'human' : (['claude', 'codex', 'gemini', 'agy'].includes(emp.engine) && canRun(emp)) ? 'cli' : (emp.engine === 'local' && canRun(emp)) ? 'local' : 'handout';
   const prompt = !emp
     ? taskPromptCommon(d, null, t).join('\n')
     : mode === 'handout' ? handoutPrompt(d, emp, t) : (mode === 'local' ? `[시스템]\n${systemPrompt(emp, d.owner.name)}\n\n[작업 지시]\n${runPrompt(d, emp, t)}` : runPrompt(d, emp, t));
@@ -1214,6 +1264,7 @@ function buildPromptPreview(d, t) {
     linked: {
       office: res?.name || null,
       browser: info.browser?.name || null,
+      phone: info.phone ? { name: info.phone.name, phoneMode: info.phone.phoneMode || 'iphone-mirror' } : null,
       account: info.account ? { name: info.account.name, spaceName: info.account.spaceName || '', blocked: Boolean(info.policy?.blocked), message: info.policy?.message || '' } : null,
       designs: info.designs.map((x) => x.name),
       tools: info.oss.map((x) => ({ name: x.name, command: x.command || '', repo: x.repo || '' })),
@@ -1683,7 +1734,8 @@ route('POST', '/api/ui/onboard', async ({ body }) => {
       let engine = c.engine;
       let model = '';
       let runMode = 'off';
-      if (engine === 'claude' || engine === 'codex') { if (det[engine]) runMode = 'manual'; else engine = 'web'; }
+      if (engine === 'claude' || engine === 'codex' || engine === 'gemini') { if (det[engine]) runMode = 'manual'; else engine = 'web'; }
+      if (engine === 'agy') { if (runnerInfo('agy').bin && !runnerInfo('agy').missing) runMode = 'manual'; else engine = 'web'; }
       if (engine === 'local') {
         const m = det[c.local];
         if (m) { model = m; runMode = 'manual'; } else continue;
@@ -1694,11 +1746,11 @@ route('POST', '/api/ui/onboard', async ({ body }) => {
     }
     // 기계: 이 컴퓨터는 늘, 나머지는 고른 것만 (RAM 85% 상한 · 대체 컴퓨터 자동 연결)
     if (!d.resources.some((r) => r.kind === '기계' && r.isThisMac)) {
-      d.resources.push({ id: nextId(d, 'res'), kind: '기계', name: text(body.thisMac, 60) || '이 컴퓨터', hostname: '', port: 22, isThisMac: true, maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '사용 가능', note: '' });
+      d.resources.push({ id: nextId(d, 'res'), kind: '기계', name: text(body.thisMac, 60) || '이 컴퓨터', hostname: '', port: 22, isThisMac: true, computerUse: true, maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '사용 가능', note: '' });
     }
     for (const mName of (Array.isArray(body.machines) ? body.machines : []).slice(0, 8)) {
       const n = text(mName, 60);
-      if (n && !d.resources.some((r) => r.name === n)) d.resources.push({ id: nextId(d, 'res'), kind: '기계', name: n, hostname: '', port: 22, isThisMac: false, maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '확인 필요', note: '' });
+      if (n && !d.resources.some((r) => r.name === n)) d.resources.push({ id: nextId(d, 'res'), kind: '기계', name: n, hostname: '', port: 22, isThisMac: false, computerUse: false, maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '확인 필요', note: '' });
     }
     // 브라우저: 고른 것만 추가 (첫 번째가 기본 브라우저)
     const hasDefBrowser = d.resources.some((r) => r.kind === '브라우저' && r.isDefault);
@@ -2102,7 +2154,7 @@ route('POST', '/api/ui/employees', async ({ body }) => {
   const cat = AI_CATALOG.find((c) => c.key === body.catalog);
   // 목록에서 고른 코딩 AI 인데 이 맥에 실행 파일이 없으면 복사해서 맡기기로 시작한다
   let engine = body.engine || cat?.engine || 'web';
-  if (!body.engine && (engine === 'claude' || engine === 'codex') && !runnerInfo(engine).bin) engine = 'web';
+  if (!body.engine && ['claude', 'codex', 'gemini', 'agy'].includes(engine) && (!runnerInfo(engine)?.bin || runnerInfo(engine)?.missing)) engine = 'web';
   const out = await store.mutate((d) => {
     const name = text(body.name, 80);
     if (!name) throw new HttpError(400, '이름이 필요합니다.');
@@ -2141,7 +2193,15 @@ route('POST', '/api/ui/resources', async ({ body }) => store.mutate((d) => {
   const name = text(body.name, 120) || text(parsed.name, 120);
   if (!name) throw new HttpError(400, '이름이 필요합니다.');
   const r = { id: nextId(d, 'res'), kind, name, status: RES_STATUS.includes(body.status) ? body.status : '사용 가능', note: text(body.note, 300) };
-  if (kind === '기계') Object.assign(r, { hostname: '', port: 22, isThisMac: false, deviceKind: body.deviceKind === 'phone' ? 'phone' : 'computer', maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '확인 필요' });
+  if (kind === '기계') Object.assign(r, { hostname: '', port: 22, isThisMac: false, deviceKind: body.deviceKind === 'phone' ? 'phone' : 'computer', computerUse: Boolean(body.computerUse), maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '확인 필요' });
+  if (kind === '스마트폰') {
+    const phoneMode = PHONE_MODES.some((m) => m.key === body.phoneMode) ? body.phoneMode : 'iphone-mirror';
+    const hostMachine = body.hostMachine && d.resources.some((x) => x.id === body.hostMachine && x.kind === '기계')
+      ? body.hostMachine
+      : (phoneMode === 'mobile-ai' ? null : (d.resources.find((x) => x.kind === '기계' && x.isThisMac)?.id || null));
+    const assignee = body.assignee !== undefined && body.assignee !== null && body.assignee !== '' ? requireAgent(d, body.assignee).id : null;
+    Object.assign(r, { phoneMode, hostMachine, assignee });
+  }
   if (kind === '폴더') r.path = text(body.path, 500);
   if (kind === '브라우저') {
     const pre = BROWSER_CATALOG.find((x) => x.key === body.preset);
@@ -2217,8 +2277,18 @@ route('PATCH', '/api/ui/resources/:id', async ({ params, body }) => store.mutate
     r.permissions = perms;
     r.preset = detectPreset(nextPlat, perms);
   }
+  if (r.kind === '스마트폰') {
+    if (body.phoneMode !== undefined && PHONE_MODES.some((m) => m.key === body.phoneMode)) r.phoneMode = body.phoneMode;
+    if (body.hostMachine !== undefined) {
+      r.hostMachine = body.hostMachine && d.resources.some((x) => x.id === body.hostMachine && x.kind === '기계') ? body.hostMachine : null;
+    }
+    if (body.assignee !== undefined) {
+      r.assignee = body.assignee ? requireAgent(d, body.assignee).id : null;
+    }
+  }
   if (r.kind === '기계') {
     if (body.deviceKind !== undefined) r.deviceKind = body.deviceKind === 'phone' ? 'phone' : 'computer';
+    if (body.computerUse !== undefined) r.computerUse = Boolean(body.computerUse);
     if (body.maxRamPct !== undefined) {
       const p = Math.round(Number(body.maxRamPct));
       if (!Number.isFinite(p) || p < 55 || p > 95) throw new HttpError(400, 'RAM 상한은 55~95% 사이로 입력해 주세요.');
@@ -2263,6 +2333,7 @@ route('DELETE', '/api/ui/resources/:id', async ({ params }) => store.mutate((d) 
   for (const r of d.resources) {
     if (r.kind === '계정' && r.browser === params.id) r.browser = null;
     if (r.kind === '기계' && r.fallbackTo === params.id) r.fallbackTo = null;
+    if (r.kind === '스마트폰' && r.hostMachine === params.id) r.hostMachine = null;
   }
   for (const t of d.tasks) {
     if (t.resource === params.id) { t.resource = null; t.officeRun = false; }
@@ -2849,7 +2920,7 @@ async function handle(req, res, viaLan = false) {
   const { pathname } = url;
   if (viaLan) {
     if (req.method === 'POST' && pathname === '/api/pair') return pair(req, res);
-    const open = req.method === 'GET' && PAIR_OPEN.includes(pathname);
+    const open = (req.method === 'GET' && PAIR_OPEN.includes(pathname)) || (req.method === 'POST' && pathname === '/api/health/ingest');
     if (!open && !safeEqual(cookies(req).hq_human, HUMAN_SECRET)) {
       if (req.method === 'GET' && !pathname.startsWith('/api/')) { res.writeHead(302, { ...SEC_HEADERS, Location: '/pair.html', 'Cache-Control': 'no-store' }); return res.end(); }
       return send(res, 401, { error: '먼저 이 맥 화면의 6자리 코드로 연결해 주세요.' });

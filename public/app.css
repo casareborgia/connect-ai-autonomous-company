@@ -691,6 +691,16 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .wbar-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 .dash-m-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 .dash-m-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+.dash-kpi.clickable { cursor: pointer; transition: border-color .15s; }
+.dash-kpi.clickable:hover { border-color: var(--ink); }
+.dash-staff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+.health-advice { display: flex; align-items: flex-start; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); line-height: 1.5; }
+.health-advice .tag { flex: none; margin-top: 1px; }
+.health-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border: 1px solid var(--ink); border-radius: var(--radius); padding: 11px 16px; margin: 0 0 18px; background: #fff; }
+.health-cred { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--fill); }
+.pane-box { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #fff; font-size: 13px; }
+.guide-ol { margin: 8px 0 0; padding: 0 0 0 18px; font-size: 12px; color: var(--ink-2); display: flex; flex-direction: column; gap: 5px; line-height: 1.5; }
+.access-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
 
 /* 폰 연결 화면 (pair.html) */
 .pair { max-width: 400px; margin: 72px auto; padding: 0 20px; }
@@ -716,8 +726,9 @@ body.onboarding .shell { grid-template-columns: 1fr; }
   .ob-actions { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
   dialog.wide { width: calc(100vw - 24px); padding: 20px; }
   .dash-kpis { grid-template-columns: 1fr 1fr; }
-  .dash-grid { grid-template-columns: 1fr; }
+  .dash-grid, .dash-staff-grid { grid-template-columns: 1fr; }
   .gauge-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .gauge-box { padding: 10px 4px; }
   .gauge-box .g-v { font-size: 11px; }
+  dialog .grid2 { grid-template-columns: 1fr; }
 }

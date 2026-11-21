@@ -153,14 +153,40 @@ function toast(msg) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => t.classList.remove('show'), 2600);
 }
-const ENGINE_LABEL = { web: '복사해서 맡기기', none: '스스로 보고 (MCP, CLI)', local: '로컬 모델', claude: 'Claude Code', codex: 'Codex', agy: 'agy' };
+const ENGINE_LABEL = { web: '복사해서 맡기기', none: '스스로 보고 (MCP, CLI)', local: '로컬 모델', claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', agy: 'Antigravity (agy)' };
 const RUN_LABEL = { off: '꺼짐', manual: '누를 때만', auto: '자동 실행' };
-// 이 앱이 직접 일을 시킬 수 있는가 (로컬 모델, 또는 이 맥에 설치된 Claude Code, Codex)
+// 이 앱이 직접 일을 시킬 수 있는가 (로컬 모델, 또는 이 맥에 설치된 Claude Code, Codex, Gemini CLI)
 function canRun(e) {
   if (!e || e.runMode === 'off') return false;
   if (e.engine === 'local') return Boolean(e.model);
-  if (['claude', 'codex', 'agy'].includes(e.engine)) return Boolean(S.runners[e.engine]);
+  if (['claude', 'codex', 'gemini', 'agy'].includes(e.engine)) return Boolean(S.runners[e.engine]);
   return false;
+}
+function accessChannelsOf(e) {
+  const out = [];
+  const d = S?.data;
+  if (!d || !e) return out;
+  const cuMac = d.resources.find((r) => r.kind === '기계' && r.status !== '꺼짐' && r.computerUse !== false);
+  const defBr = d.resources.find((r) => r.kind === '브라우저' && r.status !== '꺼짐' && r.isDefault)
+    || d.resources.find((r) => r.kind === '브라우저' && r.status !== '꺼짐');
+  const phones = d.resources.filter((r) => r.kind === '스마트폰' && r.status !== '꺼짐');
+  const isLocalExec = ['claude', 'codex', 'gemini', 'agy', 'local'].includes(e.engine) || (e.group !== 'home-cloud' && /데스크탑|컴퓨터|로컬/.test(e.runsOn || ''));
+  const canCu = Boolean(cuMac && (['claude', 'codex', 'gemini', 'agy'].includes(e.engine) || /컴퓨터\s*유즈|자동화/.test(e.role || '')));
+  const isMobileOnly = e.catalog === 'pickle' || /스마트폰/.test(e.role || '');
+
+  if (isLocalExec) out.push('로컬 컴퓨터');
+  if (canCu) out.push('화면 조작(CU)');
+  if (defBr && e.engine !== 'local' && !isMobileOnly) out.push(`브라우저 · ${defBr.name}`);
+  if (e.group === 'home-cloud' || e.engine === 'web') out.push(isMobileOnly ? '스마트폰 · 클라우드' : '클라우드 웹');
+  for (const ph of phones) {
+    const mode = ph.phoneMode || 'iphone-mirror';
+    if (mode === 'mobile-ai' && (ph.assignee === e.id || isMobileOnly)) {
+      out.push(`스마트폰 · ${ph.name}`);
+    } else if ((mode === 'iphone-mirror' || mode === 'android-adb') && (ph.assignee === e.id || canCu)) {
+      out.push(mode === 'iphone-mirror' ? `아이폰 미러링` : '안드로이드');
+    }
+  }
+  return [...new Set(out)].slice(0, 4);
 }
 const isWorking = (id) => S.working.some((w) => w.emp === id);
 const features = () => S.data.settings.features || {};
@@ -199,7 +225,7 @@ function stateSignature(st) {
   const mhSig = Object.values(mh).map((x) => `${x.id}:${x.level}:${x.ramPct ?? ''}`).join(',');
   const wSig = (st.working || []).map((w) => `${w.emp}:${w.taskId}`).join(',');
   const oSig = (st.offices || []).map((o) => `${o.id}:${o.state}:${o.log || ''}`).join(',');
-  return `${st.rev || 0}|${wSig}|${(st.assigning || []).join(',')}|${oSig}|${mhSig}|${(st.ramHistory || []).length}`;
+  return `${st.rev || 0}|${wSig}|${(st.assigning || []).join(',')}|${oSig}|${mhSig}|${(st.ramHistory || []).length}|${st.health?.lastSyncAt || ''}|${st.health?.score ?? ''}`;
 }
 
 async function load({ background = false } = {}) {
@@ -1361,6 +1387,9 @@ function pageHome() {
       h('div', { class: 'sub' }, `${day.getMonth() + 1}월 ${day.getDate()}일 ${WD[day.getDay()]}요일 · 내가 할 일 ${mine.filter((t) => t.status !== '완료').length} · AI 직원이 할 일 ${ai.filter((t) => t.status !== '완료').length}`)),
     h('button', { class: 'btn sm', onclick: openDailyReport }, '오늘 리포트')),
     morningBriefing(today),
+    S.health?.delegateRecommended ? h('div', { class: 'health-banner' },
+      h('div', null, h('span', { class: 'tag solid', style: 'margin-right:8px' }, `${S.health.levelLabel}${S.health.score != null ? ` · ${S.health.score}점` : ''}`), h('span', { class: 'small' }, S.health.advice)),
+      h('button', { type: 'button', class: 'btn link', onclick: () => { location.hash = '#dashboard'; } }, '컨디션 보기 →')) : null,
     addBar(),
     h('p', { class: 'rule' }, '결제, 업로드, 게시, 삭제, 메시지 발송이 들어간 일은 대표가 누를 때까지 AI가 시작하지 못합니다.'),
     !d.employees.length ? h('div', { class: 'callout' },
@@ -1382,19 +1411,23 @@ function buildTopologyModel() {
   const today = d.tasks.filter((t) => t.date === S.today);
   const aiRoutines = d.routines.filter((r) => r.enabled !== false && !r.feature && r.assignee && r.assignee !== 'jay');
   const machines = d.resources.filter((r) => r.kind === '기계');
+  const phones = d.resources.filter((r) => r.kind === '스마트폰' && r.status !== '꺼짐');
   const browsers = d.resources.filter((r) => r.kind === '브라우저' && r.status !== '꺼짐');
   const accounts = d.resources.filter((r) => r.kind === '계정' && r.status !== '꺼짐');
   const ossList = d.resources.filter((r) => r.kind === '오픈소스' && r.status !== '꺼짐');
   const designs = d.resources.filter((r) => r.kind === '디자인' && r.status !== '꺼짐');
   const thisMac = machines.find((m) => m.isThisMac) || machines[0] || null;
   const studio = machines.find((m) => /(스튜디오|studio)/i.test(m.name)) || null;
+  const H = S.health || {};
 
   // 왼쪽 열: 대표 본사 + 활성 AI 자동 루틴
   const left = [{
     key: 'ceo', route: 'home', solid: true, dot: 'idle',
     title: `${d.owner.name || '대표'} · 본사`,
-    badge: d.settings.autoOptimize !== false ? '최적화 ON' : '수동',
-    sub: `오늘 할 일 ${today.filter((t) => t.status !== '완료').length}건 · 완료 ${today.filter((t) => t.status === '완료').length}건`,
+    badge: H.score != null ? `컨디션 ${H.score}` : (d.settings.autoOptimize !== false ? '최적화 ON' : '수동'),
+    sub: H.score != null
+      ? `${H.levelLabel} · 할 일 ${today.filter((t) => t.status !== '완료').length}건`
+      : `오늘 할 일 ${today.filter((t) => t.status !== '완료').length}건 · 완료 ${today.filter((t) => t.status === '완료').length}건`,
     tooltip: '오늘 할 일로 이동',
   }];
   for (const r of aiRoutines.slice(0, 4)) {
@@ -1439,7 +1472,7 @@ function buildTopologyModel() {
     };
   });
 
-  // 오른쪽 열: AI 사무실 (컴퓨터 + 브라우저/계정 + 오픈소스/디자인)
+  // 오른쪽 열: AI 사무실 (컴퓨터 + 스마트폰 + 브라우저/계정 + 오픈소스/디자인)
   const right = machines.map((m) => {
     const mh = S.machineHealth?.[m.id];
     const ramPct = typeof mh?.ramPct === 'number' ? mh.ramPct : null;
@@ -1450,18 +1483,34 @@ function buildTopologyModel() {
       highlight: m.isThisMac || lvl === 'overload',
       cooling: lvl === 'down',
       dot: lvl === 'overload' ? 'over' : lvl === 'down' ? 'cool' : 'idle',
-      title: m.name,
+      title: `${m.name}${m.computerUse ? ' · CU' : ''}`,
       badge: healthLabel(lvl),
       badgeSolid: lvl === 'overload',
       ramPct,
       maxRamPct: m.maxRamPct || 85,
-      sub: ramPct === null ? [m.sshAlias ? `ssh ${m.sshAlias}` : '대기', fb ? `바쁘면 → ${fb}` : ''].filter(Boolean).join(' · ') : '',
-      tooltip: `${m.name} · RAM 상한 ${m.maxRamPct || 85}%${fb ? ` · 바쁘면 → ${fb}` : ''} · 클릭 시 AI 사무실로 이동`,
+      sub: ramPct === null ? [m.sshAlias ? `ssh ${m.sshAlias}` : '대기', m.computerUse ? '화면 조작' : '', fb ? `바쁘면 → ${fb}` : ''].filter(Boolean).join(' · ') : '',
+      tooltip: `${m.name}${m.computerUse ? ' · 화면 조작(Computer Use) 켜짐' : ''} · RAM 상한 ${m.maxRamPct || 85}%${fb ? ` · 바쁘면 → ${fb}` : ''} · 클릭 시 AI 사무실로 이동`,
     };
   });
+  for (const ph of phones.slice(0, 2)) {
+    const modeObj = (S.options.phoneModes || []).find((x) => x.key === ph.phoneMode);
+    const host = ph.hostMachine ? res(ph.hostMachine) : null;
+    right.push({
+      key: `res:${ph.id}`, route: 'resources', resTab: 'mobile',
+      highlight: ph.phoneMode === 'iphone-mirror',
+      dot: 'idle',
+      title: ph.name,
+      badge: modeObj?.short || '스마트폰',
+      sub: ph.phoneMode === 'mobile-ai'
+        ? (ph.assignee ? `${shortName(ph.assignee)} 전담` : '모바일 AI 연결')
+        : `${host ? host.name : '이 맥'} · ${ph.phoneMode === 'iphone-mirror' ? 'Computer Use 미러링' : 'adb · scrcpy'}`,
+      tooltip: `${ph.name} (${modeObj?.name || '스마트폰'}) · 클릭 시 AI 사무실로 이동`,
+    });
+  }
+  const defBr = browsers.find((b) => b.isDefault) || browsers[0] || null;
   right.push({
     key: 'stack:web', route: 'resources', resTab: 'web',
-    title: browsers[0] ? `${browsers[0].name} · 계정` : '브라우저 · 계정',
+    title: defBr ? `${defBr.name} · 계정` : '브라우저 · 계정',
     badge: `${accounts.length}개`,
     sub: accounts.slice(0, 3).map((a) => a.name.split(' · ')[0].split(' (')[0]).join(', ') || '계정 연결 전',
     tooltip: 'AI 사무실 (브라우저 · 계정)으로 이동',
@@ -1513,16 +1562,20 @@ function buildTopologyModel() {
     const isHeavyEmp = /(영상|blender|블렌더|3d|렌더)/i.test(`${e.role} ${(e.tools || []).join(' ')}`);
     const targetMachine = activeTask ? res(activeTask.resource) : (isHeavyEmp && studio ? studio : thisMac);
     if (e.group === 'home-cloud') {
-      pushEdge({ from: `emp:${e.id}`, to: 'stack:web', active: isWorking(e.id) || today.some((t) => t.assignee === e.id && t.status !== '완료'), label: `${shortName(e.id)} → 클라우드 · 계정` });
+      const mobilePhone = phones.find((p) => p.assignee === e.id || (p.phoneMode === 'mobile-ai' && /스마트폰|피클/.test(`${e.name} ${e.role}`)));
+      if (mobilePhone) pushEdge({ from: `emp:${e.id}`, to: `res:${mobilePhone.id}`, active: isWorking(e.id), label: `${shortName(e.id)} → ${mobilePhone.name}` });
+      else pushEdge({ from: `emp:${e.id}`, to: 'stack:web', active: isWorking(e.id) || today.some((t) => t.assignee === e.id && t.status !== '완료'), label: `${shortName(e.id)} → 클라우드 · 계정` });
     } else if (targetMachine) {
       pushEdge({ from: `emp:${e.id}`, to: `res:${targetMachine.id}`, active: isWorking(e.id) || Boolean(activeTask), label: `${shortName(e.id)} → ${targetMachine.name}` });
+      const cuPhone = phones.find((p) => (p.phoneMode === 'iphone-mirror' || p.phoneMode === 'android-adb') && (p.assignee === e.id || /컴퓨터\s*유즈/.test(e.role || '')));
+      if (cuPhone) pushEdge({ from: `emp:${e.id}`, to: `res:${cuPhone.id}`, active: isWorking(e.id), label: `${shortName(e.id)} → ${cuPhone.name} (미러링)` });
     }
     if ((e.tools || []).length || isHeavyEmp) {
       pushEdge({ from: `emp:${e.id}`, to: 'stack:tools', active: false, label: `${shortName(e.id)} → 오픈소스 · 디자인` });
     }
   }
 
-  // 오른쪽 내부: 컴퓨터 RAM 과부하 시 대체 컴퓨터(fallbackTo) 점선 곡선
+  // 오른쪽 내부: 컴퓨터 RAM 과부하 시 대체 컴퓨터(fallbackTo) 점선 곡선 + 스마트폰↔호스트 맥 연결
   for (const m of machines) {
     if (m.fallbackTo && machines.some((x) => x.id === m.fallbackTo)) {
       const mh = S.machineHealth?.[m.id];
@@ -1533,8 +1586,139 @@ function buildTopologyModel() {
       });
     }
   }
+  for (const ph of phones.slice(0, 2)) {
+    if (ph.hostMachine && machines.some((m) => m.id === ph.hostMachine)) {
+      pushEdge({
+        from: `res:${ph.hostMachine}`, to: `res:${ph.id}`,
+        dashed: true, active: false, gutterX: 906,
+        label: `${res(ph.hostMachine)?.name || '맥'} ↔ ${ph.name} 미러링 연결`,
+      });
+    }
+  }
 
   return { left, employees, right, edges };
+}
+
+function openHealthLogModal() {
+  const dlg = document.getElementById('dlg');
+  dlg.className = '';
+  const H = S.health || {};
+  const td = H.today || {};
+  const g = H.goals || { steps: 8000, sleepHours: 7.5, exerciseMin: 30, restingHrMax: 75 };
+  const steps = h('input', { class: 'in', type: 'number', min: '0', max: '200000', value: td.steps ?? '', placeholder: `예: 6500 (목표 ${g.steps})` });
+  const sleep = h('input', { class: 'in', type: 'number', step: '0.1', min: '0', max: '24', value: td.sleepHours ?? '', placeholder: `예: 7.2 (목표 ${g.sleepHours}시간)` });
+  const hr = h('input', { class: 'in', type: 'number', min: '30', max: '220', value: td.restingHr ?? td.heartRate ?? '', placeholder: '예: 64 (bpm)' });
+  const ex = h('input', { class: 'in', type: 'number', min: '0', max: '600', value: td.exerciseMin ?? '', placeholder: `예: 35 (목표 ${g.exerciseMin}분)` });
+  let energyVal = td.energy ?? 4;
+  const energyBtns = [1, 2, 3, 4, 5].map((n) => {
+    const labels = { 1: '1 매우 피곤', 2: '2 피곤', 3: '3 보통', 4: '4 좋음', 5: '5 최상' };
+    const b = h('button', {
+      type: 'button', class: `chip${energyVal === n ? ' on' : ''}`,
+      onclick: () => { energyVal = n; energyBtns.forEach((x, idx) => x.classList.toggle('on', idx + 1 === n)); },
+    }, labels[n]);
+    return b;
+  });
+  const goalSteps = h('input', { class: 'in sm', type: 'number', value: String(g.steps || 8000) });
+  const goalSleep = h('input', { class: 'in sm', type: 'number', step: '0.5', value: String(g.sleepHours || 7.5) });
+  const goalEx = h('input', { class: 'in sm', type: 'number', value: String(g.exerciseMin || 30) });
+
+  setDlg(dlg,
+    h('h3', null, '대표 컨디션 · 5초 기록'),
+    h('p', { class: 'small muted', style: 'margin:-8px 0 14px' }, '입력한 건강 기록은 이 컴퓨터에만 저장되며 외부 공유·AI 프롬프트로 나가지 않아요.'),
+    h('div', { class: 'grid2' },
+      h('label', { class: 'field' }, '오늘 걸음 수', steps),
+      h('label', { class: 'field' }, '어젯밤 수면 (시간)', sleep),
+      h('label', { class: 'field' }, '안정시 심박수 (bpm)', hr),
+      h('label', { class: 'field' }, '오늘 운동 (분)', ex)),
+    h('div', { style: 'margin-top:12px' },
+      h('div', { class: 'small muted', style: 'margin-bottom:6px' }, '체감 컨디션'),
+      h('div', { class: 'picker' }, energyBtns)),
+    h('details', { style: 'margin-top:14px' },
+      h('summary', null, '일일 목표 변경 (걸음 · 수면 · 운동)'),
+      h('div', { class: 'grid2', style: 'margin-top:10px' },
+        h('label', { class: 'field' }, '목표 걸음 수', goalSteps),
+        h('label', { class: 'field' }, '목표 수면 (시간)', goalSleep),
+        h('label', { class: 'field' }, '목표 운동 (분)', goalEx))),
+    h('div', { class: 'bar' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, '취소'),
+      h('button', {
+        class: 'btn dark',
+        onclick: () => once('save-health', async () => {
+          const payload = {
+            source: 'manual',
+            steps: steps.value === '' ? undefined : Number(steps.value),
+            sleepHours: sleep.value === '' ? undefined : Number(sleep.value),
+            restingHr: hr.value === '' ? undefined : Number(hr.value),
+            exerciseMin: ex.value === '' ? undefined : Number(ex.value),
+            energy: energyVal,
+            goals: {
+              steps: Number(goalSteps.value) || 8000,
+              sleepHours: Number(goalSleep.value) || 7.5,
+              exerciseMin: Number(goalEx.value) || 30,
+            },
+          };
+          dlg.close();
+          await act('POST', '/api/ui/health', payload, '오늘 컨디션을 기록했어요');
+        }),
+      }, '저장')));
+  dlg.showModal();
+  steps.focus();
+}
+
+function openHealthConnectModal() {
+  const dlg = document.getElementById('dlg');
+  dlg.className = 'wide';
+  const H = S.health || {};
+  const lanOn = Boolean(S.lanInfo?.enabled);
+  const url = H.ingestUrls?.[0] || H.localIngestUrl || 'http://127.0.0.1:8790/api/health/ingest';
+  const tok = H.token || '(이 맥 화면에서만 표시)';
+  const sampleJson = JSON.stringify({ steps: 7200, sleepHours: 7.3, restingHr: 62, exerciseMin: 35, source: 'iphone-shortcut' }, null, 2);
+
+  setDlg(dlg,
+    h('h3', null, '아이폰 · 안드로이드 헬스 자동 연동 (로컬 전용)'),
+    h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '외부 클라우드 서버 없이 집·사무실 와이파이 안에서 내 맥의 CONNECT AI HQ로만 전송됩니다.'),
+    !lanOn ? h('div', { class: 'callout', style: 'margin:0 0 12px' },
+      h('div', null, h('b', null, '폰에서 전송받으려면 같은 와이파이 수신을 켜 주세요'), h('div', { class: 'small muted' }, '켜면 집·사무실 와이파이의 내 폰에서만 아래 주소로 전송할 수 있어요.')),
+      h('button', { type: 'button', class: 'btn sm dark', onclick: () => once('lan-health', async () => { await act('POST', '/api/ui/lan', { on: true }, '와이파이 수신을 켰어요'); openHealthConnectModal(); }) }, '와이파이 수신 켜기')) : null,
+    h('div', { class: 'health-cred' },
+      h('div', { class: 'small muted' }, '로컬 수신 주소 (POST)'),
+      h('div', { class: 'row', style: 'margin-top:4px;justify-content:space-between' },
+        h('span', { class: 'mono small' }, url),
+        h('button', { type: 'button', class: 'btn sm', onclick: async () => { await copyText(url); toast('수신 주소를 복사했어요'); } }, '주소 복사')),
+      h('div', { class: 'small muted', style: 'margin-top:10px' }, '전용 보안 토큰 (헤더: X-AIHQ-Health-Token)'),
+      h('div', { class: 'row', style: 'margin-top:4px;justify-content:space-between' },
+        h('span', { class: 'mono small' }, tok),
+        h('div', { class: 'row' },
+          H.token ? h('button', { type: 'button', class: 'btn sm', onclick: async () => { await copyText(tok); toast('토큰을 복사했어요'); } }, '토큰 복사') : null,
+          H.token ? h('button', { type: 'button', class: 'btn sm', onclick: () => once('rot-tok', async () => { await act('POST', '/api/ui/health/token', {}, '새 보안 토큰을 발급했어요'); openHealthConnectModal(); }) }, '재발급') : null))),
+    h('div', { class: 'grid2', style: 'margin-top:14px' },
+      h('div', { class: 'pane-box' },
+        h('b', null, '1. 아이폰 · 애플워치 (Apple Health)'),
+        h('ol', { class: 'guide-ol' },
+          h('li', null, '단축어(Shortcuts) 앱 → 자동화 → 매일 07:30 · 14:00 · 21:00 선택'),
+          h('li', null, '"건강 샘플 찾기"로 오늘 걸음 수 · 수면 · 심박수 · 운동 시간 읽기'),
+          h('li', null, '"URL의 콘텐츠 가져오기" (POST · JSON)로 위 주소와 토큰 헤더 전송'),
+          h('li', null, '또는 Health Auto Export 앱의 REST API Webhook에 위 주소 그대로 입력'))),
+      h('div', { class: 'pane-box' },
+        h('b', null, '2. 안드로이드 · 갤럭시워치 (Health Connect)'),
+        h('ol', { class: 'guide-ol' },
+          h('li', null, '삼성 헬스 설정 → Health Connect 동기화 켜기'),
+          h('li', null, 'MacroDroid 또는 Tasker에서 일일 트리거(아침/저녁) 생성'),
+          h('li', null, 'HTTP POST 요청으로 위 로컬 주소 + X-AIHQ-Health-Token 헤더 전송'),
+          h('li', null, '걸음·수면·심박·운동 중 원하는 숫자만 JSON으로 보내면 자동 합산')))),
+    h('div', { style: 'margin-top:12px' },
+      h('div', { class: 'small muted', style: 'margin-bottom:4px' }, '전송 JSON 예시 (원하는 항목만 보내도 됩니다)'),
+      h('pre', { class: 'full', style: 'margin:0' }, sampleJson)),
+    h('div', { class: 'bar', style: 'justify-content:space-between' },
+      h('button', {
+        type: 'button', class: 'btn sm',
+        onclick: () => once('test-health', async () => {
+          const r = await act('POST', '/api/ui/health', { steps: 6420, sleepHours: 7.4, restingHr: 63, exerciseMin: 35, energy: 4, source: 'test-sync' }, '테스트 헬스 데이터를 반영했어요');
+          if (r) dlg.close();
+        }),
+      }, '샘플 데이터로 테스트'),
+      h('button', { class: 'btn dark', onclick: () => dlg.close() }, '닫기')));
+  dlg.showModal();
 }
 
 function pageDashboard() {
@@ -1545,10 +1729,10 @@ function pageDashboard() {
   const workingCnt = S.working.length;
   const coolCnt = d.employees.filter(isEmpCooling).length;
   const queueCnt = d.tasks.filter((t) => t.queued && t.status !== '완료').length;
-  const waitAppr = d.approvals.filter((a) => a.status === '대기').length + d.tasks.filter((t) => t.gate && !t.gateApprovedAt && t.status !== '완료' && t.assignee !== 'jay').length;
   const aiRoutines = d.routines.filter((r) => r.enabled !== false && !r.feature && r.assignee && r.assignee !== 'jay');
 
   const machines = d.resources.filter((r) => r.kind === '기계');
+  const phones = d.resources.filter((r) => r.kind === '스마트폰' && r.status !== '꺼짐');
   const thisMac = machines.find((m) => m.isThisMac) || machines[0] || null;
   const localH = thisMac ? S.machineHealth?.[thisMac.id] : null;
   const T = S.localTelemetry || null;
@@ -1557,7 +1741,15 @@ function pageDashboard() {
   const diskPct = T?.diskPct ?? null;
   const cpuLoadFrac = T && T.cpus ? Math.min(1, T.load1 / Math.max(1, T.cpus)) : null;
 
-  const kpi = (label, val, sub, barPct = null) => h('div', { class: 'dash-kpi' },
+  const H = S.health || { connected: false, score: null, level: 'none', levelLabel: '연동 대기', advice: '', today: null, goals: { steps: 8000, sleepHours: 7.5, exerciseMin: 30, restingHrMax: 75 }, trend7: [] };
+  const tdH = H.today || {};
+  const gH = H.goals || { steps: 8000, sleepHours: 7.5, exerciseMin: 30 };
+  const stepsFrac = typeof tdH.steps === 'number' ? Math.min(1, tdH.steps / Math.max(1, gH.steps)) : null;
+  const sleepFrac = typeof tdH.sleepHours === 'number' ? Math.min(1, tdH.sleepHours / Math.max(1, gH.sleepHours)) : null;
+  const hrNow = tdH.restingHr ?? tdH.heartRate ?? null;
+  const exFrac = typeof tdH.exerciseMin === 'number' ? Math.min(1, tdH.exerciseMin / Math.max(1, gH.exerciseMin)) : (hrNow != null ? Math.min(1, Math.max(0.15, 1 - Math.max(0, hrNow - 55) / 60)) : null);
+
+  const kpi = (label, val, sub, barPct = null, onClick = null) => h('div', { class: `dash-kpi${onClick ? ' clickable' : ''}`, onclick: onClick || undefined },
     h('span', { class: 'k-lbl' }, label),
     h('div', { class: 'k-val' }, val),
     barPct !== null ? h('div', { class: 'k-bar' }, h('i', { style: `width:${Math.min(100, Math.max(0, barPct))}%` })) : null,
@@ -1586,29 +1778,39 @@ function pageDashboard() {
     h('div', { class: 'head' },
       h('div', null,
         h('h1', null, h('b', null, '회사 대시보드')),
-        h('div', { class: 'sub' }, `${d.settings.companyName || 'CONNECT AI HQ'} · AI 직원 ${d.employees.length}명 · 컴퓨터 ${machines.length}대 · 자동 최적화 ${d.settings.autoOptimize !== false ? '켜짐' : '꺼짐'}`)),
+        h('div', { class: 'sub' }, `${d.settings.companyName || 'CONNECT AI HQ'} · 대표 컨디션 · AI 직원 ${d.employees.length}명 · 컴퓨터 ${machines.length}대${phones.length ? ` · 스마트폰 ${phones.length}대` : ''} · 자동 최적화 ${d.settings.autoOptimize !== false ? '켜짐' : '꺼짐'}`)),
       h('div', { class: 'row' },
+        h('button', { class: 'btn sm', onclick: openHealthLogModal }, '컨디션 기록'),
         h('button', { class: 'btn sm', onclick: () => load() }, '새로고침'),
         h('button', { class: 'btn sm dark', onclick: openDailyReport }, '오늘 리포트'))),
     h('div', { class: 'dash-kpis' },
-      kpi('오늘 완료율', today.length ? `${pctDone}%` : '—', `완료 ${doneCnt} / 전체 ${today.length}건`, pctDone),
-      kpi('AI 직원 가동', `${d.employees.length}명`, workingCnt ? `근무 ${workingCnt} · 휴식 ${coolCnt}` : coolCnt ? `토큰 휴식 ${coolCnt}명` : '전원 대기 · 즉시 투입 가능'),
-      kpi('본사 RAM', ramPct !== null ? `${ramPct}%` : '—', T?.availGB != null ? `여유 ${T.availGB}GB · 상한 ${maxRamPct}%` : `상한 ${maxRamPct}%`, ramPct),
-      kpi('자동 루틴 · 대기열', `${aiRoutines.length}개`, `대기열 ${queueCnt}건 · 확인 대기 ${waitAppr}건`)),
+      kpi('오늘 완료율', today.length ? `${pctDone}%` : '—', `완료 ${doneCnt} / 전체 ${today.length}건 · 루틴 ${aiRoutines.length}개`, pctDone),
+      kpi('대표 컨디션', H.score != null ? `${H.score}점` : '연동 전', H.score != null ? `${H.levelLabel}${tdH.steps != null ? ` · ${tdH.steps.toLocaleString('ko-KR')}보` : ''}` : '클릭해 5초 기록 또는 폰 연동', H.score, openHealthLogModal),
+      kpi('AI 직원 가동', `${d.employees.length}명`, workingCnt ? `근무 ${workingCnt} · 휴식 ${coolCnt}` : coolCnt ? `토큰 휴식 ${coolCnt}명` : `전원 대기 · 대기열 ${queueCnt}건`),
+      kpi('본사 RAM', ramPct !== null ? `${ramPct}%` : '—', T?.availGB != null ? `여유 ${T.availGB}GB · 상한 ${maxRamPct}%` : `상한 ${maxRamPct}%`, ramPct)),
     h('section', { class: 'dash-card' },
       h('div', { class: 'dash-card-h' },
         h('h2', null, 'AI 회사 라이브 구조도'),
-        h('span', { class: 'small muted' }, '대표 · 자동 루틴 → AI 직원(대체 순위) → AI 사무실(컴퓨터 RAM · 도구)')),
+        h('span', { class: 'small muted' }, '대표 · 자동 루틴 → AI 직원(대체 순위) → AI 사무실(컴퓨터 · 스마트폰 · 브라우저)')),
       h('div', { class: 'topo-wrap' }, topoSvg)),
     h('div', { class: 'dash-grid' },
       h('section', { class: 'dash-card' },
         h('div', { class: 'dash-card-h' },
-          h('h2', null, 'AI 직원 업무 분포 · 근무 시간'),
-          h('div', { class: 'wbar-legend' },
-            h('span', null, h('i', { style: 'background:#111' }), '완료'),
-            h('span', null, h('i', { style: 'background:#9a9a9a' }), '진행 · 대기'))),
-        barItems.length ? C.workloadBars(barItems) : h('div', { class: 'empty' }, 'AI 직원을 추가하면 업무 분포가 표시됩니다'),
-        h('div', { style: 'margin-top:20px;padding-top:16px;border-top:1px solid var(--line)' }, timeline())),
+          h('h2', null, '대표 컨디션 · 헬스 최적화'),
+          h('div', { class: 'row' },
+            h('button', { type: 'button', class: 'btn sm', onclick: openHealthLogModal }, '5초 기록'),
+            h('button', { type: 'button', class: 'btn sm', onclick: openHealthConnectModal }, '폰 연동'))),
+        h('div', { class: 'gauge-grid' },
+          h('div', { class: 'gauge-box' }, C.ring(stepsFrac, { label: '오늘 걸음 수' }),
+            h('div', null, h('div', { class: 'g-k' }, '오늘 걸음'), h('div', { class: 'g-v' }, typeof tdH.steps === 'number' ? `${tdH.steps.toLocaleString('ko-KR')}보` : `목표 ${(gH.steps || 8000).toLocaleString('ko-KR')}`))),
+          h('div', { class: 'gauge-box' }, C.ring(sleepFrac, { label: '수면 시간' }),
+            h('div', null, h('div', { class: 'g-k' }, '수면'), h('div', { class: 'g-v' }, typeof tdH.sleepHours === 'number' ? `${tdH.sleepHours}시간` : `목표 ${gH.sleepHours || 7.5}시간`))),
+          h('div', { class: 'gauge-box' }, C.ring(exFrac, { label: '심박 · 운동' }),
+            h('div', null, h('div', { class: 'g-k' }, '심박 · 운동'), h('div', { class: 'g-v' }, [hrNow != null ? `${hrNow}bpm` : '', typeof tdH.exerciseMin === 'number' ? `${tdH.exerciseMin}분` : ''].filter(Boolean).join(' · ') || '기록 전')))),
+        C.healthChart(H.trend7 || []),
+        h('div', { class: 'health-advice' },
+          h('span', { class: `tag${H.delegateRecommended ? ' solid' : ''}` }, H.levelLabel),
+          h('span', { class: 'small' }, H.advice))),
       h('section', { class: 'dash-card' },
         h('div', { class: 'dash-card-h' },
           h('h2', null, 'AI 사무실 리소스 · RAM 추이'),
@@ -1625,11 +1827,20 @@ function pageDashboard() {
           const mh = S.machineHealth?.[m.id];
           const fb = m.fallbackTo && res(m.fallbackTo) ? res(m.fallbackTo).name : null;
           return h('div', { class: 'dash-m-row' },
-            h('span', null, h('b', null, m.name), fb ? h('span', { class: 'muted' }, ` · 바쁘면 → ${fb}`) : null),
+            h('span', null, h('b', null, m.name), m.computerUse ? h('span', { class: 'tag', style: 'margin-left:6px' }, 'CU') : null, fb ? h('span', { class: 'muted' }, ` · 바쁘면 → ${fb}`) : null),
             h('span', { class: 'row' },
               h('span', { class: 'small muted mono' }, typeof mh?.ramPct === 'number' ? `RAM ${mh.ramPct}% / ${mh.maxRamPct}%` : (m.sshAlias || m.status)),
               h('span', { class: `tag${mh?.level === 'overload' ? ' solid' : mh?.level === 'busy' ? ' dash' : ''}` }, healthLabel(mh?.level || (m.status === '꺼짐' ? 'down' : 'ok')))));
-        })))));
+        })))),
+    h('section', { class: 'dash-card', style: 'margin-top:18px' },
+      h('div', { class: 'dash-card-h' },
+        h('h2', null, 'AI 직원 업무 분포 · 24시간 근무 타임라인'),
+        h('div', { class: 'wbar-legend' },
+          h('span', null, h('i', { style: 'background:#111' }), '완료'),
+          h('span', null, h('i', { style: 'background:#9a9a9a' }), '진행 · 대기'))),
+      h('div', { class: 'dash-staff-grid' },
+        h('div', null, barItems.length ? C.workloadBars(barItems) : h('div', { class: 'empty' }, 'AI 직원을 추가하면 업무 분포가 표시됩니다')),
+        h('div', null, timeline()))));
 }
 
 // ───────── 워크플로우 청사진 공유 (수강생·팀 배포용) ─────────
@@ -1973,11 +2184,13 @@ function empCard(e) {
     const coolBtn = cooling
       ? h('button', { class: 'btn sm dark', onclick: () => once(`cd0-${e.id}`, () => act('POST', `/api/ui/employees/${e.id}/cooldown`, { minutes: 0 }, `${e.name} 휴식을 해제했어요`)) }, '휴식 해제')
       : h('button', { class: 'btn sm', title: '멤버십 토큰이 다 썼을 때 대체 AI로 넘김', onclick: () => openCooldownModal(e) }, '한도 휴식');
+    const channels = accessChannelsOf(e);
     return h('div', { class: 'card' },
       h('div', { class: 'row', style: 'justify-content:space-between;align-items:flex-start' },
         h('div', null, h('h3', null, e.name, h('span', { class: 'emp-id', title: 'CLI · MCP 직원 아이디' }, e.id)), h('div', { class: 'small muted' }, how), modelLine(e)),
         cooling ? h('span', { class: 'tag solid', title: e.cooldownReason || '토큰 한도 휴식 중' }, `토큰 휴식 · ${coolMin}분`)
           : isWorking(e.id) ? h('span', { class: 'tag solid' }, '일하는 중') : today.length ? h('span', { class: 'tag' }, `오늘 ${today.length}`) : null),
+      channels.length ? h('div', { class: 'access-badges' }, channels.map((c) => h('span', { class: 'tag' }, c))) : null,
       h('dl', { class: 'kv' },
         h('dt', null, '역할'), h('dd', null, valOr(e.role, 'role')),
         h('dt', null, '도구'), h('dd', null, valOr(e.tools.join(', '), 'tools')),
@@ -2005,9 +2218,10 @@ function empCard(e) {
       h('option', { value: '' }, '자동으로 여유 AI 선택'),
       S.data.employees.filter((x) => x.id !== e.id).map((x) => h('option', { value: x.id, selected: e.fallbackTo === x.id }, `${x.name} (${x.id})`))),
     engine: h('select', { class: 'in sm', 'data-k': k('engine'), onchange: (ev) => { ui.empDraftEngine[e.id] = ev.target.value; render(); } },
-      [['web', '복사해서 맡기기 (ChatGPT, Claude, Gemini 웹 등)'], ['local', '로컬 모델 (이 컴퓨터 안에서 바로 답)'],
+      [['web', '복사해서 맡기기 (ChatGPT, Claude, Gemini, Dots, Muse 등)'], ['local', '로컬 모델 (이 컴퓨터 안에서 바로 답)'],
         ['claude', `Claude Code (${S.runners.claude ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음'})`], ['codex', `Codex (${S.runners.codex ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음'})`],
-        ['none', '스스로 보고 (MCP, CLI 로 연결한 AI)'], ...(S.runners.agy || curEng === 'agy' ? [['agy', 'agy']] : [])].map(([v, t]) => h('option', { value: v, selected: curEng === v }, t))),
+        ['gemini', `Gemini CLI (${S.runners.gemini ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음'})`],
+        ['none', '스스로 보고 (MCP, CLI 로 연결한 AI)'], ...(S.runners.agy || curEng === 'agy' ? [['agy', 'Antigravity (agy)']] : [])].map(([v, t]) => h('option', { value: v, selected: curEng === v }, t))),
     webUrl: h('input', { class: 'in sm', value: e.webUrl || '', placeholder: 'https://', 'data-k': k('webUrl') }),
     model: h('select', { class: 'in sm', 'data-k': k('model') }, h('option', { value: '' }, ui.models && ui.models.length ? '모델 고르기' : '로컬 모델을 찾는 중이거나 없음'),
       (ui.models || []).map((m) => h('option', { value: m.id, selected: e.model === m.id }, `${m.label}${m.size ? ` · ${m.size}` : ''}`))),
@@ -2030,7 +2244,7 @@ function empCard(e) {
     h('div', { class: 'f-grid' }, fld('역할', f.role), fld('도구', f.tools), fld('근무 위치', f.runsOn), fld('명령 방법', f.command), fld('월급 (월, 원)', f.salary), fld('막히면 대신할 AI (토큰 소진 시)', f.fallbackTo), fld('일 시키는 방법', f.engine), curEng === 'local' ? fld('로컬 모델', f.model) : null, curEng === 'web' ? fld('열 주소 (선택)', f.webUrl) : null),
     assignableRes.length ? h('div', { style: 'margin-top:16px' }, h('div', { class: 'small', style: 'color:#555;margin-bottom:6px' }, '쓸 수 있는 사무실 · 멤버십 · 폴더'), h('div', { class: 'chk-wrap' }, resBoxes)) : null,
     h('div', { style: 'margin-top:16px' }, fld('업무 매뉴얼', f.manual), h('div', { class: 'warn' }, '비밀번호, 인증 코드, 카드 번호는 여기에 쓰지 마세요. 이 글은 AI에게 그대로 전달됩니다.')),
-    ['claude', 'codex', 'agy'].includes(curEng) ? h('p', { class: 'small muted' }, S.runners[curEng] ? `실행을 누르면 ${ENGINE_LABEL[curEng]}를 workspaces/${e.id} 폴더에서 한 번 실행합니다. 권한을 건너뛰는 옵션은 쓰지 않아요.` : `이 컴퓨터에 ${ENGINE_LABEL[curEng]}가 없어요. 그래도 할 일에서 복사해서 맡기기로 같은 일을 시킬 수 있어요.`) : null,
+    ['claude', 'codex', 'gemini', 'agy'].includes(curEng) ? h('p', { class: 'small muted' }, S.runners[curEng] ? `실행을 누르면 ${ENGINE_LABEL[curEng]}를 workspaces/${e.id} 폴더에서 한 번 실행합니다. 권한을 건너뛰는 옵션은 쓰지 않아요.` : `이 컴퓨터에 ${ENGINE_LABEL[curEng]}가 없어요. 그래도 할 일에서 복사해서 맡기기로 같은 일을 시킬 수 있어요.`) : null,
     h('div', { class: 'row', style: 'justify-content:space-between;margin-top:16px' },
       h('button', { class: 'btn sm', onclick: () => { if (confirm(`${e.name}, 명단에서 뺄까요?`)) { delete ui.empDraftEngine[e.id]; ui.editingEmp = null; act('DELETE', `/api/ui/employees/${e.id}`, undefined, '명단에서 뺐어요'); } } }, '명단에서 빼기'),
       h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => { delete ui.empDraftEngine[e.id]; ui.editingEmp = null; load(); } }, '취소'), h('button', { class: 'btn dark', onclick: save }, '저장'))));
@@ -2048,7 +2262,7 @@ function modelLine(e) {
 function engineText(e) {
   if (e.engine === 'web') return `복사해서 맡기기${e.webUrl ? ` · ${e.webUrl.replace(/^https:\/\//, '').replace(/\/.*$/, '')}` : ''}`;
   if (e.engine === 'local') return `로컬 모델 · ${e.model ? e.model.replace(/^(ollama|lmstudio):/, '') : '모델을 골라 주세요'}`;
-  if (['claude', 'codex'].includes(e.engine)) return `${ENGINE_LABEL[e.engine]} · ${S.runners[e.engine] ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음, 복사해서 맡기기로 씀'}`;
+  if (['claude', 'codex', 'gemini'].includes(e.engine)) return `${ENGINE_LABEL[e.engine]} · ${S.runners[e.engine] ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음, 복사해서 맡기기로 씀'}`;
   return ENGINE_LABEL[e.engine] || e.engine;
 }
 
@@ -2139,6 +2353,11 @@ function resRow(r) {
   const otherMachines = r.kind === '기계' ? S.data.resources.filter((x) => x.kind === '기계' && x.id !== r.id) : [];
   const optBar = r.kind === '기계' ? h('div', { class: 'opt-row' },
     h('span', { class: 'small muted' }, '최적화'),
+    h('label', { class: 'switch', title: '이 컴퓨터에서 AI가 화면을 보며 앱·아이폰 미러링을 클릭·조작할 수 있게 허용' },
+      h('input', { type: 'checkbox', checked: Boolean(r.computerUse), onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { computerUse: ev.target.checked }, ev.target.checked ? `${r.name}: 화면 조작(Computer Use)을 켰어요` : `${r.name}: 화면 조작을 껐어요`) }),
+      h('span', { class: 'tr' }),
+      h('span', { class: 'small' }, '화면 조작(CU)')),
+    r.isThisMac && S.bridges?.orca ? h('span', { class: 'tag', title: 'orca computer CLI 감지됨' }, 'orca computer') : null,
     h('select', { class: 'in sm', 'aria-label': `${r.name} RAM 상한`, onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { maxRamPct: Number(ev.target.value) }, `RAM 상한을 ${ev.target.value}%로 바꿨어요`) },
       [75, 80, 85, 90].map((p) => h('option', { value: String(p), selected: (r.maxRamPct || 85) === p }, `RAM 상한 ${p}%${p === 85 ? ' (추천)' : ''}`))),
     h('select', { class: 'in sm', 'aria-label': `${r.name} 동시 무거운 작업 상한`, onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { maxHeavy: Number(ev.target.value) }, `동시 무거운 작업 상한을 ${ev.target.value}개로 바꿨어요`) },
@@ -2405,7 +2624,30 @@ function designPanel() {
       }, h('div', { class: 'top' }, h('b', null, r.name), h('span', { class: 'tag solid' }, '편집')), h('span', { class: 'small muted' }, [r.rules, r.assetPath].filter(Boolean).join(' · ') || '직접 추가')))));
 }
 
-// 내가 쓰는 브라우저 (Ego Lite, Aside 등) — 1클릭 선택 및 기본 지정
+// 내가 쓰는 브라우저 (Ego Lite, Aside, Chrome, Dia, Comet 등) — 1클릭 선택 및 직접 추가
+function openAddBrowser() {
+  const dlg = document.getElementById('dlg');
+  dlg.className = '';
+  const name = h('input', { class: 'in', placeholder: '예: Brave, Perplexity Comet, Edge', 'aria-label': '브라우저 이름' });
+  const cmd = h('input', { class: 'in', placeholder: 'CLI 명령 (선택, 예: aside 또는 ego-browser)', 'aria-label': 'CLI 명령' });
+  const guide = h('input', { class: 'in', placeholder: 'AI 사용법 메모 (선택, 예: 프로필 1번 창 사용)', 'aria-label': '사용법' });
+  setDlg(dlg,
+    h('h3', null, '브라우저 직접 추가'),
+    h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '등록하고 기본으로 지정하면 모든 웹 작업과 연결 계정이 이 브라우저를 우선 사용합니다.'),
+    h('label', { class: 'field' }, '브라우저 이름', name),
+    h('label', { class: 'field', style: 'margin-top:12px' }, '실행 명령 (선택)', cmd),
+    h('label', { class: 'field', style: 'margin-top:12px' }, 'AI 안내 메모 (선택)', guide),
+    h('div', { class: 'bar' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, '취소'),
+      h('button', { class: 'btn dark', onclick: () => once('add-br', async () => {
+        if (!name.value.trim()) { name.focus(); return; }
+        dlg.close();
+        await act('POST', '/api/ui/resources', { kind: '브라우저', name: name.value, command: cmd.value, guide: guide.value, note: guide.value || '직접 추가', isDefault: true }, `${name.value.trim()}을 기본 브라우저로 추가했어요`);
+      }) }, '추가')));
+  dlg.showModal();
+  name.focus();
+}
+
 function browserPanel() {
   const saved = S.data.resources.filter((r) => r.kind === '브라우저');
   const detected = ui.tools?.browsers || [];
@@ -2427,7 +2669,7 @@ function browserPanel() {
     h('span', { class: 'small muted' }, b.hint));
   });
   const custom = saved.filter((r) => !detected.some((b) => b.key === r.preset || b.name.toLowerCase() === r.name.toLowerCase()));
-  return h('section', { class: 'sec' }, secHead('내가 쓰는 브라우저', '웹 확인·자동화가 필요할 때 AI가 이 브라우저를 씁니다'),
+  return h('section', { class: 'sec' }, secHead('내가 쓰는 브라우저', 'Ego Lite, Aside, Chrome, Dia, Comet 등 내가 쓰는 브라우저를 1클릭으로 기본 지정하세요', h('button', { class: 'btn sm', onclick: openAddBrowser }, '+ 브라우저 추가')),
     h('div', { class: 'tool-cards' }, cards,
       custom.map((r) => h('button', {
         type: 'button', class: `tool-card${r.status !== '꺼짐' ? ' on' : ''}`,
@@ -2439,6 +2681,134 @@ function browserPanel() {
           }
         },
       }, h('div', { class: 'top' }, h('b', null, r.name), r.isDefault ? h('span', { class: 'tag solid' }, '기본') : null), h('span', { class: 'small muted' }, r.note || '직접 추가')))));
+}
+
+// 스마트폰 · 아이폰 미러링 (Computer Use) · 안드로이드 (adb/scrcpy) · 모바일 AI
+function openAddPhone(defaultMode = 'iphone-mirror') {
+  const dlg = document.getElementById('dlg');
+  dlg.className = '';
+  const modes = S.options.phoneModes || [];
+  const machines = S.data.resources.filter((r) => r.kind === '기계');
+  const thisMac = machines.find((m) => m.isThisMac) || machines[0] || null;
+  let pickedMode = defaultMode;
+  const defNames = { 'iphone-mirror': '내 iPhone (미러링)', 'android-adb': '내 Android (adb)', 'mobile-ai': '모바일 AI (피클)' };
+  const name = h('input', { class: 'in', value: defNames[defaultMode] || '내 스마트폰', placeholder: '예: Jay iPhone, 갤럭시 S25' });
+  const hostSel = h('select', { class: 'in' },
+    machines.map((m) => h('option', { value: m.id, selected: m.id === thisMac?.id }, `${m.name}${m.computerUse ? ' (화면 조작 ON)' : ''}`)));
+  const empSel = h('select', { class: 'in' },
+    h('option', { value: '' }, '자동 선택 (Computer Use / 모바일 가능 AI)'),
+    S.data.employees.map((e) => h('option', { value: e.id, selected: defaultMode === 'mobile-ai' && (e.catalog === 'pickle' || /피클/.test(e.name)) }, `${e.name}${e.role ? ` · ${e.role}` : ''}`)));
+  const note = h('input', { class: 'in', placeholder: '메모 (선택, 예: 인스타 앱·카톡 확인용)' });
+  const hostWrap = h('label', { class: 'field', style: 'margin-top:12px' }, '미러링 · 연결할 컴퓨터', hostSel);
+  const modeBtns = [];
+  const syncVisibility = () => {
+    hostWrap.style.display = pickedMode === 'mobile-ai' ? 'none' : '';
+  };
+  const modePicker = h('div', { class: 'picker' }, modes.map((m) => {
+    const b = h('button', {
+      type: 'button', class: `chip${m.key === pickedMode ? ' on' : ''}`,
+      onclick: () => {
+        const wasDef = Object.values(defNames).includes(name.value.trim());
+        pickedMode = m.key;
+        if (wasDef || !name.value.trim()) name.value = defNames[m.key] || '';
+        modeBtns.forEach((x) => x.classList.toggle('on', x === b));
+        syncVisibility();
+      },
+    }, m.name);
+    modeBtns.push(b);
+    return b;
+  }));
+  syncVisibility();
+
+  setDlg(dlg,
+    h('h3', null, '스마트폰 연결 추가'),
+    h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '스마트폰에 직접 못 들어가는 iOS도 맥의 iPhone Mirroring 창을 Computer Use로 조작할 수 있어요.'),
+    modePicker,
+    h('label', { class: 'field', style: 'margin-top:12px' }, '기기 이름', name),
+    hostWrap,
+    h('label', { class: 'field', style: 'margin-top:12px' }, '전담 AI 직원 (선택)', empSel),
+    h('label', { class: 'field', style: 'margin-top:12px' }, '메모 (선택)', note),
+    h('p', { class: 'small muted', style: 'margin:12px 0 0' }, '고정 안전선: 잠금 해제·Touch ID·결제·송금·카톡/문자 실제 전송은 대표님 승인 없이 절대 실행하지 않아요.'),
+    h('div', { class: 'bar' },
+      h('button', { class: 'btn', onclick: () => dlg.close() }, '취소'),
+      h('button', { class: 'btn dark', onclick: () => once('add-phone', async () => {
+        if (!name.value.trim()) { name.focus(); return; }
+        dlg.close();
+        await act('POST', '/api/ui/resources', {
+          kind: '스마트폰', name: name.value, phoneMode: pickedMode,
+          hostMachine: pickedMode === 'mobile-ai' ? null : (hostSel.value || null),
+          assignee: empSel.value || null, note: note.value,
+        }, `${name.value.trim()}을 연결했어요`);
+      }) }, '연결 추가')));
+  dlg.showModal();
+  name.focus();
+}
+
+function phonePanel() {
+  const phones = S.data.resources.filter((r) => r.kind === '스마트폰');
+  const modes = S.options.phoneModes || [];
+  const br = S.bridges || ui.tools?.bridges || {};
+  const modeHintTag = (key) => {
+    if (key === 'iphone-mirror') return br.iphoneMirroringApp ? 'iPhone Mirroring 감지됨' : (br.orca ? 'orca computer 감지됨' : 'macOS 미러링');
+    if (key === 'android-adb') return br.adb || br.scrcpy ? [br.adb ? 'adb' : '', br.scrcpy ? 'scrcpy' : ''].filter(Boolean).join('·') + ' 감지됨' : 'USB · Wi-Fi';
+    return '클라우드';
+  };
+  const quickCards = modes.map((m) => {
+    const existing = phones.find((p) => p.phoneMode === m.key && p.status !== '꺼짐');
+    return h('button', {
+      type: 'button', class: `tool-card${existing ? ' on' : ''}`,
+      onclick: () => openAddPhone(m.key),
+    },
+    h('div', { class: 'top' }, h('b', null, m.name),
+      existing ? h('span', { class: 'tag solid' }, '연결됨') : h('span', { class: 'tag' }, modeHintTag(m.key))),
+    h('span', { class: 'small muted' }, m.hint));
+  });
+
+  const listEl = phones.length ? h('ul', { class: 'list', style: 'margin-top:12px' }, phones.map((p) => {
+    const modeObj = modes.find((m) => m.key === p.phoneMode);
+    const host = p.hostMachine ? res(p.hostMachine) : null;
+    const pinned = p.assignee ? emp(p.assignee) : null;
+    const sub = [
+      modeObj?.name || p.phoneMode,
+      host ? `연결 컴퓨터: ${host.name}${host.computerUse ? ' (화면 조작 ON)' : ' (화면 조작 꺼짐)'}` : '',
+      pinned ? `전담 AI: ${shortName(pinned.id)}` : '',
+      p.note,
+    ].filter(Boolean).join(' · ');
+    return h('li', { class: 'res' },
+      h('div', { class: 'main' },
+        h('div', { class: 't' }, p.name, h('span', { class: 'tag', style: 'margin-left:8px' }, modeObj?.short || '스마트폰')),
+        h('div', { class: 's' }, sub)),
+      h('div', { class: 'row' },
+        h('button', { class: 'x', 'aria-label': `${p.name} 지우기`, onclick: () => { if (confirm(`${p.name} 연결을 지울까요?`)) act('DELETE', `/api/ui/resources/${p.id}`, undefined, '지웠어요'); } }, '×')));
+  })) : null;
+
+  return h('section', { class: 'sec' },
+    secHead('스마트폰 · 아이폰 미러링 연결', '아이폰 미러링(Computer Use), 안드로이드(adb/scrcpy), 모바일 AI를 연결하면 스마트폰 작업 지시서에 자동 반영됩니다', h('button', { class: 'btn sm', onclick: () => openAddPhone('iphone-mirror') }, '+ 스마트폰 추가')),
+    h('div', { class: 'tool-cards' }, quickCards),
+    listEl,
+    h('p', { class: 'small muted', style: 'margin-top:10px' }, '안전선: 스마트폰 미러링·조작에서도 잠금 해제·결제·송금·카톡/문자 실제 전송은 대표님 승인 없이 차단됩니다.'));
+}
+
+function healthPanel() {
+  const H = S.health || {};
+  const td = H.today || {};
+  const stats = [
+    H.score != null ? `컨디션 ${H.score}점 (${H.levelLabel})` : '아직 기록 없음',
+    typeof td.steps === 'number' ? `걸음 ${td.steps.toLocaleString('ko-KR')}보` : '',
+    typeof td.sleepHours === 'number' ? `수면 ${td.sleepHours}시간` : '',
+    (td.restingHr ?? td.heartRate) != null ? `심박 ${td.restingHr ?? td.heartRate}bpm` : '',
+    typeof td.exerciseMin === 'number' ? `운동 ${td.exerciseMin}분` : '',
+  ].filter(Boolean).join(' · ');
+  return h('section', { class: 'sec' },
+    secHead('대표 헬스 · 컨디션 연동 (Apple Health · Health Connect)', '아이폰 단축어나 안드로이드 Health Connect로 심박·걸음·수면을 받아 대시보드와 AI 위임을 최적화합니다'),
+    h('div', { class: 'lan' },
+      h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:10px' },
+        h('div', null,
+          h('div', { style: 'font-weight:600;font-size:14px' }, stats),
+          h('div', { class: 'small muted', style: 'margin-top:3px' }, H.advice || '건강 기록은 이 컴퓨터에만 저장되며 외부 공유·청사진·AI 프롬프트로 나가지 않아요.')),
+        h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn sm', onclick: openHealthLogModal }, '5초 기록'),
+          h('button', { type: 'button', class: 'btn sm dark', onclick: openHealthConnectModal }, '아이폰 · 안드로이드 연동 가이드')))));
 }
 
 // 내가 쓰는 오픈소스 도구 — 이 컴퓨터에서 찾은 것부터 원클릭 켜기/끄기
@@ -2523,7 +2893,7 @@ function openAddAccount() {
   let pickedBr = '';
   let pickedEmp = '';
   const name = h('input', { class: 'in', value: plats[0]?.name || '', placeholder: '예: 네이버 블로그, 네이버 클립, YouTube', 'aria-label': '계정 이름' });
-  const spaceIn = h('input', { class: 'in', placeholder: '예: 이메일, 네이버, 결제, SNS (선택)', 'aria-label': 'Ego Lite 스페이스' });
+  const spaceIn = h('input', { class: 'in', placeholder: '예: 이메일, 네이버, 결제, SNS (선택)', 'aria-label': '프로필 또는 스페이스' });
   const note = h('input', { class: 'in', placeholder: '메모 (선택, 예: 검색 유입·숏폼 채널)', 'aria-label': '메모' });
   const presetRow = h('div', { class: 'picker' });
   const renderPresets = () => {
@@ -2575,7 +2945,7 @@ function openAddAccount() {
     platGroups,
     h('label', { class: 'field', style: 'margin-top:12px' }, '계정 이름', name),
     brSel ? h('label', { class: 'field', style: 'margin-top:12px' }, '연결 브라우저', brSel) : null,
-    h('label', { class: 'field', style: 'margin-top:12px' }, 'Ego Lite 스페이스 (선택)', spaceIn),
+    h('label', { class: 'field', style: 'margin-top:12px' }, '프로필 · 스페이스 (선택)', spaceIn),
     empSel ? h('label', { class: 'field', style: 'margin-top:12px' }, '전담 AI 직원 (선택)', empSel) : null,
     h('div', { style: 'margin-top:12px' }, h('div', { class: 'small muted', style: 'margin-bottom:6px' }, '처음 권한'), presetRow),
     h('label', { class: 'field', style: 'margin-top:12px' }, '메모 (선택)', note),
@@ -2625,10 +2995,10 @@ function accountCard(r) {
           openUrl ? h('a', { class: 'btn link', href: openUrl, target: '_blank', rel: 'noopener noreferrer', style: 'margin-left:4px' }, '사이트 열기 ↗') : null)
           : h('span', { class: 'small muted' }, '위에서 Ego Lite를 한 번만 켜 두면 모든 연결 계정이 자동으로 접속돼요')),
       (() => {
-        const sp = h('input', { class: 'in sm', value: r.spaceName || '', 'data-k': `acc-sp-${r.id}`, placeholder: '예: 이메일, 네이버, 결제, SNS (선택)', style: 'max-width:220px', 'aria-label': 'Ego Lite 스페이스' });
-        const saveSp = () => act('PATCH', `/api/ui/resources/${r.id}`, { spaceName: sp.value.trim() }, '스페이스 이름을 저장했어요');
+        const sp = h('input', { class: 'in sm', value: r.spaceName || '', 'data-k': `acc-sp-${r.id}`, placeholder: '예: 이메일, 네이버, 결제, SNS (선택)', style: 'max-width:220px', 'aria-label': '프로필 또는 스페이스' });
+        const saveSp = () => act('PATCH', `/api/ui/resources/${r.id}`, { spaceName: sp.value.trim() }, '프로필·스페이스 이름을 저장했어요');
         sp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) saveSp(); });
-        return h('div', { class: 'acc-row' }, h('span', { class: 'small muted' }, '스페이스'), h('div', { class: 'row' }, sp, h('button', { type: 'button', class: 'btn sm', onclick: saveSp }, '저장')));
+        return h('div', { class: 'acc-row' }, h('span', { class: 'small muted' }, '프로필·스페이스'), h('div', { class: 'row' }, sp, h('button', { type: 'button', class: 'btn sm', onclick: saveSp }, '저장')));
       })(),
       S.data.employees.length ? h('div', { class: 'acc-row' },
         h('span', { class: 'small muted' }, '전담 AI'),
@@ -2671,28 +3041,32 @@ function pageResources() {
   const d = S.data;
   const tab = ui.resTab || 'all';
   const show = (k) => tab === 'all' || tab === k;
-  const genericKinds = S.options.resKinds.filter((k) => !['브라우저', '오픈소스', '계정', '디자인'].includes(k));
+  const genericKinds = S.options.resKinds.filter((k) => !['브라우저', '스마트폰', '오픈소스', '계정', '디자인'].includes(k));
   const webCount = d.resources.filter((r) => ['브라우저', '계정'].includes(r.kind)).length;
+  const mobileCount = d.resources.filter((r) => r.kind === '스마트폰').length;
   const toolsCount = d.resources.filter((r) => ['오픈소스', '디자인'].includes(r.kind)).length;
   const officeCount = d.resources.filter((r) => genericKinds.includes(r.kind)).length;
   const tabs = [
     ['all', '전체'],
     ['web', `브라우저 · 계정 (${webCount})`],
+    ['mobile', `스마트폰 · 헬스 (${mobileCount})`],
     ['tools', `오픈소스 · 디자인 (${toolsCount})`],
-    ['office', `사무실 · 기기 (${officeCount})`],
+    ['office', `사무실 · 컴퓨터 (${officeCount})`],
   ];
-  const name = h('input', { class: 'in', placeholder: '새 리소스 (예: Office 2 맥북, iPhone 미러링, 외장 SSD)', 'data-k': 'rs-name', 'aria-label': '리소스 이름' });
+  const name = h('input', { class: 'in', placeholder: '새 리소스 (예: Office 2 맥북, 외장 SSD, 작업 폴더)', 'data-k': 'rs-name', 'aria-label': '리소스 이름' });
   const kind = h('select', { class: 'in', style: 'width:110px', 'data-k': 'rs-kind', 'aria-label': '종류' }, genericKinds.map((k) => h('option', { value: k }, k)));
   const add = () => submitInput(name, 'add-res', (v) => act('POST', '/api/ui/resources', { name: v, kind: kind.value }, '추가했어요'));
   name.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) add(); });
   return h('div', null,
     h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, 'AI 사무실')),
-      h('div', { class: 'sub' }, '브라우저 · 계정 · 오픈소스 · 디자인 · 컴퓨터를 한 번만 등록하면 오늘 할 일과 자동 루틴에 즉시 적용됩니다.')),
+      h('div', { class: 'sub' }, '컴퓨터(화면 조작) · 브라우저 · 스마트폰(아이폰 미러링) · 대표 헬스 · 오픈소스를 한 번만 연결하면 모든 할 일과 대시보드에 즉시 적용됩니다.')),
     h('button', { class: 'btn', onclick: () => { loadOffice(); loadTools(); } }, '다시 읽기')),
     h('div', { class: 'picker', style: 'margin-bottom:20px' }, tabs.map(([k, label]) => h('button', {
       type: 'button', class: `chip${tab === k ? ' on' : ''}`, onclick: () => { ui.resTab = k; render(); },
     }, label))),
     show('web') ? browserPanel() : null,
+    show('mobile') ? phonePanel() : null,
+    show('mobile') ? healthPanel() : null,
     show('web') ? accountsPanel() : null,
     show('tools') ? ossPanel() : null,
     show('tools') ? designPanel() : null,

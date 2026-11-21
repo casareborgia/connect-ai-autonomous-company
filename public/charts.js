@@ -170,6 +170,76 @@
     return svg;
   }
 
+  // 대표 7일 컨디션 추이 그래프 (RAM 추이 그래프와 동일 비율, 실제 기록만 그림)
+  function healthChart(trend7) {
+    const W = 420;
+    const H = 128;
+    const padL = 32;
+    const padR = 14;
+    const padT = 16;
+    const padB = 22;
+    const cw = W - padL - padR;
+    const ch = H - padT - padB;
+    const yOf = (score) => padT + ch - (Math.min(100, Math.max(0, score)) / 100) * ch;
+    const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'ram-svg', role: 'img', 'aria-label': '최근 7일 대표 컨디션 추이' });
+
+    for (const tick of [0, 50, 100]) {
+      const y = yOf(tick);
+      svg.appendChild(s('line', { x1: padL, x2: W - padR, y1: y, y2: y, stroke: tick === 0 ? '#d8d8d8' : '#efefef', 'stroke-width': 1 }));
+      svg.appendChild(s('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', 'font-size': 9.5, fill: '#999', 'font-family': 'Pretendard, -apple-system, sans-serif' }, `${tick}`));
+    }
+
+    // 최적 목표선 (80점)
+    const targetY = yOf(80);
+    svg.appendChild(s('line', { x1: padL, x2: W - padR, y1: targetY, y2: targetY, stroke: INK, 'stroke-width': 1, 'stroke-dasharray': '4 3', opacity: 0.45 }));
+    svg.appendChild(s('text', { x: padL + 4, y: targetY - 4, 'text-anchor': 'start', 'font-size': 9.5, fill: '#777', 'font-family': 'Pretendard, -apple-system, sans-serif' }, '최적 80+'));
+
+    const days = Array.isArray(trend7) && trend7.length ? trend7 : [];
+    const xOf = (i) => padL + (days.length > 1 ? (i / (days.length - 1)) * cw : cw / 2);
+
+    // 하단 요일 라벨
+    days.forEach((d, i) => {
+      svg.appendChild(s('text', {
+        x: xOf(i).toFixed(1), y: H - 5, 'text-anchor': 'middle', 'font-size': 9.5,
+        'font-weight': i === days.length - 1 ? 600 : 400,
+        fill: i === days.length - 1 ? INK : '#999',
+        'font-family': 'Pretendard, -apple-system, sans-serif',
+      }, d.label || ''));
+    });
+
+    const scored = days.map((d, i) => (typeof d.score === 'number' ? { ...d, i, x: xOf(i), y: yOf(d.score) } : null)).filter(Boolean);
+    if (!scored.length) {
+      svg.appendChild(s('text', { x: padL + cw / 2, y: padT + ch / 2 + 2, 'text-anchor': 'middle', 'font-size': 11, fill: '#999' }, '5초 기록 또는 아이폰·안드로이드 연동 시 7일 추이가 그려집니다'));
+      return svg;
+    }
+
+    if (scored.length >= 2) {
+      const linePath = scored.map((p, k) => `${k ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      const areaPath = `${linePath} L${scored[scored.length - 1].x.toFixed(1)},${yOf(0).toFixed(1)} L${scored[0].x.toFixed(1)},${yOf(0).toFixed(1)} Z`;
+      svg.appendChild(s('path', { d: areaPath, fill: '#f2f2f2' }));
+      svg.appendChild(s('path', { d: linePath, fill: 'none', stroke: INK, 'stroke-width': 1.75, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+    } else {
+      const p = scored[0];
+      svg.appendChild(s('line', { x1: p.x.toFixed(1), x2: p.x.toFixed(1), y1: yOf(0).toFixed(1), y2: p.y.toFixed(1), stroke: '#d8d8d8', 'stroke-width': 2 }));
+    }
+
+    for (const p of scored) {
+      const isLast = p.i === days.length - 1;
+      const tip = [
+        `${p.date} · 컨디션 ${p.score}점`,
+        p.steps != null ? `걸음 ${p.steps.toLocaleString('ko-KR')}보` : '',
+        p.sleepHours != null ? `수면 ${p.sleepHours}시간` : '',
+        p.heartRate != null ? `심박 ${p.heartRate}bpm` : '',
+        p.exerciseMin != null ? `운동 ${p.exerciseMin}분` : '',
+      ].filter(Boolean).join(' · ');
+      svg.appendChild(s('circle', {
+        cx: p.x.toFixed(1), cy: p.y.toFixed(1), r: isLast ? 4 : 3,
+        fill: isLast ? INK : '#fff', stroke: INK, 'stroke-width': 1.5,
+      }, s('title', {}, tip)));
+    }
+    return svg;
+  }
+
   // AI 직원별 오늘 업무 분포 막대 그래프 (완료 = 검정, 대기/진행 = 회색)
   function workloadBars(items) {
     const rowH = 30;
@@ -445,5 +515,5 @@
     return svg;
   }
 
-  window.Charts = { spark, paybar, timelineRow, flow, ring, ramChart, workloadBars, companyGraph, habitGrid };
+  window.Charts = { spark, paybar, timelineRow, flow, ring, ramChart, healthChart, workloadBars, companyGraph, habitGrid };
 })();
