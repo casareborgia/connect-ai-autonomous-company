@@ -91,6 +91,7 @@ function migrate(d) {
     if (e.cooldownReason === undefined) e.cooldownReason = '';
     if (!e.avatar || !AVATAR_PRESETS.some((a) => a.key === e.avatar)) e.avatar = defaultAvatarFor(e);
     if (!e.avatarStyle || !AVATAR_STYLES.some((s) => s.key === e.avatarStyle)) e.avatarStyle = 'studio';
+    if (e.avatarName === undefined) e.avatarName = '';
     if (e.avatarImage === undefined) e.avatarImage = '';
     if (e.persona === undefined) e.persona = '';
     if (e.webUrl === undefined) e.webUrl = webUrlFor(e.name);
@@ -116,6 +117,7 @@ function migrate(d) {
     if (!Array.isArray(r.steps)) r.steps = [];
   }
   if (!d.settings.assignMemory || typeof d.settings.assignMemory !== 'object') d.settings.assignMemory = {};
+  if (!Array.isArray(d.settings.customAvatars)) d.settings.customAvatars = [];
   if (d.settings.autoOptimize === undefined) d.settings.autoOptimize = true;
   if (d.settings.preventSleep === undefined) d.settings.preventSleep = true;
   // 배차: 본사 아이디 (사무실 작업 폴더에 남겨 내 것인지 알아본다), 기계의 ssh 별칭 (~/.ssh/config 에서 한 번 찾아 둠)
@@ -305,7 +307,20 @@ async function readBody(req, limit) {
 function findEmp(d, ref) {
   if (!ref) return null;
   const r = String(ref).trim().toLowerCase();
-  return d.employees.find((e) => e.id.toLowerCase() === r || e.name.toLowerCase() === r || e.name.split(/\s/)[0].toLowerCase() === r) || null;
+  return d.employees.find((e) => {
+    const an = String(e.avatarName || '').trim().toLowerCase();
+    return e.id.toLowerCase() === r
+      || e.name.toLowerCase() === r
+      || e.name.split(/\s/)[0].toLowerCase() === r
+      || (an && (an === r || an.split(/\s/)[0] === r));
+  }) || null;
+}
+
+function parseAvatarImage(raw) {
+  const img = String(raw || '').trim();
+  if (!img) return '';
+  if (/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(img) && img.length <= 240000) return img;
+  throw new HttpError(400, '캐릭터 이미지는 180KB 이하의 PNG/JPG/WebP/GIF만 넣을 수 있어요.');
 }
 
 function requireAgent(d, ref) {
@@ -2150,12 +2165,8 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
   if (body.avatarStyle !== undefined) {
     if (AVATAR_STYLES.some((s) => s.key === body.avatarStyle)) e.avatarStyle = body.avatarStyle;
   }
-  if (body.avatarImage !== undefined) {
-    const img = String(body.avatarImage || '').trim();
-    if (!img) e.avatarImage = '';
-    else if (/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(img) && img.length <= 240000) e.avatarImage = img;
-    else throw new HttpError(400, '캐릭터 이미지는 180KB 이하의 PNG/JPG/WebP/GIF만 넣을 수 있어요.');
-  }
+  if (body.avatarName !== undefined) e.avatarName = text(body.avatarName, 40);
+  if (body.avatarImage !== undefined) e.avatarImage = parseAvatarImage(body.avatarImage);
   if (body.persona !== undefined) e.persona = text(body.persona, 80);
   if (body.salary !== undefined) {
     if (body.salary === null || body.salary === '') e.salary = null;
@@ -2165,7 +2176,7 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
       e.salary = n;
     }
   }
-  const again = ['role', 'tools', 'name', 'manual'].some((k) => body[k] !== undefined) ? reassignUnmatched(d) : { task: [], routine: [] };
+  const again = ['role', 'tools', 'name', 'avatarName', 'manual'].some((k) => body[k] !== undefined) ? reassignUnmatched(d) : { task: [], routine: [] };
   return { ...e, reassigned: again };
 }).then((r) => { refineMany(r.reassigned); if (body.engine !== undefined || body.model !== undefined || body.resources !== undefined) maybeRefreshModels(true); return r; }), UI);
 
@@ -2192,7 +2203,7 @@ route('POST', '/api/ui/employees/:id/cooldown', async ({ params, body }) => {
   return updated;
 }, UI);
 
-function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, group }) {
+function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, group, avatar, avatarStyle, avatarName, avatarImage, persona }) {
   if (!d.groups.length) d.groups = DEFAULT_GROUPS.map((x) => ({ ...x }));
   if (group && !d.groups.some((x) => x.id === group)) {
     const def = DEFAULT_GROUPS.find((x) => x.id === group);
@@ -2202,16 +2213,42 @@ function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, 
   let id = name.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 16);
   if (!id || id === 'jay' || id === 'system' || d.employees.some((e) => e.id === id)) id = nextId(d, 'e');
   const eng = ENGINES.includes(engine) ? engine : 'web';
+  const avKey = avatar && AVATAR_PRESETS.some((a) => a.key === avatar) ? avatar : defaultAvatarFor({ name, role });
+  const avStyle = avatarStyle && AVATAR_STYLES.some((s) => s.key === avatarStyle) ? avatarStyle : 'studio';
   const e = {
     id, name, group: g, role: role || '', tools: [], runsOn: '', command: '', salary: null, engine: eng, model: model || '',
     runMode: eng === 'web' || eng === 'none' ? 'off' : (RUN_MODES.includes(runMode) ? runMode : 'off'),
     webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: '', resources: [], abilities: [],
-    avatar: defaultAvatarFor({ name, role }), avatarStyle: 'studio', avatarImage: '', persona: '',
+    avatar: avKey, avatarStyle: avStyle, avatarName: text(avatarName || '', 40), avatarImage: avatarImage || '', persona: text(persona || '', 80),
     fallbackTo: null, cooldownUntil: null, cooldownReason: '',
   };
   d.employees.push(e);
   return e;
 }
+
+// 사용자가 직접 이름과 이미지를 넣어 저장하는 나만의 캐릭터 보관함 (최대 16개)
+route('POST', '/api/ui/avatars', async ({ body }) => {
+  const name = text(body.name, 40);
+  if (!name) throw new HttpError(400, '캐릭터 이름을 적어 주세요.');
+  const image = parseAvatarImage(body.image);
+  if (!image) throw new HttpError(400, '캐릭터 이미지를 올려 주세요.');
+  const hint = text(body.hint, 60);
+  return store.mutate((d) => {
+    if (!Array.isArray(d.settings.customAvatars)) d.settings.customAvatars = [];
+    if (d.settings.customAvatars.length >= 16) throw new HttpError(400, '내 캐릭터 보관함은 최대 16개까지 저장할 수 있어요. 안 쓰는 캐릭터를 지우고 저장해 주세요.');
+    const item = { id: `cav_${crypto.randomBytes(4).toString('hex')}`, name, image, hint, createdAt: nowIso() };
+    d.settings.customAvatars.unshift(item);
+    return item;
+  });
+}, UI);
+
+route('DELETE', '/api/ui/avatars/:id', async ({ params }) => store.mutate((d) => {
+  if (!Array.isArray(d.settings.customAvatars)) d.settings.customAvatars = [];
+  const before = d.settings.customAvatars.length;
+  d.settings.customAvatars = d.settings.customAvatars.filter((x) => x.id !== params.id);
+  if (d.settings.customAvatars.length === before) throw new HttpError(404, '보관함에 해당 캐릭터가 없어요.');
+  return { ok: true, id: params.id };
+}), UI);
 
 // 전체 AI 직원의 캐릭터 스타일 또는 팩(K-수호 크루 / 모던 랩 크루)을 한 번에 통일
 route('POST', '/api/ui/employees/avatar-style', async ({ body }) => {
@@ -2235,10 +2272,14 @@ route('POST', '/api/ui/employees', async ({ body }) => {
   // 목록에서 고른 코딩 AI 인데 이 맥에 실행 파일이 없으면 복사해서 맡기기로 시작한다
   let engine = body.engine || cat?.engine || 'web';
   if (!body.engine && ['claude', 'codex', 'gemini', 'agy'].includes(engine) && (!runnerInfo(engine)?.bin || runnerInfo(engine)?.missing)) engine = 'web';
+  const avatarImage = body.avatarImage ? parseAvatarImage(body.avatarImage) : '';
   const out = await store.mutate((d) => {
     const name = text(body.name, 80);
     if (!name) throw new HttpError(400, '이름이 필요합니다.');
-    const e = makeEmployee(d, { name, role: text(body.role, 200) || cat?.role || '', engine, webUrl: cat?.url, general: cat?.general, group: body.group || cat?.group });
+    const e = makeEmployee(d, {
+      name, role: text(body.role, 200) || cat?.role || '', engine, webUrl: cat?.url, general: cat?.general, group: body.group || cat?.group,
+      avatar: body.avatar, avatarStyle: body.avatarStyle, avatarName: body.avatarName, avatarImage, persona: body.persona,
+    });
     if (cat) e.catalog = cat.key;
     autoWireEmployeeFallbacks(d);
     return { ...e, reassigned: reassignUnmatched(d) };

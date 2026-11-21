@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { createPowerGuard } from '../lib/runtime.mjs';
 import { scanClaudeUsage, scanCodexUsage, buildEmployeeUsageMap } from '../lib/usage.mjs';
 import { AVATAR_PRESETS, defaultAvatarFor } from '../lib/catalog.mjs';
+import { ruleAssign } from '../lib/assign.mjs';
 import { seedData } from '../lib/seed.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -157,18 +158,53 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
       return { status: r.status, body: await r.json().catch(() => null) };
     };
 
-    // 1) 캐릭터 프리셋 + 스타일 선택(스튜디오 3D / 코딩 모션 / 픽셀 펫) + 안전한 PNG 업로드 허용, SVG XSS 차단
+    // 1) 캐릭터 프리셋 + 직접 이름 지정(avatarName) + 스타일 선택 + 안전한 PNG 업로드 허용, SVG XSS 차단
+    const safePng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
     const avOk = await ui('PATCH', '/api/ui/employees/claude', {
       avatar: 'momo',
       avatarStyle: 'motion',
+      avatarName: '도깨비 팀장',
       persona: '새벽에도 안 자는 기획자',
-      avatarImage: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      avatarImage: safePng,
       runMode: 'manual',
     });
     assert.equal(avOk.status, 200);
     assert.equal(avOk.body.avatar, 'momo');
     assert.equal(avOk.body.avatarStyle, 'motion');
+    assert.equal(avOk.body.avatarName, '도깨비 팀장');
     assert.equal(avOk.body.persona, '새벽에도 안 자는 기획자');
+
+    // 직접 정한 캐릭터 이름(호칭)으로 할 일을 부르면 해당 직원에게 배분된다
+    const stAfterName = await (await fetch(`${origin}/api/state`)).json();
+    const byNick = ruleAssign('도깨비 팀장 오늘 회의록 요약해줘', '', stAfterName.data.employees, stAfterName.data.resources);
+    assert.equal(byNick.assignee, 'claude');
+
+    // 내 캐릭터 보관함 저장 · 삭제 + 잘못된 이미지 차단
+    const cavBad = await ui('POST', '/api/ui/avatars', { name: '해커', image: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=' });
+    assert.equal(cavBad.status, 400);
+    const cavOk = await ui('POST', '/api/ui/avatars', { name: '우리집 몽이', image: safePng, hint: '귀여운 비서' });
+    assert.equal(cavOk.status, 200);
+    assert.equal(cavOk.body.name, '우리집 몽이');
+    assert.ok(cavOk.body.id);
+
+    // 새 AI 직원 추가 시 캐릭터 이름 + 커스텀 이미지 바로 지정
+    const newEmp = await ui('POST', '/api/ui/employees', {
+      name: 'ChatGPT',
+      role: '고객 답장',
+      avatarName: '우리집 몽이',
+      avatarImage: safePng,
+    });
+    assert.equal(newEmp.status, 200);
+    assert.equal(newEmp.body.avatarName, '우리집 몽이');
+    assert.equal(newEmp.body.avatarImage, safePng);
+
+    // 청사진 내보내기에는 개인 캐릭터 이미지·보관함이 절대 유출되지 않는다
+    const bp = await ui('GET', '/api/ui/blueprint/export');
+    assert.equal(bp.status, 200);
+    assert.ok(!JSON.stringify(bp.body).includes(safePng), '청사진에 커스텀 이미지가 포함되면 안 됨');
+
+    const cavDel = await ui('DELETE', `/api/ui/avatars/${cavOk.body.id}`);
+    assert.equal(cavDel.status, 200);
 
     const bulkStyle = await ui('POST', '/api/ui/employees/avatar-style', { avatarStyle: 'pixel', pack: 'k-crew' });
     assert.equal(bulkStyle.status, 200);
