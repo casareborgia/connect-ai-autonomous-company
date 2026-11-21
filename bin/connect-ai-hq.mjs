@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 // CONNECT AI HQ · 한 줄로 켜기
-//   npx github:wonseokjung/connect-ai-autonomous-company            본사를 켜고 브라우저를 연다 (데이터: ~/.connect-ai-hq)
-//   npx github:wonseokjung/connect-ai-autonomous-company connect    이 컴퓨터의 AI 도구에 본사 출입증(MCP)과 직원 수첩(스킬)을 넣는다 (도구마다 먼저 묻는다)
-//   npx github:wonseokjung/connect-ai-autonomous-company mcp        MCP 서버 (AI 도구 설정에서 부르는 명령)
-//   npx github:wonseokjung/connect-ai-autonomous-company task ...   AI 직원용 보고 명령 (hq 와 같음, help 로 전체 보기)
+//   npx github:wonseokjung/connect-ai-autonomous-company                 본사를 켜고 브라우저를 연다 (데이터: ~/.connect-ai-hq)
+//   npx github:wonseokjung/connect-ai-autonomous-company connect         내 바이브코딩 툴(9종)에 MCP와 직원 수첩(스킬)을 한 번에 연결한다
+//   npx github:wonseokjung/connect-ai-autonomous-company connect --yes   묻지 않고 감지된 모든 바이브코딩 툴에 즉시 일괄 연결 (--dry-run 미리보기)
+//   npx github:wonseokjung/connect-ai-autonomous-company disconnect      연결했던 aihq MCP 항목과 스킬만 안전하게 제거 (.bak 백업)
+//   npx github:wonseokjung/connect-ai-autonomous-company mcp             MCP 서버 (AI 도구 설정에서 부르는 명령)
+//   npx github:wonseokjung/connect-ai-autonomous-company task ...        AI 직원용 보고 명령 (hq 와 같음)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,6 +24,7 @@ function flag(name) {
   const v = argv[i + 1];
   return v === undefined || v.startsWith('--') ? true : v;
 }
+const hasFlag = (...names) => names.some((n) => argv.includes(n));
 
 const HELP = `CONNECT AI HQ · AI Autonomous Company · 나의 AI 자율 회사 본사
 
@@ -29,9 +32,12 @@ const HELP = `CONNECT AI HQ · AI Autonomous Company · 나의 AI 자율 회사 
       --port <번호>                 기본 8790
       --no-open                     브라우저를 열지 않음
       --example                     데이터가 없을 때 예시 회사로 시작 (AIHQ_SEED=example 과 같음)
-  npx github:wonseokjung/connect-ai-autonomous-company connect         AI 도구에 MCP 와 스킬 넣기 (도구마다 먼저 물어봄, 기본은 보여 주기만)
+  npx github:wonseokjung/connect-ai-autonomous-company connect         내 바이브코딩 툴(Claude Code·Codex·Antigravity·Cursor 등 9종) 자동 감지 후 일괄 연결
+      --yes, -y                     확인 없이 감지된 모든 툴에 즉시 일괄 연결 (기존 설정 .bak 자동 백업)
+      --dry-run                     파일을 수정하지 않고 무엇이 연결될지 미리보기
+  npx github:wonseokjung/connect-ai-autonomous-company disconnect      연결한 aihq MCP·스킬만 깔끔히 제거 (--yes / --dry-run 지원)
   npx github:wonseokjung/connect-ai-autonomous-company mcp             MCP 서버 (HQ_EMPLOYEE=<직원 아이디>)
-  npx github:wonseokjung/connect-ai-autonomous-company <hq 명령>        AI 직원용 보고 명령. 예: task list --mine codex (전체: npx github:wonseokjung/connect-ai-autonomous-company hq help)
+  npx github:wonseokjung/connect-ai-autonomous-company <hq 명령>        AI 직원용 보고 명령. 예: task list --mine codex
 
 데이터 폴더: ${HOME_DIR} (AIHQ_DATA_DIR 로 바꿀 수 있음)
 `;
@@ -81,60 +87,157 @@ async function start() {
     if ((await isHq(url)).hq) break;
     await new Promise((r) => setTimeout(r, 250));
   }
-  console.log(`AI 도구 연결: npx github:wonseokjung/connect-ai-autonomous-company connect · 끄기: Ctrl+C\n`);
+  console.log(`바이브코딩 툴 한 번에 연결: npx github:wonseokjung/connect-ai-autonomous-company connect --yes · 끄기: Ctrl+C\n`);
   if (open) openBrowser(url);
 }
 
-// 이 컴퓨터의 AI 도구에 MCP 와 스킬 넣기. 도구마다 먼저 묻고, 기본 답은 "아니요" (명령만 보여 줌).
-async function connect() {
-  const { connectTargets } = await import('../lib/connect.mjs');
+async function fetchEmployees() {
   const base = (process.env.AIHQ_URL || `http://127.0.0.1:${flag('port') || process.env.AIHQ_PORT || 8790}`).replace(/\/$/, '');
-  let employees = [];
   try {
     const res = await fetch(`${base}/api/agent/employees`, { headers: { 'X-HQ-Agent': '1', 'User-Agent': 'aihq-cli/1' }, signal: AbortSignal.timeout(1500) });
-    if (res.ok) employees = await res.json();
+    if (res.ok) return await res.json();
   } catch { /* 본사가 꺼져 있으면 기본 직원 아이디로 */ }
-  const targets = connectTargets({ employees }).filter((t) => t.found && (!employees.length || t.hired));
-  console.log('\nCONNECT AI HQ · AI 도구 연결');
-  if (!targets.length) { console.log('이 컴퓨터에서 연결할 AI 도구를 찾지 못했어요. 웹에서 쓰는 AI 는 할 일에서 지시문을 복사해서 맡기면 돼요.\n'); return; }
+  return [];
+}
+
+function fmtInstallResult(r, t) {
+  const parts = [];
+  if (r.mcp === 'already') parts.push('MCP 이미 연결됨');
+  else if (r.mcp === 'installed-cli') parts.push('MCP 연결 완료(CLI)');
+  else if (r.mcp === 'installed-json') parts.push(`MCP 안전 병합 완료${r.backupPath ? ' (.bak 백업)' : ''}`);
+  else if (r.mcp === 'dry-run-cli') parts.push(`MCP 예정(CLI): ${t.mcp.line}`);
+  else if (r.mcp === 'dry-run-json') parts.push(`MCP 예정(JSON 안전 병합): ${t.mcp.file}`);
+  else if (r.mcp === 'failed') parts.push(`MCP 실패(${r.error || '오류'})`);
+
+  if (r.skill === 'already') parts.push('스킬 이미 있음');
+  else if (r.skill === 'installed') parts.push('스킬 설치 완료');
+  else if (r.skill === 'dry-run') parts.push(`스킬 예정: ${t.skill.to}`);
+  return parts.join(' · ') || '변경 없음';
+}
+
+// 내 컴퓨터에 설치된 바이브코딩 툴(9종)에 MCP와 직원 수첩(스킬)을 안전하게 일괄/선택 연결한다.
+async function connect() {
+  const { connectTargets, installTarget, installSharedSkill } = await import('../lib/connect.mjs');
+  const autoYes = hasFlag('--yes', '-y', '--all');
+  const dryRun = hasFlag('--dry-run');
+  const employees = await fetchEmployees();
+  const targets = connectTargets({ employees }).filter((t) => t.found);
+
+  console.log(`\nCONNECT AI HQ · 바이브코딩 툴 자동 연결${dryRun ? ' (미리보기 --dry-run)' : ''}`);
+  if (!targets.length) {
+    console.log('이 컴퓨터에서 연결할 바이브코딩 툴(Claude Code·Codex·Antigravity·Cursor·Gemini CLI·OpenCode·Windsurf·Claude Desktop·LM Studio)을 찾지 못했어요.');
+    console.log('웹에서 쓰는 AI(ChatGPT·Claude·Dots·Muse 등)는 본사 화면에서 지시문 복사로 바로 쓸 수 있어요.\n');
+    return;
+  }
+
+  let todoCount = 0;
+  for (const t of targets) {
+    const done = t.mcp.configured && (!t.skill || t.skill.installed);
+    if (!done) todoCount++;
+    const mark = done ? '✓ 이미 연결됨' : '○ 연결 예정';
+    console.log(`  ${mark}  ${t.name} (직원 아이디: ${t.employee}${t.skill ? ' · MCP + 스킬' : ' · MCP'})`);
+  }
+
+  if (!todoCount && !dryRun) {
+    const shared = installSharedSkill({ dryRun: false });
+    console.log(`\n감지된 ${targets.length}개 툴이 이미 모두 연결되어 있어요.${shared.status === 'installed' ? ' (공용 스킬 ~/.agents/skills 도 함께 채워 두었어요)' : ''}\n`);
+    return;
+  }
+
   const tty = process.stdin.isTTY && process.stdout.isTTY;
-  const rl = tty ? readline.createInterface({ input: process.stdin, output: process.stdout }) : null;
-  const ask = async (q) => (rl ? /^(y|yes|예|네|응)$/i.test((await rl.question(`${q} (y/N) `)).trim()) : false);
-  try {
-    for (const t of targets) {
-      console.log(`\n· ${t.name} (직원 아이디 ${t.employee})`);
-      if (t.mcp.configured) console.log('  출입증(MCP): 이미 들어 있어요');
-      else if (t.mcp.cli) {
-        console.log(`  출입증(MCP) 명령:\n    ${t.mcp.line}`);
-        if (await ask('  지금 넣을까요?')) {
-          const r = spawnSync(t.mcp.cli[0], t.mcp.cli.slice(1), { stdio: 'inherit' });
-          console.log(r.status === 0 ? '  넣었어요' : '  넣지 못했어요. 위 명령을 직접 실행해 주세요.');
-        }
-      } else {
-        console.log(`  출입증(MCP): ${t.mcp.file} 의 mcpServers 에 아래를 합쳐 주세요 (파일은 직접 고쳐 주세요)\n${t.mcp.snippet.replace(/^/gm, '    ')}`);
+  let mode = dryRun ? 'all' : autoYes ? 'all' : null;
+  let rl = null;
+  if (!mode) {
+    if (!tty) {
+      console.log('\n대화형 터미널이 아니라서 미리보기만 출력합니다. 한 번에 연결하려면 --yes 를 붙여 실행하세요:');
+      console.log('  npx github:wonseokjung/connect-ai-autonomous-company connect --yes\n');
+      for (const t of targets) {
+        const r = installTarget(t, { dryRun: true });
+        console.log(`· ${t.name}: ${fmtInstallResult(r, t)}`);
       }
-      if (t.skill) {
-        if (t.skill.installed) console.log('  직원 수첩(스킬): 이미 들어 있어요');
-        else {
-          console.log(`  직원 수첩(스킬) 명령:\n    ${t.skill.line}`);
-          if (await ask('  지금 넣을까요?')) {
-            fs.mkdirSync(path.dirname(t.skill.to), { recursive: true });
-            fs.cpSync(t.skill.from, t.skill.to, { recursive: true });
-            console.log('  넣었어요');
-          }
-        }
+      return;
+    }
+    rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const ans = (await rl.question(`\n감지된 ${targets.length}개 툴(미연결 ${todoCount}개)에 한 번에 연결할까요? (기존 설정은 .bak 백업)\n  [Y] 한 번에 전부 연결 (기본)  /  [s] 도구마다 선택  /  [n] 취소 : `)).trim().toLowerCase();
+    if (ans === 'n' || ans === 'no' || ans === '아니요') {
+      rl.close();
+      console.log('취소했어요. 아무 파일도 바꾸지 않았습니다.\n');
+      return;
+    }
+    mode = ans === 's' ? 'select' : 'all';
+  }
+
+  try {
+    let okCount = 0;
+    for (const t of targets) {
+      if (mode === 'select' && rl) {
+        const done = t.mcp.configured && (!t.skill || t.skill.installed);
+        if (done) { console.log(`\n· ${t.name}: 이미 연결됨 ✓`); continue; }
+        const ok = /^(|y|yes|예|네|응)$/i.test((await rl.question(`\n· ${t.name} 연결할까요? [Y/n] `)).trim());
+        if (!ok) { console.log('  건너뜀'); continue; }
+      }
+      const r = installTarget(t, { dryRun });
+      if (r.mcp !== 'failed') okCount++;
+      console.log(`· ${t.name}: ${fmtInstallResult(r, t)}`);
+      if (r.mcp === 'failed' && t.mcp.snippet) {
+        console.log(`  → ${t.mcp.file} 의 JSON 형식을 확인한 뒤 아래를 직접 합쳐 주세요:\n${t.mcp.snippet.replace(/^/gm, '    ')}`);
+      } else if (r.mcp === 'failed' && t.mcp.line) {
+        console.log(`  → 직접 실행 명령: ${t.mcp.line}`);
       }
     }
+    const shared = installSharedSkill({ dryRun });
+    if (shared.status === 'installed') console.log(`· 공용 스킬: ${shared.to} 설치 완료`);
+    else if (shared.status === 'dry-run') console.log(`· 공용 스킬 예정: ${shared.to}`);
+    console.log(dryRun
+      ? '\n[미리보기 완료] 실제 연결하려면 --dry-run 을 빼고 다시 실행하세요.\n'
+      : okCount === 0
+        ? `\n연결에 실패한 툴이 있어요 (0/${targets.length}개). 위 안내를 확인한 뒤 다시 시도해 주세요.\n`
+        : `\n완료! (${okCount}/${targets.length}개 툴 연결됨) 이제 각 바이브코딩 툴을 열면 "출근해 / 내 할 일 확인해" 로 본사와 바로 일할 수 있어요.\n`);
   } finally {
     rl?.close();
   }
-  console.log(tty ? '\n끝. 본사 화면은 그대로 쓰면 돼요.\n' : '\n(대화형 터미널이 아니라서 명령만 보여 줬어요.)\n');
+}
+
+async function disconnect() {
+  const { connectTargets, uninstallTarget, uninstallSharedSkill } = await import('../lib/connect.mjs');
+  const autoYes = hasFlag('--yes', '-y', '--all');
+  const dryRun = hasFlag('--dry-run');
+  const employees = await fetchEmployees();
+  const targets = connectTargets({ employees }).filter((t) => t.mcp.configured || t.skill?.installed);
+
+  console.log(`\nCONNECT AI HQ · 바이브코딩 툴 연결 해제${dryRun ? ' (미리보기 --dry-run)' : ''}`);
+  if (!targets.length) {
+    const sh = uninstallSharedSkill({ dryRun });
+    console.log(sh.status === 'removed' ? `공용 스킬(${sh.to})을 제거했어요.\n` : '연결되어 있는 aihq 설정이 없어요.\n');
+    return;
+  }
+  for (const t of targets) console.log(`  · ${t.name} (${t.mcp.configured ? 'MCP' : ''}${t.mcp.configured && t.skill?.installed ? ' + ' : ''}${t.skill?.installed ? '스킬' : ''})`);
+
+  if (!dryRun && !autoYes) {
+    if (!(process.stdin.isTTY && process.stdout.isTTY)) {
+      console.log('\n제거하려면 --yes 옵션을 붙여 실행해 주세요.\n');
+      return;
+    }
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const ans = (await rl.question('\n위 툴에서 aihq 항목만 제거할까요? (다른 MCP 설정은 그대로 유지됩니다) [y/N] ')).trim();
+    rl.close();
+    if (!/^(y|yes|예|네|응)$/i.test(ans)) { console.log('취소했어요.\n'); return; }
+  }
+
+  for (const t of targets) {
+    const r = uninstallTarget(t, { dryRun });
+    console.log(`· ${t.name}: MCP=${r.mcp}${t.skill ? ` · 스킬=${r.skill}` : ''}${r.backupPath ? ' (.bak 백업)' : ''}`);
+  }
+  const sh = uninstallSharedSkill({ dryRun });
+  if (sh.status === 'removed' || sh.status === 'dry-run') console.log(`· 공용 스킬: ${sh.status} (${sh.to})`);
+  console.log(dryRun ? '\n[미리보기 완료]\n' : '\n깔끔하게 연결 해제했어요.\n');
 }
 
 async function main() {
   if (cmd === 'help' || cmd === '--help' || flag('help') === true || flag('h') === true) { console.log(HELP); return; }
   if (cmd === 'start') return start();
   if (cmd === 'connect') return connect();
+  if (cmd === 'disconnect') return disconnect();
   if (cmd === 'mcp') { await import(pathToFileURL(path.join(ROOT, 'mcp', 'server.mjs')).href); return; }
   // 나머지는 AI 직원용 보고 명령 (hq) 으로 넘긴다
   let rest = cmd === 'hq' ? argv.slice(1) : argv;

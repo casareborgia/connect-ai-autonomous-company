@@ -156,13 +156,14 @@ function toast(msg) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => t.classList.remove('show'), 2600);
 }
-const ENGINE_LABEL = { web: '복사해서 맡기기', none: '스스로 보고 (MCP, CLI)', local: '로컬 모델', claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', agy: 'Antigravity (agy)' };
+const CLI_ENGINES = ['claude', 'codex', 'gemini', 'agy', 'opencode'];
+const ENGINE_LABEL = { web: '복사해서 맡기기', none: '스스로 보고 (MCP, CLI)', local: '로컬 모델', claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', agy: 'Antigravity (agy)', opencode: 'OpenCode' };
 const RUN_LABEL = { off: '꺼짐', manual: '누를 때만', auto: '자동 실행' };
-// 이 앱이 직접 일을 시킬 수 있는가 (로컬 모델, 또는 이 맥에 설치된 Claude Code, Codex, Gemini CLI)
+// 이 앱이 직접 일을 시킬 수 있는가 (로컬 모델, 또는 이 맥에 설치된 Claude Code, Codex, Gemini CLI, Antigravity, OpenCode)
 function canRun(e) {
   if (!e || e.runMode === 'off') return false;
   if (e.engine === 'local') return Boolean(e.model);
-  if (['claude', 'codex', 'gemini', 'agy'].includes(e.engine)) return Boolean(S.runners[e.engine]);
+  if (CLI_ENGINES.includes(e.engine)) return Boolean(S.runners[e.engine]);
   return false;
 }
 function accessChannelsOf(e) {
@@ -173,8 +174,8 @@ function accessChannelsOf(e) {
   const defBr = d.resources.find((r) => r.kind === '브라우저' && r.status !== '꺼짐' && r.isDefault)
     || d.resources.find((r) => r.kind === '브라우저' && r.status !== '꺼짐');
   const phones = d.resources.filter((r) => r.kind === '스마트폰' && r.status !== '꺼짐');
-  const isLocalExec = ['claude', 'codex', 'gemini', 'agy', 'local'].includes(e.engine) || (e.group !== 'home-cloud' && /데스크탑|컴퓨터|로컬/.test(e.runsOn || ''));
-  const canCu = Boolean(cuMac && (['claude', 'codex', 'gemini', 'agy'].includes(e.engine) || /컴퓨터\s*유즈|자동화/.test(e.role || '')));
+  const isLocalExec = [...CLI_ENGINES, 'local'].includes(e.engine) || (e.group !== 'home-cloud' && /데스크탑|컴퓨터|로컬/.test(e.runsOn || ''));
+  const canCu = Boolean(cuMac && (CLI_ENGINES.includes(e.engine) || /컴퓨터\s*유즈|자동화/.test(e.role || '')));
   const isMobileOnly = e.catalog === 'pickle' || /스마트폰/.test(e.role || '');
 
   if (isLocalExec) out.push('로컬 컴퓨터');
@@ -323,19 +324,24 @@ async function openConnectModal() {
     try {
       const c = await api('GET', '/api/onboard/connect');
       const list = (c.targets || []).filter((t) => t.found);
+      const pending = list.filter((t) => !(t.mcp.configured && (!t.skill || t.skill.installed)));
+      const oneLineCmd = c.terminal || 'npx github:wonseokjung/connect-ai-autonomous-company connect --yes';
       const rows = list.length ? list.map((t) => {
         const done = t.mcp.configured && (!t.skill || t.skill.installed);
         return h('div', { class: 'ob-conn' },
           h('div', { class: 'row' },
             h('div', null, h('b', null, t.name), h('div', { class: 'small muted' }, `직원 아이디 ${t.employee}${t.skill ? ' · MCP + 스킬' : ' · MCP'}`)),
             done ? h('span', { class: 'tag solid' }, '연결됨 ✓') : h('span', { class: 'tag' }, '연결 전')),
-          !done ? h('div', { class: 'ob-cmds' },
-            !t.mcp.configured ? (t.mcp.line ? copyBlock('터미널에 붙여넣기 · 출입증(MCP)', t.mcp.line) : copyBlock(`${t.mcp.file}에 합치기 · 출입증(MCP)`, t.mcp.snippet)) : null,
-            t.skill && !t.skill.installed ? copyBlock('터미널에 붙여넣기 · 직원 수첩(스킬)', t.skill.line) : null) : null);
-      }) : [h('div', { class: 'empty' }, '이 컴퓨터에서 Claude Code, Codex, Gemini CLI, LM Studio를 찾지 못했어요. 웹에서 쓰는 AI는 할 일에서 지시문 복사로 바로 쓸 수 있어요.')];
-      setDlg(dlg, 
+          !done ? h('details', { style: 'margin-top:6px' },
+            h('summary', { class: 'small muted', style: 'cursor:pointer' }, '개별 수동 명령 보기'),
+            h('div', { class: 'ob-cmds' },
+              !t.mcp.configured ? (t.mcp.line ? copyBlock('터미널에 붙여넣기 · 출입증(MCP)', t.mcp.line) : copyBlock(`${t.mcp.file}에 합치기 · 출입증(MCP)`, t.mcp.snippet)) : null,
+              t.skill && !t.skill.installed ? copyBlock('터미널에 붙여넣기 · 직원 수첩(스킬)', t.skill.line) : null)) : null);
+      }) : [h('div', { class: 'empty' }, '이 컴퓨터에서 바이브코딩 툴(Claude Code · Codex · Antigravity · Cursor · OpenCode · Gemini CLI · Windsurf · Claude Desktop · LM Studio)을 찾지 못했어요. 웹 AI는 지시문 복사로 바로 쓸 수 있어요.')];
+      setDlg(dlg,
         h('h3', null, 'AI 도구 연결 (MCP · 스킬)'),
-        h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '터미널에서 아래 명령을 실행하거나 npx github:wonseokjung/connect-ai-autonomous-company connect 를 치면 자동으로 연결해 드려요.'),
+        h('p', { class: 'small muted', style: 'margin:-6px 0 12px' }, '터미널에 아래 한 줄을 실행하면 감지된 바이브코딩 툴 전체에 안전하게(.bak 백업 후) 한 번에 연결됩니다.'),
+        pending.length ? copyBlock(`터미널 한 줄로 감지된 ${pending.length}개 툴 한 번에 연결`, oneLineCmd) : null,
         ...rows,
         h('div', { class: 'bar' },
           h('button', { class: 'btn', onclick: loadView }, '연결 다시 확인'),
@@ -362,6 +368,8 @@ function openSettingsModal() {
   const fRev = h('input', { type: 'checkbox', checked: Boolean(f.revenue) });
   const fOpt = h('input', { type: 'checkbox', checked: d.settings.autoOptimize !== false });
   const fSleep = h('input', { type: 'checkbox', checked: d.settings.preventSleep !== false });
+  const fAutoAdd = h('input', { type: 'checkbox', checked: d.settings.autoStartAdded !== false });
+  const fNotify = h('input', { type: 'checkbox', checked: d.settings.desktopNotify !== false });
   const memCount = Object.keys(d.settings.assignMemory || {}).length;
   const save = () => once('save-set', async () => {
     const patch = {
@@ -369,6 +377,8 @@ function openSettingsModal() {
       companyName: companyName.value.trim(),
       autoOptimize: fOpt.checked,
       preventSleep: fSleep.checked,
+      autoStartAdded: fAutoAdd.checked,
+      desktopNotify: fNotify.checked,
       features: { approvals: fAppr.checked, messenger: fMsg.checked, revenue: fRev.checked, channel: fRev.checked },
     };
     if (qFrom.value && qTo.value && qFrom.value !== qTo.value) patch.quietHours = { from: qFrom.value, to: qTo.value };
@@ -386,8 +396,10 @@ function openSettingsModal() {
       h('label', { class: 'field' }, '자는 시간 시작 (선택)', qFrom),
       h('label', { class: 'field' }, '일어나는 시간 (선택)', qTo)),
     h('div', { style: 'margin-top:16px' },
-      h('div', { class: 'small muted', style: 'margin-bottom:8px' }, '성능 · 런타임 안정화'),
-      h('label', { class: 'chk-l' }, fOpt, '토큰 한도 도달 시 대체 AI 전환 · RAM 85% 초과 시 대체 컴퓨터 우회/대기열 보호'),
+      h('div', { class: 'small muted', style: 'margin-bottom:8px' }, '자동 실행 · 알림 · 런타임 안정화'),
+      h('label', { class: 'chk-l' }, fAutoAdd, '자동 실행 AI 직원에게 할 일 추가(Add) 즉시 착수 (결제·발행·삭제 게이트는 승인 전 정지)'),
+      h('label', { class: 'chk-l', style: 'margin-top:6px' }, fNotify, 'AI 작업 완료 · 결재 요청 시 맥 데스크탑 알림 받기 (자는 시간 제외)'),
+      h('label', { class: 'chk-l', style: 'margin-top:6px' }, fOpt, '토큰 한도 도달 시 대체 AI 전환 · RAM 85% 초과 시 대체 컴퓨터 우회/대기열 보호'),
       h('label', { class: 'chk-l', style: 'margin-top:6px' }, fSleep, `작업 중 맥 잠자기 방지 (caffeinate · 먹통 감시 ${S.runtime?.hangWatchdogSec || 180}초)`)),
     h('div', { style: 'margin-top:16px' },
       h('div', { class: 'small muted', style: 'margin-bottom:8px' }, '선택 메뉴 표시 (기본은 4개 핵심 메뉴만 깔끔하게 보여요)'),
@@ -1213,7 +1225,16 @@ function addBar() {
     if (r) {
       whoBar.resetSuggest();
       const comp = r.resource && res(r.resource) ? ` · ${res(r.resource).name}` : '';
-      toast(picked === 'auto' ? (r.reason ? `${shortName(r.assignee)}에게 맡겼어요 · ${r.reason}` : '추가했어요') : `${shortName(r.assignee)}에게 맡겼어요${comp}`);
+      const msg = r.autoStarted
+        ? `${shortName(r.assignee)}에게 맡기고 바로 작업을 시작했어요${comp}`
+        : r.autoQueued
+          ? `${shortName(r.assignee)} 대기열에 올렸어요 (여유 생기면 자동 착수)`
+          : r.gate
+            ? `${shortName(r.assignee)} · ${r.gate} 확인이 필요해 승인 대기 중이에요`
+            : picked === 'auto'
+              ? (r.reason ? `${shortName(r.assignee)}에게 맡겼어요 · ${r.reason}` : '추가했어요')
+              : `${shortName(r.assignee)}에게 맡겼어요${comp}`;
+      toast(msg);
       document.querySelector('[data-k="add-title"]')?.focus();
     }
   };
@@ -2270,7 +2291,10 @@ function pagePocket() {
   const pickEmpId = ui.pocketPick || (d.employees[0]?.id || 'jay');
   const cmdIn = h('input', { class: 'in', placeholder: '폰에서 바로 일 시키기 (예: 오늘 댓글 요약해 줘)', 'data-k': 'pocket-cmd', 'aria-label': '빠른 지시' });
   const sendCmd = () => submitInput(cmdIn, 'pocket-add', async (v) => {
-    const r = await act('POST', '/api/ui/tasks', { title: v, assignee: pickEmpId }, `${shortName(pickEmpId)}에게 바로 맡겼어요`);
+    const r = await act('POST', '/api/ui/tasks', { title: v, assignee: pickEmpId });
+    if (r) {
+      toast(r.autoStarted ? `${shortName(r.assignee)}이(가) 바로 작업을 시작했어요` : r.gate ? `${r.gate} 확인이 필요해 승인 대기 중이에요` : `${shortName(r.assignee)}에게 맡겼어요`);
+    }
     return r;
   });
   cmdIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) sendCmd(); });
@@ -2746,7 +2770,9 @@ function empCard(e) {
       [['web', '복사해서 맡기기 (ChatGPT, Claude, Gemini, Dots, Muse 등)'], ['local', '로컬 모델 (이 컴퓨터 안에서 바로 답)'],
         ['claude', `Claude Code (${S.runners.claude ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음'})`], ['codex', `Codex (${S.runners.codex ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음'})`],
         ['gemini', `Gemini CLI (${S.runners.gemini ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음'})`],
-        ['none', '스스로 보고 (MCP, CLI 로 연결한 AI)'], ...(S.runners.agy || curEng === 'agy' ? [['agy', 'Antigravity (agy)']] : [])].map(([v, t]) => h('option', { value: v, selected: curEng === v }, t))),
+        ['agy', `Antigravity (agy) (${S.runners.agy ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음'})`],
+        ['opencode', `OpenCode (${S.runners.opencode ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음'})`],
+        ['none', '스스로 보고 (MCP, CLI 로 연결한 AI)']].map(([v, t]) => h('option', { value: v, selected: curEng === v }, t))),
     webUrl: h('input', { class: 'in sm', value: e.webUrl || '', placeholder: 'https://', 'data-k': k('webUrl') }),
     model: h('select', { class: 'in sm', 'data-k': k('model') }, h('option', { value: '' }, ui.models && ui.models.length ? '모델 고르기' : '로컬 모델을 찾는 중이거나 없음'),
       (ui.models || []).map((m) => h('option', { value: m.id, selected: e.model === m.id }, `${m.label}${m.size ? ` · ${m.size}` : ''}`))),
@@ -2771,7 +2797,7 @@ function empCard(e) {
     h('div', { class: 'f-grid' }, fld('AI 서비스 이름', f.name), fld('캐릭터 이름 · 호칭 (선택)', f.avatarName), fld('역할', f.role), fld('도구', f.tools), fld('근무 위치', f.runsOn), fld('명령 방법', f.command), fld('월급 (월, 원)', f.salary), fld('막히면 대신할 AI (토큰 소진 시)', f.fallbackTo), fld('일 시키는 방법', f.engine), curEng === 'local' ? fld('로컬 모델', f.model) : null, curEng === 'web' ? fld('열 주소 (선택)', f.webUrl) : null),
     assignableRes.length ? h('div', { style: 'margin-top:16px' }, h('div', { class: 'small', style: 'color:#555;margin-bottom:6px' }, '쓸 수 있는 사무실 · 멤버십 · 폴더'), h('div', { class: 'chk-wrap' }, resBoxes)) : null,
     h('div', { style: 'margin-top:16px' }, fld('업무 매뉴얼', f.manual), h('div', { class: 'warn' }, '비밀번호, 인증 코드, 카드 번호는 여기에 쓰지 마세요. 이 글은 AI에게 그대로 전달됩니다.')),
-    ['claude', 'codex', 'gemini', 'agy'].includes(curEng) ? h('p', { class: 'small muted' }, S.runners[curEng] ? `실행을 누르면 ${ENGINE_LABEL[curEng]}를 workspaces/${e.id} 폴더에서 한 번 실행합니다. 권한을 건너뛰는 옵션은 쓰지 않아요.` : `이 컴퓨터에 ${ENGINE_LABEL[curEng]}가 없어요. 그래도 할 일에서 복사해서 맡기기로 같은 일을 시킬 수 있어요.`) : null,
+    CLI_ENGINES.includes(curEng) ? h('p', { class: 'small muted' }, S.runners[curEng] ? `실행을 누르면 ${ENGINE_LABEL[curEng]}를 workspaces/${e.id} 폴더에서 한 번 실행합니다. 권한을 건너뛰는 옵션은 쓰지 않아요.` : `이 컴퓨터에 ${ENGINE_LABEL[curEng]}가 없어요. 그래도 할 일에서 복사해서 맡기기로 같은 일을 시킬 수 있어요.`) : null,
     h('div', { class: 'row', style: 'justify-content:space-between;margin-top:16px' },
       h('button', { class: 'btn sm', onclick: () => { if (confirm(`${e.name}, 명단에서 뺄까요?`)) { delete ui.empDraftEngine[e.id]; ui.editingEmp = null; act('DELETE', `/api/ui/employees/${e.id}`, undefined, '명단에서 뺐어요'); } } }, '명단에서 빼기'),
       h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => { delete ui.empDraftEngine[e.id]; ui.editingEmp = null; load(); } }, '취소'), h('button', { class: 'btn dark', onclick: save }, '저장'))));
@@ -2789,7 +2815,7 @@ function modelLine(e) {
 function engineText(e) {
   if (e.engine === 'web') return `복사해서 맡기기${e.webUrl ? ` · ${e.webUrl.replace(/^https:\/\//, '').replace(/\/.*$/, '')}` : ''}`;
   if (e.engine === 'local') return `로컬 모델 · ${e.model ? e.model.replace(/^(ollama|lmstudio):/, '') : '모델을 골라 주세요'}`;
-  if (['claude', 'codex', 'gemini'].includes(e.engine)) return `${ENGINE_LABEL[e.engine]} · ${S.runners[e.engine] ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음, 복사해서 맡기기로 씀'}`;
+  if (CLI_ENGINES.includes(e.engine)) return `${ENGINE_LABEL[e.engine]} · ${S.runners[e.engine] ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음, 복사해서 맡기기로 씀'}`;
   return ENGINE_LABEL[e.engine] || e.engine;
 }
 
@@ -3687,7 +3713,10 @@ function obState() {
       ui.ob.det = det;
       if (det.claude) ui.ob.ais.add('claudecode');
       if (det.codex) ui.ob.ais.add('codex');
-      if (det.gemini) ui.ob.ais.add('gemini');
+      if (det.gemini) ui.ob.ais.add('geminicli');
+      if (det.agy) ui.ob.ais.add('antigravity');
+      if (det.opencode) ui.ob.ais.add('opencode');
+      if (det.cursor) ui.ob.ais.add('cursor');
       if (det.ollama) ui.ob.ais.add('ollama'); else if (det.lmstudio) ui.ob.ais.add('lmstudio');
       for (const b of det.browsers || []) if (b.found) ui.ob.browsers.add(b.key);
       for (const o of det.openSource || []) if (o.found) ui.ob.oss.add(o.key);
@@ -3736,7 +3765,13 @@ function pageStart() {
 
   if (ob.step === 2) {
     const det = ob.det || {};
-    const found = (c) => (c.key === 'claudecode' && det.claude) || (c.key === 'codex' && det.codex) || (c.key === 'gemini' && det.gemini) || (c.local && det[c.local]);
+    const found = (c) => (c.key === 'claudecode' && det.claude)
+      || (c.key === 'codex' && det.codex)
+      || (c.key === 'geminicli' && det.gemini)
+      || (c.key === 'antigravity' && det.agy)
+      || (c.key === 'opencode' && det.opencode)
+      || (c.key === 'cursor' && det.cursor)
+      || (c.local && det[c.local]);
     const missingLocal = (c) => c.local && ob.det && !det[c.local];
     const card = (c) => {
       const on = ob.ais.has(c.key);
@@ -3801,8 +3836,8 @@ function pageStart() {
       render();
       fetch('/api/onboard/connect').then((r) => r.json()).then((c) => {
         ob.connect = c;
-        const foundHired = (c.targets || []).filter((t) => t.found && t.hired);
-        if (autoSkip && !foundHired.length && ob.step === 5) {
+        const foundList = (c.targets || []).filter((t) => t.found);
+        if (autoSkip && !foundList.length && ob.step === 5) {
           ob.skippedConnect = true;
           ob.step = 6;
         }
@@ -3813,30 +3848,33 @@ function pageStart() {
       ob.connect = { loading: true };
       fetch('/api/onboard/connect').then((r) => r.json()).then((c) => {
         ob.connect = c;
-        const foundHired = (c.targets || []).filter((t) => t.found && t.hired);
-        if (!foundHired.length && ob.step === 5) {
+        const foundList = (c.targets || []).filter((t) => t.found);
+        if (!foundList.length && ob.step === 5) {
           ob.skippedConnect = true;
           ob.step = 6;
         }
         render();
       }).catch(() => { ob.connect = { targets: [] }; render(); });
     }
-    const list = (ob.connect.targets || []).filter((t) => t.found && t.hired);
+    const list = (ob.connect.targets || []).filter((t) => t.found);
+    const pending = list.filter((t) => !(t.mcp.configured && (!t.skill || t.skill.installed)));
+    const oneLineCmd = ob.connect.terminal || 'npx github:wonseokjung/connect-ai-autonomous-company connect --yes';
     const row = (t) => {
       const done = t.mcp.configured && (!t.skill || t.skill.installed);
       const open = ob.open[t.key];
       return h('div', { class: 'ob-conn' },
-        h('div', { class: 'row' }, h('div', null, h('b', null, t.name), h('div', { class: 'small muted' }, `직원 아이디 ${t.employee}${t.skill ? ' · 출입증(MCP)과 직원 수첩(스킬)' : ' · 출입증(MCP)'}`)),
-          done ? h('span', { class: 'tag solid' }, '이미 연결됨')
-            : h('button', { type: 'button', class: `btn sm${open ? '' : ' dark'}`, 'aria-expanded': open ? 'true' : 'false', onclick: () => { ob.open[t.key] = !open; render(); } }, open ? '접기' : '넣을래요')),
+        h('div', { class: 'row' }, h('div', null, h('b', null, t.name), h('div', { class: 'small muted' }, `직원 아이디 ${t.employee}${t.skill ? ' · 출입증(MCP) + 직원 수첩(스킬)' : ' · 출입증(MCP)'}`)),
+          done ? h('span', { class: 'tag solid' }, '이미 연결됨 ✓')
+            : h('button', { type: 'button', class: `btn sm${open ? '' : ' dark'}`, 'aria-expanded': open ? 'true' : 'false', onclick: () => { ob.open[t.key] = !open; render(); } }, open ? '접기' : '개별 명령')),
         open && !done ? h('div', { class: 'ob-cmds' },
           !t.mcp.configured ? (t.mcp.line ? copyBlock('터미널에 붙여 넣기 · 출입증(MCP)', t.mcp.line) : copyBlock(`${t.mcp.file} 에 합치기 · 출입증(MCP)`, t.mcp.snippet)) : null,
           t.skill && !t.skill.installed ? copyBlock('터미널에 붙여 넣기 · 직원 수첩(스킬)', t.skill.line) : null) : null);
     };
-    return obShell(5, 'AI 도구를 본사에 연결할까요?', '찾기만 했고 아직 아무것도 바꾸지 않았어요. 넣을 도구만 눌러 명령을 확인하세요. 터미널에서 명령을 실행한 뒤 "연결 다시 확인"을 누르면 상태를 바로 확인합니다.',
+    return obShell(5, '바이브코딩 툴을 한 번에 연결할까요?', '아직 아무 설정도 바꾸지 않았어요. 아래 터미널 한 줄을 실행하면 감지된 툴 전체에 .bak 백업 후 안전하게 한 번에 연결됩니다.',
       ob.connect.loading ? h('div', { class: 'small muted' }, '이 컴퓨터를 살펴보는 중')
         : list.length ? h('div', null,
-          h('div', { class: 'row', style: 'justify-content:flex-end;margin-bottom:8px' },
+          pending.length ? copyBlock(`터미널 한 줄로 감지된 ${pending.length}개 툴 한 번에 연결`, oneLineCmd) : null,
+          h('div', { class: 'row', style: 'justify-content:flex-end;margin:8px 0' },
             h('button', { type: 'button', class: 'btn sm', onclick: () => refreshConnect(false) }, '연결 다시 확인')),
           list.map(row))
           : h('div', { class: 'card small muted' }, '이 컴퓨터에서 연결할 AI 도구를 찾지 못했어요. 웹에서 쓰는 AI는 할 일에서 지시문을 복사해서 맡기면 돼요.'),

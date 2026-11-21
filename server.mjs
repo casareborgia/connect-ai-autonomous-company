@@ -61,7 +61,8 @@ const WORKSPACES = process.env.AIHQ_WORKSPACES || path.join(ROOT, 'workspaces');
 const PORT = Number(process.env.AIHQ_PORT || 8790);
 const HOST = process.env.AIHQ_HOST || '127.0.0.1';
 const LAN = HOST !== '127.0.0.1' && HOST !== 'localhost';
-const ENGINES = ['web', 'none', 'local', 'claude', 'codex', 'gemini', 'agy'];
+const CLI_ENGINES = ['claude', 'codex', 'gemini', 'agy', 'opencode'];
+const ENGINES = ['web', 'none', 'local', ...CLI_ENGINES];
 const RUN_MODES = ['off', 'manual', 'auto'];
 const RES_KINDS = ['기계', '스마트폰', '브라우저', '오픈소스', '디자인', '멤버십', '계정', '폴더'];
 const RES_STATUS = ['사용 가능', '사용 중', '꺼짐', '확인 필요'];
@@ -120,6 +121,8 @@ function migrate(d) {
   if (!Array.isArray(d.settings.customAvatars)) d.settings.customAvatars = [];
   if (d.settings.autoOptimize === undefined) d.settings.autoOptimize = true;
   if (d.settings.preventSleep === undefined) d.settings.preventSleep = true;
+  if (d.settings.autoStartAdded === undefined) d.settings.autoStartAdded = true;
+  if (d.settings.desktopNotify === undefined) d.settings.desktopNotify = true;
   // 배차: 본사 아이디 (사무실 작업 폴더에 남겨 내 것인지 알아본다), 기계의 ssh 별칭 (~/.ssh/config 에서 한 번 찾아 둠)
   if (!d.settings.instanceId) d.settings.instanceId = crypto.randomBytes(8).toString('hex');
   ensureHealth(d);
@@ -162,6 +165,17 @@ const working = new Map();
 // 작업 중 맥 잠자기 방지 (macOS caffeinate)
 const powerGuard = createPowerGuard();
 const syncPower = () => powerGuard.sync(working.size, store.data?.settings?.preventSleep !== false);
+// 작업 완료 · 결재 요청 · 장애 자동 인계 시 macOS 데스크탑 알림 (자는 시간 · 테스트 환경 제외)
+const notifyLog = [];
+function notifyOwner(d, title, body) {
+  const rec = { at: nowIso(), title: String(title || ''), body: String(body || '') };
+  notifyLog.push(rec);
+  if (notifyLog.length > 30) notifyLog.shift();
+  if (process.env.AIHQ_NO_NOTIFY === '1' || process.platform !== 'darwin') return;
+  if (d?.settings?.desktopNotify === false) return;
+  if (isQuiet(d?.settings?.quietHours)) return;
+  notify(rec.title, rec.body).catch(() => {});
+}
 // 로컬 AI 가 배분을 다시 보는 중인 할 일
 const assigning = new Set();
 
@@ -304,16 +318,32 @@ async function readBody(req, limit) {
 
 // ───────── 데이터 도우미 ─────────
 
+const EMP_REF_ALIASES = {
+  claudecode: ['claude'],
+  claude: ['claudecode'],
+  geminicli: ['gemini'],
+  gemini: ['geminicli'],
+  antigravity: ['agy'],
+  agy: ['antigravity'],
+};
+
 function findEmp(d, ref) {
   if (!ref) return null;
   const r = String(ref).trim().toLowerCase();
-  return d.employees.find((e) => {
+  const exact = d.employees.find((e) => {
     const an = String(e.avatarName || '').trim().toLowerCase();
     return e.id.toLowerCase() === r
+      || (e.catalog && e.catalog.toLowerCase() === r)
       || e.name.toLowerCase() === r
       || e.name.split(/\s/)[0].toLowerCase() === r
       || (an && (an === r || an.split(/\s/)[0] === r));
-  }) || null;
+  });
+  if (exact) return exact;
+  const alts = EMP_REF_ALIASES[r] || [];
+  if (alts.length) {
+    return d.employees.find((e) => alts.includes(e.id.toLowerCase()) || alts.includes(String(e.catalog || '').toLowerCase()) || alts.includes(String(e.engine || '').toLowerCase())) || null;
+  }
+  return null;
 }
 
 function parseAvatarImage(raw) {
@@ -675,7 +705,7 @@ function threadLines(d, taskId) {
 // ───────── 실행: 로컬 모델은 앱 안에서, Claude Code, Codex, agy 는 작업 폴더에서 한 번 ─────────
 
 function canRun(emp) {
-  return emp && emp.runMode !== 'off' && (emp.engine === 'local' ? Boolean(emp.model) : ['claude', 'codex', 'gemini', 'agy'].includes(emp.engine));
+  return emp && emp.runMode !== 'off' && (emp.engine === 'local' ? Boolean(emp.model) : CLI_ENGINES.includes(emp.engine));
 }
 
 function designPromptBlock(designs) {
@@ -1092,6 +1122,8 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
         tt.status = ok ? '완료' : '막힘';
         pushHistory(tt, emp.id, tt.status, ok ? '실행 끝' : meta.hung ? '무응답(먹통) 중단' : `실행 실패 (코드 ${code})`);
         syncRoutineLog(x, tt);
+        const empLabel = emp.avatarName || emp.name;
+        notifyOwner(x, `CONNECT AI HQ · ${empLabel} ${ok ? '완료' : '확인 필요'}`, `${tt.title}${ok ? '' : ' (실행 중단)'}`);
       }
     }
   });
@@ -1256,8 +1288,10 @@ async function stateView(viaLan = false) {
       claude: Boolean(runnerInfo('claude').bin),
       codex: Boolean(runnerInfo('codex').bin),
       gemini: Boolean(runnerInfo('gemini').bin),
-      agy: Boolean(runnerInfo('agy').bin && !runnerInfo('agy').missing),
+      agy: Boolean(runnerInfo('agy').bin),
+      opencode: Boolean(runnerInfo('opencode').bin),
     },
+    recentNotifications: notifyLog.slice(-10),
   };
 }
 
@@ -1315,7 +1349,7 @@ function buildPromptPreview(d, t) {
   const emp = d.employees.find((e) => e.id === t.assignee) || null;
   const info = taskToolsInfo(d, t);
   const res = t.resource ? d.resources.find((r) => r.id === t.resource) : null;
-  const mode = !emp ? 'human' : (['claude', 'codex', 'gemini', 'agy'].includes(emp.engine) && canRun(emp)) ? 'cli' : (emp.engine === 'local' && canRun(emp)) ? 'local' : 'handout';
+  const mode = !emp ? 'human' : (CLI_ENGINES.includes(emp.engine) && canRun(emp)) ? 'cli' : (emp.engine === 'local' && canRun(emp)) ? 'local' : 'handout';
   const prompt = !emp
     ? taskPromptCommon(d, null, t).join('\n')
     : mode === 'handout' ? handoutPrompt(d, emp, t) : (mode === 'local' ? `[시스템]\n${systemPrompt(emp, d.owner.name)}\n\n[작업 지시]\n${runPrompt(d, emp, t)}` : runPrompt(d, emp, t));
@@ -1470,7 +1504,30 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
     return t;
   });
   if (t.assignSource === 'rule') refineWithAi('task', t.id);
-  return t;
+  // 담당 AI 직원이 '자동 실행(auto)' 상태이고 위험 게이트·미래 시각이 없으면 추가 즉시 최적 컴퓨터에서 자동 착수
+  let autoStarted = false;
+  let autoQueued = false;
+  const dNow = store.data;
+  const targetEmp = t.assignee && t.assignee !== 'jay' ? dNow.employees.find((e) => e.id === t.assignee) : null;
+  const targetRes = t.resource ? dNow.resources.find((r) => r.id === t.resource) : null;
+  const nowDate = new Date();
+  const dueNow = t.date === ymd(nowDate) && (!t.time || minutes(t.time) <= minutes(hm(nowDate)));
+  if (
+    dNow.settings?.autoStartAdded !== false
+    && targetEmp && targetEmp.runMode === 'auto'
+    && dueNow && !t.gate && !t.officeRun && !isOffice(targetRes)
+    && (canRun(targetEmp) || isCoolingDown(targetEmp))
+    && !(working.has(targetEmp.id) && dNow.settings?.autoOptimize === false)
+  ) {
+    try {
+      const sr = await startRun(t.id, 'auto');
+      autoStarted = Boolean(sr?.started);
+      autoQueued = Boolean(sr?.queued);
+    } catch (e) {
+      console.log(`[즉시 자동 착수 건너뜀] ${t.id} ${e.message}`);
+    }
+  }
+  return { ...t, autoStarted, autoQueued };
 }, UI);
 
 route('PATCH', '/api/ui/tasks/:id', async ({ params, body }) => store.mutate((d) => {
@@ -1747,14 +1804,25 @@ route('POST', '/api/ui/tasks/:id/paste', async ({ params, body }) => store.mutat
   return m;
 }), UI);
 
-// 이 맥에 있는 것: Claude Code, Codex 실행 파일, 글을 쓸 수 있는 로컬 모델 (1B 이상)
+// 이 맥에 있는 것: 바이브코딩 CLI 실행 파일 + 글을 쓸 수 있는 로컬 모델 (1B 이상)
 async function detectLocal() {
   const models = await listLocalModels();
   const bigEnough = (m) => { const p = String(m.size || '').toUpperCase(); const n = parseFloat(p); return !p || (!p.endsWith('M') && (!Number.isFinite(n) || n >= 1)); };
   let ollama = null;
   try { const name = await pickOllamaModel(); if (name) ollama = `ollama:${name}`; } catch { /* Ollama 없음 */ }
   const lm = models.find((m) => m.id.startsWith('lmstudio:') && bigEnough(m));
-  return { claude: Boolean(runnerInfo('claude').bin), codex: Boolean(runnerInfo('codex').bin), gemini: Boolean(findBin('gemini', 'AIHQ_GEMINI_BIN')), ollama, lmstudio: lm ? lm.id : null };
+  const home = os.homedir();
+  const hasDir = (p) => { try { fssync.accessSync(p); return true; } catch { return false; } };
+  return {
+    claude: Boolean(runnerInfo('claude').bin),
+    codex: Boolean(runnerInfo('codex').bin),
+    gemini: Boolean(runnerInfo('gemini').bin),
+    agy: Boolean(runnerInfo('agy').bin),
+    opencode: Boolean(runnerInfo('opencode').bin),
+    cursor: Boolean(findBin('cursor', 'AIHQ_CURSOR_BIN') || hasDir(path.join(home, '.cursor'))),
+    ollama,
+    lmstudio: lm ? lm.id : null,
+  };
 }
 
 // 자는 시간 (이 시간에는 AI 가 대표를 부르지 않는다). { from, to } 또는 null
@@ -1779,7 +1847,11 @@ route('GET', '/api/onboard/detect', async () => {
 });
 
 // AI 도구에 본사 출입증(MCP)과 직원 수첩(스킬)을 넣는 명령 (보여 주기만, 실행은 터미널의 connect-ai-hq connect)
-route('GET', '/api/onboard/connect', async () => ({ targets: connectTargets({ employees: store.data.employees }), terminal: 'npx github:wonseokjung/connect-ai-autonomous-company connect' }));
+route('GET', '/api/onboard/connect', async () => ({
+  targets: connectTargets({ employees: store.data.employees }),
+  terminal: 'npx github:wonseokjung/connect-ai-autonomous-company connect --yes',
+  terminalDryRun: 'npx github:wonseokjung/connect-ai-autonomous-company connect --dry-run',
+}));
 
 // 1분 시작하기: 이름, 회사, 쓰는 AI, 사무실·브라우저·오픈소스, 자는 시간 (매일 할 일은 고르면 함께)
 route('POST', '/api/ui/onboard', async ({ body }) => {
@@ -1798,13 +1870,12 @@ route('POST', '/api/ui/onboard', async ({ body }) => {
       let engine = c.engine;
       let model = '';
       let runMode = 'off';
-      if (engine === 'claude' || engine === 'codex' || engine === 'gemini') { if (det[engine]) runMode = 'manual'; else engine = 'web'; }
-      if (engine === 'agy') { if (runnerInfo('agy').bin && !runnerInfo('agy').missing) runMode = 'manual'; else engine = 'web'; }
+      if (CLI_ENGINES.includes(engine)) { if (det[engine]) runMode = 'manual'; else engine = 'web'; }
       if (engine === 'local') {
         const m = det[c.local];
         if (m) { model = m; runMode = 'manual'; } else continue;
       }
-      const e = makeEmployee(d, { name: c.name, role: c.role, engine, webUrl: c.url || '', model, general: c.general, runMode, group: c.group });
+      const e = makeEmployee(d, { name: c.name, role: c.role, engine, webUrl: c.url || '', model, general: c.general, runMode, group: c.group, catalog: c.key });
       e.catalog = c.key;
       made.push(e.id);
     }
@@ -2203,14 +2274,15 @@ route('POST', '/api/ui/employees/:id/cooldown', async ({ params, body }) => {
   return updated;
 }, UI);
 
-function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, group, avatar, avatarStyle, avatarName, avatarImage, persona }) {
+function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, group, catalog, avatar, avatarStyle, avatarName, avatarImage, persona }) {
   if (!d.groups.length) d.groups = DEFAULT_GROUPS.map((x) => ({ ...x }));
   if (group && !d.groups.some((x) => x.id === group)) {
     const def = DEFAULT_GROUPS.find((x) => x.id === group);
     if (def) d.groups.push({ ...def });
   }
   const g = d.groups.some((x) => x.id === group) ? group : d.groups[0].id;
-  let id = name.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 16);
+  const baseSlug = (catalog && /^[a-z0-9]+$/i.test(catalog) ? catalog : name).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 16);
+  let id = baseSlug;
   if (!id || id === 'jay' || id === 'system' || d.employees.some((e) => e.id === id)) id = nextId(d, 'e');
   const eng = ENGINES.includes(engine) ? engine : 'web';
   const avKey = avatar && AVATAR_PRESETS.some((a) => a.key === avatar) ? avatar : defaultAvatarFor({ name, role });
@@ -2271,13 +2343,13 @@ route('POST', '/api/ui/employees', async ({ body }) => {
   const cat = AI_CATALOG.find((c) => c.key === body.catalog);
   // 목록에서 고른 코딩 AI 인데 이 맥에 실행 파일이 없으면 복사해서 맡기기로 시작한다
   let engine = body.engine || cat?.engine || 'web';
-  if (!body.engine && ['claude', 'codex', 'gemini', 'agy'].includes(engine) && (!runnerInfo(engine)?.bin || runnerInfo(engine)?.missing)) engine = 'web';
+  if (!body.engine && CLI_ENGINES.includes(engine) && (!runnerInfo(engine)?.bin || runnerInfo(engine)?.missing)) engine = 'web';
   const avatarImage = body.avatarImage ? parseAvatarImage(body.avatarImage) : '';
   const out = await store.mutate((d) => {
     const name = text(body.name, 80);
     if (!name) throw new HttpError(400, '이름이 필요합니다.');
     const e = makeEmployee(d, {
-      name, role: text(body.role, 200) || cat?.role || '', engine, webUrl: cat?.url, general: cat?.general, group: body.group || cat?.group,
+      name, role: text(body.role, 200) || cat?.role || '', engine, webUrl: cat?.url, general: cat?.general, group: body.group || cat?.group, catalog: cat?.key,
       avatar: body.avatar, avatarStyle: body.avatarStyle, avatarName: body.avatarName, avatarImage, persona: body.persona,
     });
     if (cat) e.catalog = cat.key;
@@ -2532,6 +2604,8 @@ route('PATCH', '/api/ui/settings', async ({ body }) => store.mutate((d) => {
   if (body.alarmsEnabled !== undefined) d.settings.alarmsEnabled = Boolean(body.alarmsEnabled);
   if (body.autoOptimize !== undefined) d.settings.autoOptimize = Boolean(body.autoOptimize);
   if (body.preventSleep !== undefined) d.settings.preventSleep = Boolean(body.preventSleep);
+  if (body.autoStartAdded !== undefined) d.settings.autoStartAdded = Boolean(body.autoStartAdded);
+  if (body.desktopNotify !== undefined) d.settings.desktopNotify = Boolean(body.desktopNotify);
   if (body.ownerName !== undefined) { const s = text(body.ownerName, 40); if (s) d.owner.name = s; }
   if (body.companyName !== undefined) d.settings.companyName = text(body.companyName, 60);
   if (body.onboarded !== undefined) d.settings.onboarded = Boolean(body.onboarded);
@@ -2892,6 +2966,7 @@ route('POST', '/api/agent/approvals', async ({ body }) => store.mutate((d) => {
   d.approvals.push(a);
   const accTag = a.accountName ? ` · ${a.accountName}${a.accountAction ? ` (${a.accountAction})` : ''}` : '';
   addMsg(d, { thread: t ? `task:${t.id}` : 'all', from: emp.id, fromKind: 'ai', kind: 'approval', approvalId: a.id, text: `승인 요청 (${kind}${accTag}): ${what}`, to: ['jay'] });
+  notifyOwner(d, `CONNECT AI HQ · 결재 요청 (${kind})`, `${emp.avatarName || emp.name}: ${what.slice(0, 80)}`);
   return a;
 }));
 
