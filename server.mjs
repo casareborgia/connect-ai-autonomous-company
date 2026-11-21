@@ -24,7 +24,7 @@ import { splitUtterance, pickOllamaModel } from './lib/llm.mjs';
 import { ruleAssign, aiAssign, tokens, learnAssignMemory } from './lib/assign.mjs';
 import { detectGate, GATES } from './lib/gates.mjs';
 import { AI_CATALOG, DEFAULT_GROUPS, webUrlFor } from './lib/catalog.mjs';
-import { localStatus, reach, validHostname } from './lib/machines.mjs';
+import { localStatus, localStatusCached, clearLocalStatusCache, reach, validHostname } from './lib/machines.mjs';
 import { startScheduler, ensureRoutineTasks, notify, minutes, isQuiet, INTERVAL_MINS } from './lib/scheduler.mjs';
 import { listLocalModels, localReply, runOnce, runnerInfo, systemPrompt, quoteThread, notInstalled, findBin } from './lib/agents.mjs';
 import { connectTargets, sshHosts } from './lib/connect.mjs';
@@ -44,6 +44,10 @@ import {
   autoFillStep, buildTemplateSteps, cloneRoutineSteps, activeSteps, stepView, stepsPromptBlock, sumEstCost,
 } from './lib/steps.mjs';
 import { exportBlueprint, importBlueprint } from './lib/blueprint.mjs';
+import {
+  DEFAULT_MAX_RAM_PCT, DEFAULT_MAX_HEAVY, detectQuotaError, isCoolingDown, cooldownRemainingMin,
+  isSensitiveLocalTask, isHeavyTask, pickFallbackEmployee, buildMachineHealthMap, pickOptimalMachine,
+} from './lib/optimizer.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -78,12 +82,15 @@ function migrate(d) {
     e.manual = e.manual || '';
     e.resources = e.resources || [];
     e.abilities = e.abilities || [];
+    if (e.fallbackTo === undefined) e.fallbackTo = null;
+    if (e.cooldownUntil === undefined) e.cooldownUntil = null;
+    if (e.cooldownReason === undefined) e.cooldownReason = '';
     if (e.webUrl === undefined) e.webUrl = webUrlFor(e.name);
     if (!d.groups.some((g) => g.id === e.group)) e.group = d.groups[0].id;
   }
   d.tasks.forEach((t, i) => {
     if (typeof t.order !== 'number') t.order = i + 1;
-    for (const [k, v] of Object.entries({ resource: null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: null, intervalMin: null, stepMode: 'serial', sharedFolder: '', steps: [], gate: null, gateApprovedAt: null, reason: '', reasonBy: '', noMatch: false, handedAt: null, assignSource: 'jay', routineId: null, jobId: null, runStartedAt: null, lastRunAt: null, history: [], officeRun: false, officeJob: null, remote: null, relayedAt: null })) if (t[k] === undefined) t[k] = v;
+    for (const [k, v] of Object.entries({ resource: null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: null, intervalMin: null, stepMode: 'serial', sharedFolder: '', steps: [], gate: null, gateApprovedAt: null, reason: '', reasonBy: '', noMatch: false, handedAt: null, assignSource: 'jay', routineId: null, jobId: null, runStartedAt: null, lastRunAt: null, queued: false, queueReason: '', retryAfter: null, localOnly: false, history: [], officeRun: false, officeJob: null, remote: null, relayedAt: null })) if (t[k] === undefined) t[k] = v;
     if (!Array.isArray(t.steps)) t.steps = [];
   });
   for (const r of d.routines) {
@@ -101,12 +108,16 @@ function migrate(d) {
     if (!Array.isArray(r.steps)) r.steps = [];
   }
   if (!d.settings.assignMemory || typeof d.settings.assignMemory !== 'object') d.settings.assignMemory = {};
+  if (d.settings.autoOptimize === undefined) d.settings.autoOptimize = true;
   // 배차: 본사 아이디 (사무실 작업 폴더에 남겨 내 것인지 알아본다), 기계의 ssh 별칭 (~/.ssh/config 에서 한 번 찾아 둠)
   if (!d.settings.instanceId) d.settings.instanceId = crypto.randomBytes(8).toString('hex');
   for (const r of d.resources) {
     if (r.kind === '기계') {
       if (!r.isThisMac && r.sshAlias === undefined) r.sshAlias = guessSshAlias(r.hostname || '');
       if (!r.deviceKind) r.deviceKind = 'computer';
+      if (r.maxRamPct === undefined) r.maxRamPct = DEFAULT_MAX_RAM_PCT;
+      if (r.maxHeavy === undefined) r.maxHeavy = DEFAULT_MAX_HEAVY;
+      if (r.fallbackTo === undefined) r.fallbackTo = null;
     }
     if (r.kind === '계정') {
       const cfg = accountConfig(r);
@@ -775,11 +786,73 @@ function webUrlOf(emp) {
   return /^https:\/\/[^\s]+$/i.test(u) ? u : '';
 }
 
-async function startRun(taskId, trigger) {
-  const d = store.data;
-  const t = getTask(d, taskId);
-  const emp = d.employees.find((e) => e.id === t.assignee);
+async function currentLocalStat(fresh = false) {
+  if (fresh) clearLocalStatusCache();
+  const st = await localStatusCached(5000).catch(() => null);
+  const testPct = process.env.AIHQ_TEST_RAM_PCT !== undefined && process.env.AIHQ_TEST_RAM_PCT !== '' ? Number(process.env.AIHQ_TEST_RAM_PCT) : null;
+  if (Number.isFinite(testPct) && testPct >= 0 && testPct <= 100) {
+    const total = st?.memory?.total || 32 * 1024 ** 3;
+    const avail = Math.round(total * ((100 - testPct) / 100));
+    return {
+      ...(st || { hostname: os.hostname(), chip: 'Test CPU', cpus: 8, uptimeSec: 100, load: [1, 1, 1], disk: { total: 500 * 1024 ** 3, used: 100 * 1024 ** 3, free: 400 * 1024 ** 3 } }),
+      memory: { total, available: avail },
+    };
+  }
+  return st;
+}
+
+async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
+  const tried = triedEmps instanceof Set ? triedEmps : new Set();
+  let d = store.data;
+  let t = getTask(d, taskId);
+  let emp = d.employees.find((e) => e.id === t.assignee);
   if (!emp) throw new HttpError(400, '이 할 일은 AI 직원에게 배분되지 않았습니다.');
+  assertAccountAllowed(d, t);
+  if (t.gate && !t.gateApprovedAt) throw new HttpError(403, `${gateK(t.gate)} 들어간 일입니다. 대표가 먼저 확인을 눌러야 합니다.`);
+  if (t.officeRun) throw new HttpError(409, '사무실에서 실행이 켜져 있어요. 사무실에서 돌거나, 스위치를 끈 뒤 이 컴퓨터에서 실행해 주세요.');
+  if (t.remote && ACTIVE.includes(t.remote.state)) throw new HttpError(409, '사무실에서 실행 중이에요.');
+
+  const autoOpt = d.settings?.autoOptimize !== false;
+
+  // 1) 실행 전 AI 직원 토큰 휴식(쿨다운) / 바쁨 체크 → 대체 직원으로 자동 전환
+  const cooling = isCoolingDown(emp);
+  const empBusy = working.has(emp.id);
+  if ((cooling || (trigger === 'auto' && empBusy)) && autoOpt) {
+    const fb = pickFallbackEmployee(d, emp.id, {
+      task: t, workingIds: new Set(working.keys()), canRunFn: canRun, requireRunnable: true, excludeIds: tried,
+    });
+    if (fb) {
+      const prevEmp = emp;
+      const reasonTxt = cooling
+        ? `⚡ ${prevEmp.name} 토큰 휴식 중(${cooldownRemainingMin(prevEmp)}분 남음) → 대체 직원 ${fb.emp.name}로 자동 전환했어요`
+        : `⚡ ${prevEmp.name} 다른 작업 중 → 대체 직원 ${fb.emp.name}로 자동 분산했어요`;
+      await store.mutate((x) => {
+        const tt = getTask(x, t.id);
+        tt.assignee = fb.emp.id;
+        tt.queued = false;
+        tt.queueReason = '';
+        tt.retryAfter = null;
+        tt.reason = fb.reason;
+        sys(x, `task:${t.id}`, reasonTxt);
+      });
+      d = store.data;
+      t = getTask(d, taskId);
+      emp = fb.emp;
+    } else if (cooling) {
+      const rem = cooldownRemainingMin(emp);
+      const qReason = `${emp.name} 토큰 휴식 중 (${rem}분 뒤 자동 재개 · 대체 실행 AI 없음)`;
+      await store.mutate((x) => {
+        const tt = getTask(x, t.id);
+        tt.queued = true;
+        tt.queueReason = qReason;
+        tt.retryAfter = emp.cooldownUntil;
+        sys(x, `task:${t.id}`, `⏳ 대기열 등록: ${qReason}`);
+      });
+      if (trigger === 'auto') return { started: false, queued: true, reason: qReason };
+      return { started: false, queued: true, reason: qReason };
+    }
+  }
+
   if (['web', 'none'].includes(emp.engine)) throw new HttpError(400, `${emp.name}: 이 앱이 직접 실행하지 않는 직원이에요. 할 일에서 복사해서 맡기기를 써 주세요.`);
   if (['claude', 'codex', 'agy'].includes(emp.engine)) {
     const info = runnerInfo(emp.engine);
@@ -787,11 +860,83 @@ async function startRun(taskId, trigger) {
     if (!info.bin) throw new HttpError(400, notInstalled(emp.engine));
   }
   if (!canRun(emp)) throw new HttpError(403, emp.runMode === 'off' ? `${emp.name}: 실행이 꺼져 있습니다. 내 직원에서 켜 주세요.` : `${emp.name}: 이 앱에서 실행할 수 없습니다 (연결 방식이나 모델을 확인하세요).`);
-  assertAccountAllowed(d, t);
-  if (t.gate && !t.gateApprovedAt) throw new HttpError(403, `${gateK(t.gate)} 들어간 일입니다. 대표가 먼저 확인을 눌러야 합니다.`);
   if (working.has(emp.id)) throw new HttpError(409, `${emp.name}: 이미 일하는 중입니다.`);
-  if (t.officeRun) throw new HttpError(409, '사무실에서 실행이 켜져 있어요. 사무실에서 돌거나, 스위치를 끈 뒤 이 맥에서 실행해 주세요.');
-  if (t.remote && ACTIVE.includes(t.remote.state)) throw new HttpError(409, '사무실에서 실행 중이에요.');
+
+  // 2) 실행 전 컴퓨터 RAM(85% 상한) · 부하 · 동시 무거운 작업 체크 → 우회 또는 대기열 보호
+  const localStat = await currentLocalStat();
+  const workingList = [...working.values(), ...officeWorking()];
+  const opt = pickOptimalMachine(d, t, emp, {
+    localStat, offices: dispatcher ? dispatcher.view() : [], workingList,
+    preferredResId: t.resource || null, requireRunnableHost: true,
+  });
+
+  if (opt.queued && autoOpt) {
+    // 로컬 모델 실행 중 RAM 과부하 → 민감 작업이 아니면 클라우드 AI로 우회해 컴퓨터 멈춤 방지
+    if (emp.engine === 'local' && !isSensitiveLocalTask(t, emp)) {
+      const cloudFb = pickFallbackEmployee(d, emp.id, {
+        task: t, workingIds: new Set(working.keys()),
+        canRunFn: (e) => e.engine !== 'local' && canRun(e),
+        requireRunnable: true, excludeIds: tried,
+      });
+      if (cloudFb) {
+        const prevEmp = emp;
+        await store.mutate((x) => {
+          const tt = getTask(x, t.id);
+          tt.assignee = cloudFb.emp.id;
+          tt.queued = false;
+          tt.queueReason = '';
+          tt.retryAfter = null;
+          sys(x, `task:${t.id}`, `⚡ 이 컴퓨터 RAM 과부하(${opt.health?.ramPct ?? '?'}%) → 맥 보호를 위해 로컬 AI(${prevEmp.name}) 대신 클라우드 AI ${cloudFb.emp.name}로 자동 전환했어요`);
+        });
+        return startRun(taskId, trigger, { depth: depth + 1, triedEmps: new Set([...tried, prevEmp.id]) });
+      }
+    }
+    const retryIso = new Date(Date.now() + 2 * 60000).toISOString();
+    await store.mutate((x) => {
+      const tt = getTask(x, t.id);
+      const changed = !tt.queued || tt.queueReason !== opt.reason;
+      tt.queued = true;
+      tt.queueReason = opt.reason;
+      tt.retryAfter = retryIso;
+      if (changed) sys(x, `task:${t.id}`, `⏳ 대기열 등록: ${opt.reason}`);
+    });
+    return { started: false, queued: true, reason: opt.reason };
+  }
+
+  if (opt.rerouted && opt.resource && autoOpt) {
+    if (isOffice(opt.resource)) {
+      await store.mutate((x) => {
+        const tt = getTask(x, t.id);
+        tt.resource = opt.resource.id;
+        tt.officeRun = true;
+        tt.queued = false;
+        tt.queueReason = '';
+        tt.retryAfter = null;
+        sys(x, `task:${t.id}`, `⚡ ${opt.reason}`);
+      });
+      dispatcher?.tick();
+      return { started: true, rerouted: true, office: opt.resource.name, reason: opt.reason };
+    }
+    await store.mutate((x) => {
+      const tt = getTask(x, t.id);
+      tt.resource = opt.resource.id;
+      tt.officeRun = false;
+      tt.queued = false;
+      tt.queueReason = '';
+      tt.retryAfter = null;
+      sys(x, `task:${t.id}`, `⚡ ${opt.reason}`);
+    });
+    d = store.data;
+    t = getTask(d, taskId);
+  } else if (opt.resource && !t.resource) {
+    await store.mutate((x) => {
+      const tt = getTask(x, t.id);
+      if (!tt.resource) tt.resource = opt.resource.id;
+    });
+    d = store.data;
+    t = getTask(d, taskId);
+  }
+
   const thread = `task:${t.id}`;
   const prompt = runPrompt(d, emp, t);
   const label = emp.engine === 'local' ? `로컬 모델 ${emp.model.replace(/^(ollama|lmstudio):/, '')}` : runnerInfo(emp.engine).label;
@@ -802,9 +947,54 @@ async function startRun(taskId, trigger) {
     const tt = getTask(x, t.id);
     tt.status = '진행';
     tt.runStartedAt = job.since;
+    tt.queued = false;
+    tt.queueReason = '';
+    tt.retryAfter = null;
     pushHistory(tt, emp.id, '진행', trigger === 'auto' ? '자동 실행' : '대표가 실행');
     sys(x, thread, `실행 시작: ${emp.name} (${label}${emp.engine === 'local' ? '' : ` · 모델 ${runModel}`}${emp.engine === 'local' ? '' : `, 작업 폴더 workspaces/${emp.id}`}, ${trigger === 'auto' ? '자동 실행' : '대표가 누름'})`);
   });
+
+  // 3) 실행 도중 토큰·사용 한도 오류 시 자동 쿨다운 + 대체 AI 즉시 이어받기
+  let nextFailover = null;
+  const handleFailureQuota = (x, tt, rawErrText) => {
+    if (x.settings?.autoOptimize === false) return false;
+    const qErr = detectQuotaError(rawErrText);
+    if (!qErr) return false;
+    const curEmp = x.employees.find((e) => e.id === emp.id);
+    const untilIso = new Date(Date.now() + qErr.minutes * 60000).toISOString();
+    if (curEmp) {
+      curEmp.cooldownUntil = untilIso;
+      curEmp.cooldownReason = qErr.label;
+    }
+    const nextTried = new Set([...tried, emp.id]);
+    const otherWorking = new Set([...working.keys()].filter((id) => id !== emp.id));
+    const fb = depth < 2
+      ? pickFallbackEmployee(x, emp.id, { task: tt, workingIds: otherWorking, canRunFn: canRun, requireRunnable: true, excludeIds: nextTried })
+      : null;
+    if (fb) {
+      tt.assignee = fb.emp.id;
+      tt.status = '대기';
+      tt.runStartedAt = null;
+      tt.queued = false;
+      tt.queueReason = '';
+      tt.retryAfter = null;
+      tt.reason = fb.reason;
+      pushHistory(tt, 'system', '대기', `${emp.name} ${qErr.label} → ${fb.emp.name} 자동 인계`);
+      sys(x, thread, `⚡ ${emp.name} ${qErr.label}(${qErr.minutes}분 휴식) → 대체 직원 ${fb.emp.name}에게 멈춘 지점부터 자동 인계합니다`);
+      nextFailover = { taskId: tt.id, trigger, depth: depth + 1, triedEmps: nextTried };
+      return true;
+    }
+    // 실행 가능한 대체 AI가 없을 때: 웹 대체 직원이 있으면 안내, 아니면 대기열에서 쿨다운 후 자동 재시도
+    tt.status = '대기';
+    tt.runStartedAt = null;
+    tt.queued = true;
+    tt.queueReason = `${emp.name} ${qErr.label} (${qErr.minutes}분 뒤 자동 재시도)`;
+    tt.retryAfter = untilIso;
+    pushHistory(tt, 'system', '대기', `${emp.name} ${qErr.label} · 대기열`);
+    sys(x, thread, `⏳ ${emp.name} ${qErr.label} · ${qErr.minutes}분 휴식 후 자동 재시도합니다`);
+    return true;
+  };
+
   const finish = (output, ok, code) => store.mutate((x) => {
     addMsg(x, { thread, from: emp.id, fromKind: 'ai', kind: 'result', text: String(output || '(출력 없음)').slice(-6000), to: ['jay'], run: { label, code, model: runModel } });
     x.worklog.push({ emp: emp.id, start: job.since, end: nowIso(), label: t.title });
@@ -814,6 +1004,7 @@ async function startRun(taskId, trigger) {
     tt.runStartedAt = null;
     tt.lastRunAt = nowIso();
     if (tt.status === '진행') {
+      if (!ok && handleFailureQuota(x, tt, output)) return;
       if (ok && Array.isArray(tt.steps) && tt.steps.length) {
         completeActiveStepFromRun(x, tt, emp.id, String(output || '').slice(0, 2000), '실행 끝');
       } else {
@@ -823,34 +1014,57 @@ async function startRun(taskId, trigger) {
       }
     }
   });
+
   const run = emp.engine === 'local'
     ? localReply(emp, d.owner.name, [{ role: 'user', content: prompt }]).then((out) => finish(out, true, 0))
     : runOnce({ engine: emp.engine, workspace: path.join(WORKSPACES, emp.id), prompt, env: { AIHQ_URL: `http://127.0.0.1:${PORT}`, HQ_EMPLOYEE: emp.id } }).then((r) => finish(r.out || r.err, r.code === 0, r.code));
   run.catch((e) => store.mutate((x) => {
-    sys(x, thread, `실행 실패: ${emp.name} · ${String(e.message || e).slice(0, 300)}`);
+    const errText = String(e.message || e);
     const tt = x.tasks.find((y) => y.id === t.id);
+    if (tt && tt.status === '진행' && handleFailureQuota(x, tt, errText)) return;
+    sys(x, thread, `실행 실패: ${emp.name} · ${errText.slice(0, 300)}`);
     if (tt) {
       tt.runStartedAt = null;
       tt.lastRunAt = nowIso();
       if (tt.status === '진행') { tt.status = '막힘'; pushHistory(tt, emp.id, '막힘', '실행 실패'); }
     }
-  })).finally(() => working.delete(emp.id));
-  return { started: true, thread, label };
+  })).finally(() => {
+    working.delete(emp.id);
+    if (nextFailover) {
+      const f = nextFailover;
+      setTimeout(() => startRun(f.taskId, f.trigger, { depth: f.depth, triedEmps: f.triedEmps }).catch((err) => console.log(`[자동 우회 실패] ${f.taskId} ${err.message}`)), 150);
+    } else {
+      // 작업 1건 종료 즉시 대기열 재확인 (30초 기다리지 않고 바로 여유 슬롯 활용)
+      setTimeout(() => autoRun(new Date()).catch(() => {}), 300);
+    }
+  });
+  return { started: true, thread, label, empId: emp.id, resource: t.resource };
 }
 
-// 매일 할 일에서 만든 AI 할 일 중, 자동 실행으로 켠 직원 것만 시간이 되면 실행한다
+// 매일 할 일 자동 실행 + RAM/토큰 대기열(queued) 자동 해제 실행
 async function autoRun(now) {
   const d = store.data;
   const today = ymd(now);
   const cur = minutes(hm(now));
-  for (const t of d.tasks) {
-    if (t.date !== today || !t.routineId || t.status !== '대기' || t.runStartedAt) continue;
-    const emp = d.employees.find((e) => e.id === t.assignee);
-    if (!emp || emp.runMode !== 'auto' || !canRun(emp) || working.has(emp.id)) continue;
-    // 사무실 기계에 배분된 일은 배차기가 그 사무실로 보낸다
-    if (t.officeRun || isOffice(d.resources.find((r) => r.id === t.resource))) continue;
-    if (t.gate && !t.gateApprovedAt) continue;
-    if (!t.intervalMin && t.time && minutes(t.time) > cur) continue;
+  const nowMs = now.getTime();
+  // 우선순위: 대기열(시간 도래) → 정해진 시각 빠른 순 → 기본 order 순
+  const candidates = [...d.tasks].filter((t) => {
+    if (t.status !== '대기' || t.runStartedAt) return false;
+    if (t.date > today) return false;
+    if (t.officeRun || isOffice(d.resources.find((r) => r.id === t.resource))) return false;
+    if (t.gate && !t.gateApprovedAt) return false;
+    if (t.queued) return !t.retryAfter || Date.parse(t.retryAfter) <= nowMs;
+    if (t.date !== today || !t.routineId) return false;
+    if (!t.intervalMin && t.time && minutes(t.time) > cur) return false;
+    return true;
+  }).sort((a, b) => (Number(Boolean(b.queued)) - Number(Boolean(a.queued))) || (a.order || 0) - (b.order || 0));
+
+  for (const t of candidates) {
+    const emp = store.data.employees.find((e) => e.id === t.assignee);
+    if (!emp) continue;
+    if (!t.queued && emp.runMode !== 'auto') continue;
+    if (!canRun(emp) && !isCoolingDown(emp, nowMs)) continue;
+    if (working.has(emp.id) && store.data.settings?.autoOptimize === false) continue;
     try { await startRun(t.id, 'auto'); } catch (e) { console.log(`[자동 실행] ${t.id} ${e.message}`); }
   }
 }
@@ -890,8 +1104,15 @@ function officeWorking() {
 async function stateView() {
   const d = store.data;
   const f = d.settings.features;
-  const connectors = f.revenue ? await readConnectors() : [];
+  const [connectors, localStat] = await Promise.all([
+    f.revenue ? readConnectors() : Promise.resolve([]),
+    currentLocalStat(),
+  ]);
+  const workingList = [...working.values(), ...officeWorking()];
+  const offices = dispatcher ? dispatcher.view() : [];
+  const machineHealth = Object.fromEntries(buildMachineHealthMap(d, { localStat, offices, workingList }));
   return {
+    rev: store.rev,
     today: ymd(),
     yesterday: ymd(addDays(new Date(), -1)),
     now: nowIso(),
@@ -910,8 +1131,9 @@ async function stateView() {
       designPresets: DESIGN_PRESETS,
       routinePacks: ROUTINE_PACKS.map(({ key, badge, title, summary, routines }) => ({ key, badge, title, summary, count: routines.length, titles: routines.map((r) => r.title) })),
     },
-    working: [...working.values(), ...officeWorking()],
-    offices: dispatcher ? dispatcher.view() : [],
+    working: workingList,
+    offices,
+    machineHealth,
     officeTemplates: Object.entries(TEMPLATES).map(([key, v]) => ({ key, label: v.label })),
     assigning: [...assigning],
     runners: { claude: Boolean(runnerInfo('claude').bin), codex: Boolean(runnerInfo('codex').bin), agy: Boolean(runnerInfo('agy').bin && !runnerInfo('agy').missing) },
@@ -931,7 +1153,11 @@ const UI = { human: true };
 route('GET', '/api/state', async () => stateView());
 route('GET', '/api/office', async () => {
   const d = store.data;
-  return { local: await localStatus(), folders: { [WORKSPACES]: fssync.existsSync(WORKSPACES) }, resources: d.resources };
+  const local = await currentLocalStat(true);
+  const workingList = [...working.values(), ...officeWorking()];
+  const offices = dispatcher ? dispatcher.view() : [];
+  const machineHealth = Object.fromEntries(buildMachineHealthMap(d, { localStat: local, offices, workingList }));
+  return { local, machineHealth, folders: { [WORKSPACES]: fssync.existsSync(WORKSPACES) }, resources: d.resources };
 });
 route('GET', '/api/models', async () => listLocalModels());
 route('GET', '/api/tools/detect', async () => ({ browsers: detectBrowsers(), openSource: detectOpenSource() }));
@@ -993,15 +1219,35 @@ route('GET', '/api/ui/routines/:id/prompt-preview', async ({ params }) => {
 route('POST', '/api/ui/assign/suggest', async ({ body }) => {
   const d = store.data;
   const title = text(body.title, 300);
-  if (!title) return { assignee: 'jay', assigneeName: '나', reason: '', gate: null, tools: [], toolNames: [] };
   const note = text(body.note, 2000);
-  const s = ruleAssign(title, note, d.employees, d.resources, d.settings?.assignMemory);
+  const reqPick = body.assignee && body.assignee !== 'auto' ? String(body.assignee) : null;
+  if (!title && !reqPick) return { assignee: 'jay', assigneeName: '나', reason: '', gate: null, tools: [], toolNames: [] };
+  const s = title ? ruleAssign(title, note, d.employees, d.resources, d.settings?.assignMemory)
+    : { assignee: 'jay', resource: null, account: null, browser: null, design: null, tools: [], gate: null, reason: '' };
+  const targetId = reqPick || s.assignee;
+  const targetEmp = targetId && targetId !== 'jay' ? d.employees.find((e) => e.id === targetId) || null : null;
+  const localStat = await currentLocalStat();
+  const workingList = [...working.values(), ...officeWorking()];
+  const offices = dispatcher ? dispatcher.view() : [];
+  const opt = targetEmp
+    ? pickOptimalMachine(d, { title, note }, targetEmp, { localStat, offices, workingList, preferredResId: s.resource || null })
+    : { resource: null, health: null, rerouted: false, queued: false, reason: '' };
+  const cooling = targetEmp && isCoolingDown(targetEmp);
+  const fb = cooling ? pickFallbackEmployee(d, targetEmp.id, { task: { title, note }, workingIds: new Set(working.keys()), requireRunnable: false }) : null;
   const resName = (id) => (id ? d.resources.find((r) => r.id === id)?.name || null : null);
   const accObj = s.account ? d.resources.find((r) => r.id === s.account) : null;
+  const finalResId = opt.resource?.id || (targetEmp ? s.resource : null);
   return {
     ...s,
-    assigneeName: s.assignee === 'jay' ? '나' : s.assignee ? nameOf(d, s.assignee) : '담당 미정',
-    resourceName: resName(s.resource),
+    assignee: targetId,
+    assigneeName: targetId === 'jay' ? '나' : targetId ? nameOf(d, targetId) : '담당 미정',
+    resource: finalResId,
+    resourceName: resName(finalResId),
+    machineHealth: opt.health || null,
+    machineRerouted: Boolean(opt.rerouted),
+    machineQueued: Boolean(opt.queued),
+    machineReason: opt.reason || '',
+    empCooldown: cooling ? { remainingMin: cooldownRemainingMin(targetEmp), reason: targetEmp.cooldownReason || '토큰 휴식 중', fallbackId: fb?.emp?.id || null, fallbackName: fb?.emp?.name || null } : null,
     accountName: accObj ? accObj.name : null,
     spaceName: accObj?.spaceName || '',
     browserName: resName(s.browser),
@@ -1020,6 +1266,9 @@ function stepResourceRef(d, v) {
 // ── 할 일 (사람 입구) ──
 
 route('POST', '/api/ui/tasks', async ({ body }) => {
+  const localStat = await currentLocalStat();
+  const offices = dispatcher ? dispatcher.view() : [];
+  const workingList = [...working.values(), ...officeWorking()];
   const t = await store.mutate((d) => {
     const title = text(body.title, 300);
     if (!title) throw new HttpError(400, '할 일 제목이 필요합니다.');
@@ -1028,6 +1277,7 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
       status: '대기', note: text(body.note, 4000), resource: null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: costOrNull(body.estCost), intervalMin: null,
       stepMode: STEP_MODES.includes(body.stepMode) ? body.stepMode : 'serial', sharedFolder: text(body.sharedFolder, 400), steps: [],
       gate: null, gateApprovedAt: null, reason: '', assignSource: 'jay',
+      queued: false, queueReason: '', retryAfter: null, localOnly: Boolean(body.localOnly),
       routineId: null, jobId: null, createdAt: nowIso(), createdBy: 'jay', history: [], runStartedAt: null, lastRunAt: null,
     };
     if (body.assignee !== undefined && body.assignee !== 'auto') {
@@ -1049,10 +1299,27 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
         tools: Array.isArray(body.tools) && body.tools.length > 0,
       };
       const picked = assigneeRef(d, body.assignee);
-      applyAssign(t, { assignee: picked, resource: resourceRef(d, body.resource), account: accId, browser: brId, design: desId, tools: tIds, gate: g, reason: '대표가 정함' }, 'jay');
+      const pickedEmp = picked && picked !== 'jay' ? d.employees.find((e) => e.id === picked) || null : null;
+      let chosenRes = body.resource !== undefined ? resourceRef(d, body.resource) : null;
+      let reasonTxt = '대표가 직접 지정';
+      if (body.resource === undefined && pickedEmp) {
+        const opt = pickOptimalMachine(d, t, pickedEmp, { localStat, offices, workingList });
+        if (opt.resource) {
+          chosenRes = opt.resource.id;
+          reasonTxt = opt.rerouted ? `대표 지정 · ${opt.reason}` : `대표 지정 · 컴퓨터 자동 (${opt.resource.name})`;
+        }
+      }
+      applyAssign(t, { assignee: picked, resource: chosenRes, account: accId, browser: brId, design: desId, tools: tIds, gate: g, reason: reasonTxt }, 'jay');
       if (picked && !g) d.settings.assignMemory = learnAssignMemory(d.settings.assignMemory, title, picked);
     } else {
-      applyAssign(t, ruleAssign(title, t.note, d.employees, d.resources, d.settings?.assignMemory), 'rule');
+      const s = ruleAssign(title, t.note, d.employees, d.resources, d.settings?.assignMemory);
+      const sEmp = s.assignee && s.assignee !== 'jay' ? d.employees.find((e) => e.id === s.assignee) || null : null;
+      if (sEmp && d.settings?.autoOptimize !== false) {
+        const opt = pickOptimalMachine(d, t, sEmp, { localStat, offices, workingList, preferredResId: s.resource || null });
+        if (opt.resource && opt.rerouted) { s.resource = opt.resource.id; s.reason = `${s.reason} · ${opt.reason}`; }
+        else if (opt.resource && !s.resource) s.resource = opt.resource.id;
+      }
+      applyAssign(t, s, 'rule');
     }
     t.order = orderFor(d, t);
     d.tasks.push(t);
@@ -1090,6 +1357,7 @@ route('PATCH', '/api/ui/tasks/:id', async ({ params, body }) => store.mutate((d)
   if (remoteActive && (body.resource !== undefined && body.resource !== t.resource || body.officeRun !== undefined || body.officeJob !== undefined)) {
     throw new HttpError(409, '사무실에서 실행 중이에요. 끝난 뒤 바꿔 주세요.');
   }
+  if (body.localOnly !== undefined) t.localOnly = Boolean(body.localOnly);
   if (body.resource !== undefined) t.resource = resourceRef(d, body.resource);
   // 사무실에서 실행 (할 일마다 켜는 스위치) 과 일 종류. 정해진 종류와 값만 받는다.
   if (body.officeJob !== undefined) {
@@ -1123,6 +1391,9 @@ route('PATCH', '/api/ui/tasks/:id', async ({ params, body }) => store.mutate((d)
       t.reason = '대표가 정함';
       if (t.status === '막힘' || t.status === '진행') t.status = '대기';
       t.runStartedAt = null;
+      t.queued = false;
+      t.queueReason = '';
+      t.retryAfter = null;
       if (next && !t.gate) d.settings.assignMemory = learnAssignMemory(d.settings.assignMemory, t.title, next);
       // 넘길 때 지금까지의 스레드가 다음 담당의 맥락이 된다
       sys(d, `task:${t.id}`, `담당 변경: ${nameOf(d, prev)} → ${nameOf(d, next)} (대표). 지금까지의 대화가 다음 담당의 맥락이 됩니다.`);
@@ -1136,6 +1407,9 @@ route('PATCH', '/api/ui/tasks/:id', async ({ params, body }) => store.mutate((d)
       t.status = body.status;
       if (body.status === '대기') {
         t.runStartedAt = null;
+        t.queued = false;
+        t.queueReason = '';
+        t.retryAfter = null;
         if (!remoteActive && t.remote && ['failed', 'blocked', 'retry'].includes(t.remote.state)) t.remote = null;
       }
       pushHistory(t, 'jay', body.status, '');
@@ -1150,6 +1424,9 @@ route('POST', '/api/ui/tasks/:id/retry', async ({ params }) => store.mutate((d) 
   if (t.remote && ACTIVE.includes(t.remote.state)) throw new HttpError(409, '사무실에서 실행 중이에요.');
   t.status = '대기';
   t.runStartedAt = null;
+  t.queued = false;
+  t.queueReason = '';
+  t.retryAfter = null;
   if (t.remote && ['failed', 'blocked', 'retry'].includes(t.remote.state)) t.remote = null;
   pushHistory(t, 'jay', '대기', '다시 시도');
   sys(d, `task:${t.id}`, '대표가 다시 시도할 수 있게 대기 상태로 돌렸습니다.');
@@ -1493,6 +1770,9 @@ function daysOf(v) {
 }
 
 route('POST', '/api/ui/routines', async ({ body }) => {
+  const localStat = await currentLocalStat();
+  const offices = dispatcher ? dispatcher.view() : [];
+  const workingList = [...working.values(), ...officeWorking()];
   const r = await store.mutate((d) => {
     const title = text(body.title, 200);
     if (!title) throw new HttpError(400, '이름이 필요합니다.');
@@ -1507,8 +1787,17 @@ route('POST', '/api/ui/routines', async ({ body }) => {
     if (body.assignee !== undefined && body.assignee !== 'auto') {
       const full = `${title} ${r.instruction}`;
       const picked = assigneeRef(d, body.assignee);
-      r.assignee = picked; r.reason = '대표가 정함';
-      r.resource = body.resource !== undefined ? resourceRef(d, body.resource) : null;
+      const pickedEmp = picked && picked !== 'jay' ? d.employees.find((e) => e.id === picked) || null : null;
+      r.assignee = picked; r.reason = '대표가 직접 지정';
+      if (body.resource !== undefined) {
+        r.resource = resourceRef(d, body.resource);
+      } else if (pickedEmp) {
+        const opt = pickOptimalMachine(d, { title, note: r.instruction }, pickedEmp, { localStat, offices, workingList });
+        if (opt.resource) {
+          r.resource = opt.resource.id;
+          r.reason = opt.rerouted ? `대표 지정 · ${opt.reason}` : `대표 지정 · 컴퓨터 자동 (${opt.resource.name})`;
+        }
+      }
       r.account = body.account !== undefined ? accountRef(d, body.account) : (pickAccount(full, d.resources)?.id || null);
       const accObj = r.account ? d.resources.find((x) => x.id === r.account) : null;
       const prefBr = accObj ? resolveAccountBrowser(accObj, d.resources)?.id || null : null;
@@ -1715,6 +2004,14 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
     if (!RUN_MODES.includes(body.runMode)) throw new HttpError(400, '실행 방식은 꺼짐, 누를 때만, 자동 실행 중 하나입니다.');
     e.runMode = e.engine === 'none' || e.engine === 'web' ? 'off' : body.runMode;
   }
+  if (body.fallbackTo !== undefined) {
+    if (!body.fallbackTo) e.fallbackTo = null;
+    else {
+      const target = d.employees.find((x) => x.id === body.fallbackTo && x.id !== e.id);
+      if (!target) throw new HttpError(400, '대체할 AI 직원을 찾을 수 없어요 (자기 자신은 지정할 수 없습니다).');
+      e.fallbackTo = target.id;
+    }
+  }
   if (body.salary !== undefined) {
     if (body.salary === null || body.salary === '') e.salary = null;
     else {
@@ -1726,6 +2023,29 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
   const again = ['role', 'tools', 'name', 'manual'].some((k) => body[k] !== undefined) ? reassignUnmatched(d) : { task: [], routine: [] };
   return { ...e, reassigned: again };
 }).then((r) => { refineMany(r.reassigned); if (body.engine !== undefined || body.model !== undefined || body.resources !== undefined) maybeRefreshModels(true); return r; }), UI);
+
+// AI 직원 토큰·한도 휴식(쿨다운) 수동 설정 / 즉시 해제
+route('POST', '/api/ui/employees/:id/cooldown', async ({ params, body }) => {
+  const mins = Number(body.minutes ?? 0);
+  if (!Number.isFinite(mins) || mins < 0 || mins > 1440) throw new HttpError(400, '휴식 시간은 0~1440분 사이로 정해 주세요.');
+  const updated = await store.mutate((d) => {
+    const e = d.employees.find((x) => x.id === params.id);
+    if (!e) throw new HttpError(404, '직원이 없습니다.');
+    if (mins === 0) {
+      e.cooldownUntil = null;
+      e.cooldownReason = '';
+      for (const t of d.tasks) {
+        if (t.queued && t.assignee === e.id && t.retryAfter) t.retryAfter = nowIso();
+      }
+    } else {
+      e.cooldownUntil = new Date(Date.now() + Math.round(mins) * 60000).toISOString();
+      e.cooldownReason = text(body.reason, 120) || '대표가 토큰 한도 휴식 지정';
+    }
+    return e;
+  });
+  if (mins === 0) setTimeout(() => autoRun(new Date()).catch(() => {}), 200);
+  return updated;
+}, UI);
 
 function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, group }) {
   if (!d.groups.length) d.groups = DEFAULT_GROUPS.map((x) => ({ ...x }));
@@ -1741,6 +2061,7 @@ function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, 
     id, name, group: g, role: role || '', tools: [], runsOn: '', command: '', salary: null, engine: eng, model: model || '',
     runMode: eng === 'web' || eng === 'none' ? 'off' : (RUN_MODES.includes(runMode) ? runMode : 'off'),
     webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: '', resources: [], abilities: [],
+    fallbackTo: null, cooldownUntil: null, cooldownReason: '',
   };
   d.employees.push(e);
   return e;
@@ -1766,6 +2087,7 @@ route('DELETE', '/api/ui/employees/:id', async ({ params }) => store.mutate((d) 
   const e = d.employees.find((x) => x.id === params.id);
   if (!e) throw new HttpError(404, '직원이 없습니다.');
   d.employees = d.employees.filter((x) => x.id !== e.id);
+  for (const other of d.employees) if (other.fallbackTo === e.id) other.fallbackTo = null;
   for (const r of d.resources) if (r.kind === '계정' && r.assignee === e.id) r.assignee = null;
   for (const t of d.tasks) {
     if (t.assignee === e.id && t.status !== '완료') { t.assignee = null; t.reason = `명단에서 빠진 직원의 일 · 담당을 골라 주세요`; }
@@ -1787,7 +2109,7 @@ route('POST', '/api/ui/resources', async ({ body }) => store.mutate((d) => {
   const name = text(body.name, 120) || text(parsed.name, 120);
   if (!name) throw new HttpError(400, '이름이 필요합니다.');
   const r = { id: nextId(d, 'res'), kind, name, status: RES_STATUS.includes(body.status) ? body.status : '사용 가능', note: text(body.note, 300) };
-  if (kind === '기계') Object.assign(r, { hostname: '', port: 22, isThisMac: false, deviceKind: body.deviceKind === 'phone' ? 'phone' : 'computer', status: '확인 필요' });
+  if (kind === '기계') Object.assign(r, { hostname: '', port: 22, isThisMac: false, deviceKind: body.deviceKind === 'phone' ? 'phone' : 'computer', maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '확인 필요' });
   if (kind === '폴더') r.path = text(body.path, 500);
   if (kind === '브라우저') {
     const pre = BROWSER_CATALOG.find((x) => x.key === body.preset);
@@ -1864,6 +2186,24 @@ route('PATCH', '/api/ui/resources/:id', async ({ params, body }) => store.mutate
   }
   if (r.kind === '기계') {
     if (body.deviceKind !== undefined) r.deviceKind = body.deviceKind === 'phone' ? 'phone' : 'computer';
+    if (body.maxRamPct !== undefined) {
+      const p = Math.round(Number(body.maxRamPct));
+      if (!Number.isFinite(p) || p < 55 || p > 95) throw new HttpError(400, 'RAM 상한은 55~95% 사이로 입력해 주세요.');
+      r.maxRamPct = p;
+    }
+    if (body.maxHeavy !== undefined) {
+      const m = Math.round(Number(body.maxHeavy));
+      if (!Number.isFinite(m) || m < 1 || m > 4) throw new HttpError(400, '동시 무거운 작업 상한은 1~4 사이로 입력해 주세요.');
+      r.maxHeavy = m;
+    }
+    if (body.fallbackTo !== undefined) {
+      if (!body.fallbackTo) r.fallbackTo = null;
+      else {
+        const fb = d.resources.find((x) => x.id === body.fallbackTo && x.kind === '기계' && x.id !== r.id);
+        if (!fb) throw new HttpError(400, '대체 컴퓨터를 찾을 수 없어요.');
+        r.fallbackTo = fb.id;
+      }
+    }
     if (body.hostname !== undefined) {
       const h = text(body.hostname, 253);
       if (h && !validHostname(h)) throw new HttpError(400, '호스트 이름 형식이 아닙니다.');
@@ -1887,7 +2227,10 @@ route('DELETE', '/api/ui/resources/:id', async ({ params }) => store.mutate((d) 
   }
   d.resources = d.resources.filter((x) => x.id !== params.id);
   for (const e of d.employees) e.resources = e.resources.filter((x) => x !== params.id);
-  for (const r of d.resources) if (r.kind === '계정' && r.browser === params.id) r.browser = null;
+  for (const r of d.resources) {
+    if (r.kind === '계정' && r.browser === params.id) r.browser = null;
+    if (r.kind === '기계' && r.fallbackTo === params.id) r.fallbackTo = null;
+  }
   for (const t of d.tasks) {
     if (t.resource === params.id) { t.resource = null; t.officeRun = false; }
     if (t.account === params.id) t.account = null;
@@ -1921,25 +2264,48 @@ route('POST', '/api/ui/resources/:id/check', async ({ params }) => {
   const r = store.data.resources.find((x) => x.id === params.id);
   if (!r || r.kind !== '기계') throw new HttpError(404, '기계가 없습니다.');
   let res;
+  let remoteHealth = null;
   if (validAlias(r.sshAlias || '')) {
-    // ssh 별칭이 있으면 실제로 ssh 로 한 번 들어가 본다 (키로만, 명령은 echo 하나)
+    // ssh 별칭이 있으면 키로만 읽기 전용 확인 (연결 + RAM 사용률)
     const started = Date.now();
-    const s = await ssh(r.sshAlias, 'echo AIHQ_OK', { timeoutMs: 15000 });
+    const probeCmd = 'echo AIHQ_OK; if command -v vm_stat >/dev/null 2>&1; then sysctl -n hw.memsize 2>/dev/null; vm_stat 2>/dev/null | head -n 12; elif [ -r /proc/meminfo ]; then grep -E "^Mem(Total|Available):" /proc/meminfo; fi';
+    const s = await ssh(r.sshAlias, probeCmd, { timeoutMs: 15000 });
     const ok = /AIHQ_OK/.test(s.out);
-    res = { ok, ms: Date.now() - started, reason: ok ? `ssh ${r.sshAlias} 연결됨` : (s.down ? sshWhy(s.err) : `ssh 실패 (코드 ${s.code})`), checkedAt: nowIso() };
+    if (ok) {
+      // macOS vm_stat 또는 Linux /proc/meminfo 에서 RAM % 안전 파싱
+      const lines = String(s.out || '').split('\n');
+      const memBytes = Number(/^\s*(\d{8,})\s*$/m.exec(s.out)?.[1] || 0);
+      const pg = Number(/page size of (\d+)/.exec(s.out)?.[1] || 0);
+      if (memBytes > 0 && pg > 0) {
+        const pick = (lbl) => Number(new RegExp(`${lbl}:\\s+(\\d+)`).exec(s.out)?.[1] || 0);
+        const avail = Math.min(memBytes, (pick('Pages free') + pick('Pages inactive') + pick('Pages speculative') + pick('Pages purgeable')) * pg);
+        remoteHealth = { ramPct: Math.round((1 - avail / memBytes) * 100), availGB: Math.round((avail / 1024 ** 3) * 10) / 10, totalGB: Math.round((memBytes / 1024 ** 3) * 10) / 10, checkedAt: nowIso() };
+      } else {
+        const totKb = Number(/MemTotal:\s+(\d+)/.exec(s.out)?.[1] || 0);
+        const avKb = Number(/MemAvailable:\s+(\d+)/.exec(s.out)?.[1] || 0);
+        if (totKb > 0) remoteHealth = { ramPct: Math.round((1 - avKb / totKb) * 100), availGB: Math.round((avKb / 1024 ** 2) * 10) / 10, totalGB: Math.round((totKb / 1024 ** 2) * 10) / 10, checkedAt: nowIso() };
+      }
+      void lines;
+    }
+    res = { ok, ms: Date.now() - started, reason: ok ? `ssh ${r.sshAlias} 연결됨${remoteHealth ? ` · RAM ${remoteHealth.ramPct}%` : ''}` : (s.down ? sshWhy(s.err) : `ssh 실패 (코드 ${s.code})`), checkedAt: nowIso() };
   } else {
     if (!r.hostname) throw new HttpError(400, '먼저 호스트 이름이나 ssh 별칭을 입력해 주세요.');
     res = await reach(r.hostname, r.port || 22, 1500);
   }
   return store.mutate((d) => {
     const x = d.resources.find((y) => y.id === r.id);
-    if (x) { x.lastCheck = res; if (x.status !== '꺼짐') x.status = res.ok ? '사용 가능' : '확인 필요'; }
+    if (x) {
+      x.lastCheck = res;
+      if (remoteHealth) x.health = remoteHealth;
+      if (x.status !== '꺼짐') x.status = res.ok ? '사용 가능' : '확인 필요';
+    }
     return res;
   });
 }, UI);
 
 route('PATCH', '/api/ui/settings', async ({ body }) => store.mutate((d) => {
   if (body.alarmsEnabled !== undefined) d.settings.alarmsEnabled = Boolean(body.alarmsEnabled);
+  if (body.autoOptimize !== undefined) d.settings.autoOptimize = Boolean(body.autoOptimize);
   if (body.ownerName !== undefined) { const s = text(body.ownerName, 40); if (s) d.owner.name = s; }
   if (body.companyName !== undefined) d.settings.companyName = text(body.companyName, 60);
   if (body.onboarded !== undefined) d.settings.onboarded = Boolean(body.onboarded);
