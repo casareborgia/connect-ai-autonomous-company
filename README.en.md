@@ -90,6 +90,16 @@ npx github:wonseokjung/connect-ai-autonomous-company ask-approval "pay for fligh
 npx github:wonseokjung/connect-ai-autonomous-company hq help
 ```
 
+## Automation staff (run the scripts you already have)
+
+Scripts you already run on this computer (collect, tidy, report) can be staff too. Then a routine's on/off switch and time, a task's Run button and the safety stop apply to them as well. HQ starts the command at its time; stdout becomes the result in the thread, and the exit code becomes done (0) or stuck (anything else).
+
+1. List the commands in `~/.connect-ai-hq/automations.json` next to the data folder (`AIHQ_AUTOMATIONS` overrides the path): `{"automations": [{"id": "listen", "title": "Listening", "command": ["/usr/bin/python3", "/Users/me/tools/listen.py", "daily"], "timeoutMinutes": 20}]}`
+2. `chmod 600` the file (a file other users can write is ignored).
+3. My staff → Edit → set "how to give work" to **Automation**, pick one, save. With **auto run** it starts on its own at the routine's time.
+
+Rules: only commands in that file run, and neither the UI nor the agent API (CLI, MCP) can change them or attach one to an employee; commands run as an argument array with no shell and an absolute executable path; task titles, notes and threads never reach the command or its environment (the script gets `AIHQ_TASK_ID`, `AIHQ_EMPLOYEE`, `AIHQ_TRIGGERED_BY_HQ=1`); gated tasks (pay, upload, post, delete, send) wait for the owner as usual; one automation per employee, one run at a time, `timeoutMinutes` (default 15, max 180) stops the whole process group.
+
 ## A thread for every task
 
 Each task keeps one thread with every employee's messages, results, work logs (folded to a two-line summary), imported conversations and handoffs (what was done, where it stopped, why). When the assignee changes, the whole thread goes to the next one as quoted data, never as instructions.
