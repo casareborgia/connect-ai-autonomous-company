@@ -12,7 +12,14 @@
   <div class="shell">
     <aside class="side">
       <div class="side-top">
-        <a class="brand" href="#home"><b>CONNECT AI HQ</b><span id="brand-sub"></span></a>
+        <a class="brand" href="#home">
+          <div class="brand-row">
+            <span class="brand-mark" aria-hidden="true"><i></i><i></i></span>
+            <b>CONNECT AI HQ</b>
+            <span class="brand-ver">v2</span>
+          </div>
+          <span id="brand-sub"></span>
+        </a>
         <button type="button" class="btn sm mob-set" id="mob-set">설정</button>
       </div>
       <nav class="nav" id="nav" aria-label="메뉴"></nav>
@@ -20,8 +27,11 @@
     </aside>
     <main><div class="page" id="page"></div></main>
   </div>
+  <div class="live-dock" id="live-dock" aria-live="polite" aria-label="실시간 알림"></div>
+  <div class="live-worker" id="live-worker" aria-live="polite"></div>
   <div class="toast" id="toast" role="status"></div>
   <dialog id="dlg"></dialog>
+  <script src="/sound.js"></script>
   <script src="/charts.js"></script>
   <script src="/hidden.js"></script>
   <script src="/app.js"></script>

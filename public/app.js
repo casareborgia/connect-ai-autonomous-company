@@ -149,12 +149,164 @@ function kindBadge(kind, imported, pasted) {
 function evidenceLink(file) {
   return file ? h('a', { class: 'evi', href: `/evidence/${encodeURIComponent(file)}`, target: '_blank', rel: 'noopener' }, '근거 보기') : null;
 }
-function toast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => t.classList.remove('show'), 2600);
+const SND = () => window.HQSound;
+let liveCardSeq = 0;
+
+function pushLiveCard({ kind = 'info', kicker = '', title = '', body = '', empId = null, taskId = null, actionLabel = '', sound = null, seal = false, duration = 4600 } = {}) {
+  const dock = document.getElementById('live-dock');
+  if (!dock) return;
+  if (sound !== false) SND()?.play(sound || (kind === 'info' ? 'tick' : kind));
+  const id = `lc-${++liveCardSeq}`;
+  const kickerText = kicker || ({
+    connect: 'CONNECT AI · 연결',
+    done: 'CONNECT AI · 완료',
+    handoff: 'CONNECT AI · 자동 인계',
+    approve: 'CONNECT AI · 결재 印',
+    alert: 'CONNECT AI · 확인 필요',
+    info: 'CONNECT AI',
+  }[kind] || 'CONNECT AI');
+  const nowStr = `${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
+  const eObj = empId && S ? emp(empId) : null;
+  const iconEl = eObj
+    ? avatarEl(eObj, { size: 34, stateOverride: kind === 'connect' ? 'working' : 'idle' })
+    : seal
+      ? h('span', { class: 'live-seal', 'aria-hidden': 'true' }, '印')
+      : h('span', { class: 'live-brand-dot', 'aria-hidden': 'true' }, h('i'), h('i'));
+
+  let timer = null;
+  const dismiss = () => {
+    clearTimeout(timer);
+    card.classList.add('out');
+    setTimeout(() => card.remove(), 220);
+  };
+  const card = h('div', { class: `live-card k-${kind}`, 'data-id': id, role: 'status' },
+    h('div', { class: 'live-card-in' },
+      iconEl,
+      h('div', { class: 'live-card-body' },
+        h('div', { class: 'live-card-meta' }, h('span', { class: 'live-kicker' }, kickerText), h('span', { class: 'live-ts' }, nowStr)),
+        h('div', { class: 'live-card-title' }, title),
+        body ? h('div', { class: 'live-card-sub clamp2' }, body) : null,
+        taskId ? h('button', { type: 'button', class: 'btn link live-card-act', onclick: () => { dismiss(); openTaskById(taskId); } }, actionLabel || '열기 →') : null),
+      h('button', { type: 'button', class: 'live-x', 'aria-label': '알림 닫기', onclick: dismiss }, '×')),
+    h('div', { class: 'live-prog' }, h('i', { style: `animation-duration:${duration}ms` })));
+
+  card.addEventListener('mouseenter', () => { clearTimeout(timer); card.classList.add('paused'); });
+  card.addEventListener('mouseleave', () => { card.classList.remove('paused'); timer = setTimeout(dismiss, 1800); });
+  dock.prepend(card);
+  while (dock.children.length > 4) dock.lastElementChild?.remove();
+  requestAnimationFrame(() => card.classList.add('in'));
+  timer = setTimeout(dismiss, duration);
+}
+
+function toast(msg, opts = {}) {
+  const txt = String(msg || '').trim();
+  if (!txt) return;
+  let kind = opts.kind || 'info';
+  if (!opts.kind) {
+    if (/승인|확인했어요/.test(txt)) kind = 'approve';
+    else if (/완료|결과를 남겼/.test(txt)) kind = 'done';
+    else if (/인계|우회|전환/.test(txt)) kind = 'handoff';
+    else if (/시작했|켰어요|연결|맡겼/.test(txt)) kind = 'connect';
+    else if (/실패|오류|필요해|중단|차단/.test(txt)) kind = 'alert';
+  }
+  pushLiveCard({
+    kind,
+    title: txt,
+    body: opts.body || '',
+    empId: opts.empId || null,
+    taskId: opts.taskId || null,
+    actionLabel: opts.actionLabel || '',
+    sound: opts.sound !== undefined ? opts.sound : (kind === 'info' ? 'tick' : kind),
+    seal: kind === 'approve',
+    duration: opts.duration || (kind === 'alert' ? 5400 : 3800),
+  });
+}
+
+function renderLiveWorker() {
+  const box = document.getElementById('live-worker');
+  if (!box || !S) return;
+  const list = S.working || [];
+  if (!list.length) { box.replaceChildren(); box.classList.remove('show'); return; }
+  const w = list[0];
+  const eObj = emp(w.emp);
+  const tObj = w.taskId ? S.data.tasks.find((x) => x.id === w.taskId) : null;
+  const more = list.length > 1 ? ` 외 ${list.length - 1}명` : '';
+  const pill = h('button', {
+    type: 'button', class: 'live-worker-pill',
+    onclick: () => { if (w.taskId) openTaskById(w.taskId); else location.hash = '#dashboard'; },
+  },
+  eObj ? avatarEl(eObj, { size: 32, stateOverride: 'working' }) : h('span', { class: 'live-brand-dot' }, h('i'), h('i')),
+  h('div', { class: 'live-worker-txt' },
+    h('div', { class: 'live-worker-h' }, h('span', { class: 'live-pulse' }), h('b', null, `${shortName(w.emp)} 일하는 중${more}`)),
+    h('div', { class: 'small muted clamp' }, w.statusLine || tObj?.title || w.label || '작업 실행 중')),
+  h('span', { class: 'tag' }, '열기'));
+  box.replaceChildren(pill);
+  box.classList.add('show');
+}
+
+function detectLiveEvents(prev, next) {
+  if (!prev || !next?.data) return;
+  const prevWork = new Set((prev.working || []).map((w) => `${w.emp}:${w.taskId}`));
+  for (const w of next.working || []) {
+    if (!prevWork.has(`${w.emp}:${w.taskId}`)) {
+      const t = next.data.tasks.find((x) => x.id === w.taskId);
+      pushLiveCard({
+        kind: 'connect',
+        title: `${shortName(w.emp)} 작업 연결 · 시작`,
+        body: t ? t.title : (w.label || '작업 시작'),
+        empId: w.emp,
+        taskId: w.taskId || null,
+        actionLabel: '진행 보기 →',
+        duration: 4200,
+      });
+    }
+  }
+  const prevTasks = new Map((prev.data?.tasks || []).map((t) => [t.id, t]));
+  for (const t of next.data.tasks || []) {
+    const old = prevTasks.get(t.id);
+    if (!old) continue;
+    const oldTrailLen = (old.failoverTrail || []).length;
+    const newTrail = t.failoverTrail || [];
+    if (newTrail.length > oldTrailLen) {
+      const last = newTrail[newTrail.length - 1];
+      pushLiveCard({
+        kind: 'handoff',
+        title: `자동 인계: ${last.fromName} → ${last.toName}`,
+        body: `${t.title} (${last.reason})`,
+        empId: last.to,
+        taskId: t.id,
+        actionLabel: '진행 보기 →',
+        duration: 5400,
+      });
+    }
+    if (old.status !== '완료' && t.status === '완료' && (t.completedBy || t.assignee) !== 'jay') {
+      const byId = t.completedBy || t.assignee;
+      pushLiveCard({
+        kind: 'done',
+        title: `${shortName(byId)} 작업 완료 · 결과물 도착`,
+        body: t.resultSummary || t.title,
+        empId: byId,
+        taskId: t.id,
+        actionLabel: '결과 보기 →',
+        duration: 6000,
+      });
+    }
+  }
+  const prevApprs = new Set((prev.data?.approvals || []).map((a) => a.id));
+  for (const a of next.data.approvals || []) {
+    if (!prevApprs.has(a.id) && a.status === '대기') {
+      pushLiveCard({
+        kind: 'alert',
+        title: `대표 결재 요청 (${a.kind})`,
+        body: `${shortName(a.from)}: ${a.what}`,
+        empId: a.from,
+        taskId: a.taskId || null,
+        actionLabel: '결재하기 →',
+        seal: true,
+        duration: 6500,
+      });
+    }
+  }
 }
 const CLI_ENGINES = ['claude', 'codex', 'gemini', 'agy', 'opencode'];
 const ENGINE_LABEL = { web: '복사해서 맡기기', none: '스스로 보고 (MCP, CLI)', local: '로컬 모델', claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', agy: 'Antigravity (agy)', opencode: 'OpenCode' };
@@ -238,8 +390,11 @@ async function load({ background = false } = {}) {
   const next = await r.json();
   const sig = stateSignature(next);
   const unchanged = background && S && sig === ui.lastSig;
+  const prev = S;
   S = next;
   ui.lastSig = sig;
+  if (prev && !unchanged) detectLiveEvents(prev, next);
+  renderLiveWorker();
   if (unchanged) return;
   if (background && isEditingPageInput()) {
     ui.pendingRender = true;
@@ -370,8 +525,10 @@ function openSettingsModal() {
   const fSleep = h('input', { type: 'checkbox', checked: d.settings.preventSleep !== false });
   const fAutoAdd = h('input', { type: 'checkbox', checked: d.settings.autoStartAdded !== false });
   const fNotify = h('input', { type: 'checkbox', checked: d.settings.desktopNotify !== false });
+  const fSound = h('input', { type: 'checkbox', checked: SND()?.enabled() !== false, onchange: (ev) => { SND()?.setEnabled(ev.target.checked); if (ev.target.checked) SND()?.play('connect', { force: true }); } });
   const memCount = Object.keys(d.settings.assignMemory || {}).length;
   const save = () => once('save-set', async () => {
+    SND()?.setEnabled(fSound.checked);
     const patch = {
       ownerName: ownerName.value.trim() || undefined,
       companyName: companyName.value.trim(),
@@ -396,10 +553,16 @@ function openSettingsModal() {
       h('label', { class: 'field' }, '자는 시간 시작 (선택)', qFrom),
       h('label', { class: 'field' }, '일어나는 시간 (선택)', qTo)),
     h('div', { style: 'margin-top:16px' },
-      h('div', { class: 'small muted', style: 'margin-bottom:8px' }, '자동 실행 · 알림 · 런타임 안정화'),
+      h('div', { class: 'small muted', style: 'margin-bottom:8px' }, '자동 실행 · 알림 · 사운드 · 런타임 안정화'),
       h('label', { class: 'chk-l' }, fAutoAdd, '자동 실행 AI 직원에게 할 일 추가(Add) 즉시 착수 (결제·발행·삭제 게이트는 승인 전 정지)'),
       h('label', { class: 'chk-l', style: 'margin-top:6px' }, fNotify, 'AI 작업 완료 · 결재 요청 시 맥 데스크탑 알림 받기 (자는 시간 제외)'),
-      h('label', { class: 'chk-l', style: 'margin-top:6px' }, fOpt, '토큰 한도 도달 시 대체 AI 전환 · RAM 85% 초과 시 대체 컴퓨터 우회/대기열 보호'),
+      h('div', { class: 'row', style: 'margin-top:6px;justify-content:space-between;flex-wrap:wrap;gap:6px' },
+        h('label', { class: 'chk-l' }, fSound, 'CONNECT AI 시그니처 효과음 (연결 · 완료 · 자동 인계 · 결재 印)'),
+        h('div', { class: 'row', style: 'gap:4px' },
+          h('button', { type: 'button', class: 'chip sm', onclick: () => { SND()?.play('connect', { force: true }); pushLiveCard({ kind: 'connect', title: '연결 · 착수 사운드', body: 'AI 직원이 일을 시작할 때 울립니다', sound: false }); } }, '연결음'),
+          h('button', { type: 'button', class: 'chip sm', onclick: () => { SND()?.play('done', { force: true }); pushLiveCard({ kind: 'done', title: '완료 · 결과물 사운드', body: 'AI 직원이 일을 끝냈을 때 울립니다', sound: false }); } }, '완료음'),
+          h('button', { type: 'button', class: 'chip sm', onclick: () => { SND()?.play('approve', { force: true }); pushLiveCard({ kind: 'approve', title: '결재 · 印 승인 사운드', body: '대표가 중요 작업을 승인할 때 울립니다', seal: true, sound: false }); } }, '결재음'))),
+      h('label', { class: 'chk-l', style: 'margin-top:6px' }, fOpt, '토큰 한도 · 실패 시 대체 AI 자동 인계 · RAM 85% 초과 시 대체 컴퓨터 우회/대기열 보호'),
       h('label', { class: 'chk-l', style: 'margin-top:6px' }, fSleep, `작업 중 맥 잠자기 방지 (caffeinate · 먹통 감시 ${S.runtime?.hangWatchdogSec || 180}초)`)),
     h('div', { style: 'margin-top:16px' },
       h('div', { class: 'small muted', style: 'margin-bottom:8px' }, '선택 메뉴 표시 (기본은 4개 핵심 메뉴만 깔끔하게 보여요)'),
@@ -456,13 +619,14 @@ function renderNav() {
     if (id === 'home' && (open || waiting)) c = h('span', { class: `cnt${waiting ? ' hot' : ''}`, title: waiting ? `대표 확인 ${waiting}건` : '' }, waiting || open);
     return h('a', { href: `#${id}`, class: ui.route === id ? 'on' : '', 'aria-current': ui.route === id ? 'page' : null }, h('span', null, label), c);
   }));
-  document.getElementById('brand-sub').textContent = d.settings.companyName || (d.owner.name ? `${d.owner.name} 대표` : '');
+  document.getElementById('brand-sub').textContent = d.settings.companyName || (d.owner.name ? `${d.owner.name} · 삶과 AI 일의 최적화` : '삶과 AI 일의 최적화');
   const mobSet = document.getElementById('mob-set');
   if (mobSet && !mobSet.dataset.bound) { mobSet.dataset.bound = '1'; mobSet.addEventListener('click', openSettingsModal); }
   const thisMacRes = d.resources.find((r) => r.kind === '기계' && r.isThisMac);
   const localH = thisMacRes ? S.machineHealth?.[thisMacRes.id] : null;
   const coolCnt = d.employees.filter(isEmpCooling).length;
   const queueCnt = d.tasks.filter((t) => t.queued && t.status !== '완료').length;
+  const soundOn = SND()?.enabled() !== false;
   const footNodes = [
     h('div', null, `AI 직원 ${d.employees.length}명 · 자동 실행 ${d.employees.filter((e) => e.runMode === 'auto').length}명`),
     localH && typeof localH.ramPct === 'number'
@@ -471,9 +635,24 @@ function renderNav() {
     coolCnt || queueCnt
       ? h('div', { class: 'side-health' }, [coolCnt ? `토큰 휴식 ${coolCnt}명` : '', queueCnt ? `대기열 ${queueCnt}건` : ''].filter(Boolean).join(' · '))
       : h('div', null, `알람 ${d.settings.alarmsEnabled ? '켜짐' : '꺼짐'} · 최적화 ${d.settings.autoOptimize !== false ? '켜짐' : '꺼짐'}`),
-    h('div', { class: 'row', style: 'margin-top:8px' },
+    h('div', { class: 'row', style: 'margin-top:8px;gap:6px' },
       h('button', { type: 'button', class: `btn sm${ui.route === 'pocket' ? ' dark' : ''}`, onclick: () => { location.hash = '#pocket'; } }, '폰 뷰'),
-      h('button', { type: 'button', class: 'btn sm', onclick: openSettingsModal }, '설정')),
+      h('button', { type: 'button', class: 'btn sm', onclick: openSettingsModal }, '설정'),
+      h('button', {
+        type: 'button', class: `btn sm sound-btn${soundOn ? ' on' : ''}`,
+        title: soundOn ? 'CONNECT AI 효과음 켜짐 (눌러서 끄기)' : '효과음 꺼짐 (눌러서 켜기)',
+        'aria-label': soundOn ? '효과음 끄기' : '효과음 켜기',
+        onclick: () => {
+          const nextOn = !soundOn;
+          SND()?.setEnabled(nextOn);
+          if (nextOn) {
+            SND()?.play('connect', { force: true });
+            pushLiveCard({ kind: 'connect', title: 'CONNECT AI 효과음 켜짐', body: '연결 · 완료 · 자동 인계 · 결재 시 사운드가 울려요', sound: false, duration: 2800 });
+          }
+          renderNav();
+        },
+      }, soundOn ? '♪ ON' : '♪ OFF')),
+    h('div', { class: 'brand-sign' }, 'CONNECT AI LAB · LIFE × AI OS'),
   ].filter(Boolean);
   document.getElementById('side-foot').replaceChildren(...footNodes);
 }
@@ -533,7 +712,7 @@ function taskRow(t, { draggable = true, overdue = false } = {}) {
   const li = h('li', { class: `task${done ? ' done' : ''}${open ? ' open' : ''}`, 'data-id': t.id });
 
   const chk = h('input', { type: 'checkbox', class: 'chk', checked: done, 'aria-label': `${t.title} 완료`,
-    onchange: () => act('PATCH', `/api/ui/tasks/${t.id}`, { status: chk.checked ? '완료' : '대기' }) });
+    onchange: () => act('PATCH', `/api/ui/tasks/${t.id}`, { status: chk.checked ? '완료' : '대기' }, chk.checked ? '완료했어요 · 오늘 한 일로 옮겼어요' : '오늘 할 일로 되돌렸어요') });
   const who = h('button', {
     class: `who-chip${t.assignee === 'jay' ? '' : t.assignee ? ' ai' : ' none'}`, 'aria-label': '담당 바꾸기', 'aria-expanded': ui.picking === t.id ? 'true' : 'false',
     onclick: (ev) => { ev.stopPropagation(); ui.picking = ui.picking === t.id ? null : t.id; render(); },
