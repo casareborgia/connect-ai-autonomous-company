@@ -1482,15 +1482,175 @@ function createWhoBar(titleInput, pickKey) {
   return wrap;
 }
 
+function parseSmartTime(raw, { allowBareDigits = false } = {}) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  if (/^(지금|바로|즉시)$/.test(s)) return '';
+  const mRel = /(?:(\d{1,2})\s*시간(?:\s*(\d{1,2})\s*분|\s*(반))?|(\d{1,3})\s*분)\s*(?:뒤|후)(?:에)?/.exec(s);
+  if (mRel) {
+    const addH = mRel[1] ? Number(mRel[1]) : 0;
+    const addM = mRel[3] ? 30 : mRel[2] ? Number(mRel[2]) : mRel[4] ? Number(mRel[4]) : 0;
+    const tot = addH * 60 + addM;
+    if (tot >= 1 && tot <= 720) {
+      const d = new Date(Date.now() + tot * 60000);
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+  }
+  const adj = (mer, h) => {
+    if (['오후', '저녁', '밤'].includes(mer) && h >= 1 && h <= 11) return h + 12;
+    if (mer === '낮' && h >= 1 && h <= 6) return h + 12;
+    if (['오전', '새벽'].includes(mer) && h === 12) return 0;
+    return h;
+  };
+  const m0 = /(오전|오후|아침|점심|낮|저녁|밤|새벽)\s*(\d{1,2}):([0-5]\d)(?!\d)/.exec(s);
+  if (m0) { const h = adj(m0[1], Number(m0[2])); if (h <= 23) return `${pad(h)}:${m0[3]}`; }
+  const m1 = /(오전|오후|아침|점심|낮|저녁|밤|새벽)\s*(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분|\s*(반))?/.exec(s);
+  if (m1) {
+    const h = adj(m1[1], Number(m1[2]));
+    const mi = m1[4] ? 30 : m1[3] ? Number(m1[3]) : 0;
+    if (h <= 23 && mi <= 59) return `${pad(h)}:${pad(mi)}`;
+  }
+  const m2 = /(?<!\d)(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분(?!마다)|\s*(반))/.exec(s);
+  if (m2) {
+    let h = Number(m2[1]);
+    const mi = m2[3] ? 30 : Number(m2[2]);
+    if (h <= 23 && mi <= 59) { if (h >= 1 && h <= 6) h += 12; return `${pad(h)}:${pad(mi)}`; }
+  }
+  const m3 = /(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)/.exec(s);
+  if (m3) return `${pad(Number(m3[1]))}:${m3[2]}`;
+  if (allowBareDigits) {
+    // 4자리(1830), 3자리(630 → 18:30), 1~2자리(18 → 18:00)
+    const d4 = /^(\d{2})(\d{2})$/.exec(s);
+    if (d4 && Number(d4[1]) <= 23 && Number(d4[2]) <= 59) return `${d4[1]}:${d4[2]}`;
+    const d3 = /^(\d)(\d{2})$/.exec(s);
+    if (d3 && Number(d3[2]) <= 59) { let h = Number(d3[1]); if (h >= 1 && h <= 6) h += 12; return `${pad(h)}:${d3[2]}`; }
+    const d2 = /^(\d{1,2})$/.exec(s);
+    if (d2 && Number(d2[1]) <= 23) { let h = Number(d2[1]); if (h >= 1 && h <= 6) h += 12; return `${pad(h)}:00`; }
+  }
+  return null;
+}
+
+function fmtKoTime(hhmm) {
+  if (!hhmm) return '지금 바로';
+  const [hStr, mStr] = hhmm.split(':');
+  const h = Number(hStr);
+  const m = Number(mStr);
+  const mer = h < 12 ? '오전' : '오후';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${mer} ${h12}시` : `${mer} ${h12}:${pad(m)}`;
+}
+
+function addMinutesHm(mins) {
+  const d = new Date(Date.now() + mins * 60000);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function addBar() {
-  const title = h('input', { class: 'in big', placeholder: '할 일을 적어 주세요 (아래에서 담당 직접 선택 · 컴퓨터는 자동 최적화)', 'data-k': 'add-title', 'aria-label': '새 할 일' });
-  const time = h('input', { class: 'in big', type: 'time', 'data-k': 'add-time', 'aria-label': '시간 (선택)' });
+  const title = h('input', { class: 'in big', placeholder: '할 일을 적어 주세요 (예: 10분 뒤 이메일 체크 · 오후 6시 반 보고서)', 'data-k': 'add-title', 'aria-label': '새 할 일' });
+  const timeVal = h('input', { type: 'hidden', value: ui.addTime || '', 'data-k': 'add-time' });
+  let manualTime = Boolean(ui.addTimeManual);
+  const pop = h('div', { class: 'time-pop', role: 'dialog', 'aria-label': '시간 선택' });
+  const lblEl = h('span', { class: 'time-btn-lbl' });
+  const clearBtn = h('span', {
+    class: 'time-x', role: 'button', tabindex: '0', title: '지금 바로로 되돌리기', 'aria-label': '시간 지우기',
+    onclick: (ev) => { ev.stopPropagation(); setTime('', false); closePop(); },
+  }, '×');
+  const timeBtn = h('button', {
+    type: 'button', class: 'time-btn', 'aria-haspopup': 'dialog', 'aria-expanded': 'false',
+    onclick: (ev) => { ev.stopPropagation(); togglePop(); },
+  }, h('span', { class: 'time-ic', 'aria-hidden': 'true' }, '◷'), lblEl, clearBtn);
+
+  const syncBtn = () => {
+    const v = timeVal.value;
+    lblEl.textContent = fmtKoTime(v);
+    timeBtn.classList.toggle('has', Boolean(v));
+    clearBtn.style.display = v ? 'inline-grid' : 'none';
+  };
+  const setTime = (v, isManual = true) => {
+    timeVal.value = v || '';
+    ui.addTime = timeVal.value;
+    manualTime = Boolean(v && isManual);
+    ui.addTimeManual = manualTime;
+    syncBtn();
+  };
+  syncBtn();
+
+  const quickIn = h('input', { class: 'in sm', placeholder: '직접 입력 (예: 1830, 오후 6:30, 15분 뒤)', 'aria-label': '시간 직접 입력' });
+  const applyQuick = () => {
+    const parsed = parseSmartTime(quickIn.value, { allowBareDigits: true });
+    if (parsed === null) { quickIn.focus(); toast('예: 1830, 오후 6:30, 15분 뒤 형식으로 적어 주세요'); return; }
+    setTime(parsed, Boolean(parsed));
+    quickIn.value = '';
+    closePop();
+  };
+  quickIn.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); applyQuick(); }
+    if (ev.key === 'Escape') closePop();
+  });
+
+  const buildPop = () => {
+    const rels = [[0, '지금 바로'], [5, '+5분'], [10, '+10분'], [30, '+30분'], [60, '+1시간']];
+    const presets = [['09:00', '오전 9시'], ['10:00', '오전 10시'], ['14:00', '오후 2시'], ['18:00', '오후 6시'], ['20:00', '저녁 8시'], ['22:00', '밤 10시']];
+    pop.replaceChildren(
+      h('div', { class: 'time-pop-sec' },
+        h('div', { class: 'small muted', style: 'margin-bottom:6px' }, '빠른 예약 (지금 기준)'),
+        h('div', { class: 'picker' }, rels.map(([m, label]) => h('button', {
+          type: 'button', class: `chip sm${(m === 0 && !timeVal.value) ? ' on' : ''}`,
+          onclick: () => { setTime(m === 0 ? '' : addMinutesHm(m), m > 0); closePop(); },
+        }, label)))),
+      h('div', { class: 'time-pop-sec' },
+        h('div', { class: 'small muted', style: 'margin-bottom:6px' }, '자주 쓰는 시각'),
+        h('div', { class: 'picker' }, presets.map(([hhmm, label]) => h('button', {
+          type: 'button', class: `chip sm${timeVal.value === hhmm ? ' on' : ''}`,
+          onclick: () => { setTime(hhmm, true); closePop(); },
+        }, label)))),
+      h('div', { class: 'time-pop-sec' },
+        h('div', { class: 'row', style: 'gap:6px' },
+          quickIn,
+          h('button', { type: 'button', class: 'btn sm dark', onclick: applyQuick }, '적용'))));
+  };
+
+  let onDocClick = null;
+  const closePop = () => {
+    pop.classList.remove('open');
+    timeBtn.setAttribute('aria-expanded', 'false');
+    if (onDocClick) { document.removeEventListener('click', onDocClick); onDocClick = null; }
+  };
+  const togglePop = () => {
+    if (pop.classList.contains('open')) { closePop(); return; }
+    buildPop();
+    pop.classList.add('open');
+    timeBtn.setAttribute('aria-expanded', 'true');
+    quickIn.value = '';
+    setTimeout(() => quickIn.focus(), 20);
+    onDocClick = (ev) => { if (!timeWrap.contains(ev.target)) closePop(); };
+    setTimeout(() => document.addEventListener('click', onDocClick), 0);
+  };
+
+  const timeWrap = h('div', { class: 'time-wrap' }, timeVal, timeBtn, pop);
+
+  // 제목에 "10분 뒤", "오후 6:30", "저녁 8시" 를 적으면 실시간으로 시간 버튼이 자동 채워짐!
+  title.addEventListener('input', () => {
+    if (manualTime) return;
+    const detected = parseSmartTime(title.value, { allowBareDigits: false });
+    if (detected !== null) {
+      timeVal.value = detected;
+      ui.addTime = detected;
+      syncBtn();
+    } else if (timeVal.value) {
+      timeVal.value = '';
+      ui.addTime = '';
+      syncBtn();
+    }
+  });
+
   const whoBar = createWhoBar(title, 'taskPick');
   const add = async () => {
-    const tm = time.value;
+    closePop();
+    const tm = timeVal.value;
     const picked = ui.taskPick || 'jay';
     const r = await submitInput(title, 'add-task', (v) => {
-      time.value = '';
+      setTime('', false);
       return act('POST', '/api/ui/tasks', { title: v, time: tm, date: S.today, assignee: picked });
     });
     if (r) {
@@ -1502,9 +1662,11 @@ function addBar() {
           ? `${shortName(r.assignee)} 대기열에 올렸어요 (여유 생기면 자동 착수)`
           : r.gate
             ? `${shortName(r.assignee)} · ${r.gate} 확인이 필요해 승인 대기 중이에요`
-            : picked === 'auto'
-              ? (r.reason ? `${shortName(r.assignee)}에게 맡겼어요 · ${r.reason}` : '추가했어요')
-              : `${shortName(r.assignee)}에게 맡겼어요${comp}`;
+            : r.time
+              ? `${shortName(r.assignee)} · ${fmtKoTime(r.time)} 예약했어요${comp}`
+              : picked === 'auto'
+                ? (r.reason ? `${shortName(r.assignee)}에게 맡겼어요 · ${r.reason}` : '추가했어요')
+                : `${shortName(r.assignee)}에게 맡겼어요${comp}`;
       toast(msg);
       document.querySelector('[data-k="add-title"]')?.focus();
     }
@@ -1512,7 +1674,7 @@ function addBar() {
   title.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) add(); });
   return h('div', null,
     h('div', { class: 'addbar' },
-      title, time,
+      title, timeWrap,
       h('button', { class: `mic-sm${ui.listening ? ' on' : ''}`, 'aria-label': ui.listening ? '듣기 멈추기' : '말로 적기', 'aria-pressed': ui.listening ? 'true' : 'false', title: '말로 적기', onclick: () => toggleMic(title) }, MIC_SVG()),
       h('button', { class: 'btn dark big', onclick: add }, '추가')),
     whoBar);

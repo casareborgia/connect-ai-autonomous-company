@@ -255,6 +255,9 @@ test('처음 사용자 E2E 시뮬레이션: 9종 툴 connect(--dry-run/--yes/dis
 });
 
 test('한국어 시각 자동 추출 + 일반 실행 실패 시 다른 AI 자동 인계(failoverTrail) + 완료 결과물 요약(resultSummary) + 웹→로컬 1클릭 전환 실행', async () => {
+  const fixedNow = new Date(2026, 10, 21, 17, 30, 0);
+  assert.equal(extractKoreanTime('10분 뒤 이메일 체크', fixedNow), '17:40');
+  assert.equal(extractKoreanTime('1시간 반 후 리포트 확인', fixedNow), '19:00');
   assert.equal(extractKoreanTime('오후 5:11 이메일 체크'), '17:11');
   assert.equal(extractKoreanTime('저녁 7:30 댓글 확인'), '19:30');
   assert.equal(extractKoreanTime('오전 12:15 새벽 점검'), '00:15');
