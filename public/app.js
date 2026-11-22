@@ -2094,11 +2094,10 @@ function joseonSwarmPanel() {
       const members = d.employees.filter((e) => (e.team || 'ops') === t.key);
       const anyWork = members.some((e) => isWorking(e.id));
       return h('button', {
-        type: 'button', class: `swarm-tab${teamFilter === t.key ? ' on' : ''}`,
-        style: members.length ? undefined : 'opacity:.52',
+        type: 'button', class: `swarm-tab tm-${t.key}${teamFilter === t.key ? ' on' : ''}${members.length ? '' : ' empty-team'}`,
         title: `${t.name} · ${t.hint}`,
         onclick: () => { ui.swarmTeam = t.key; ui.swarmSelected = members.length === 1 ? members[0].id : 'all'; render(); },
-      }, anyWork ? h('span', { class: 'st-live' }) : h('span', { class: 'st-dot', style: `background:${t.color}` }), `${t.short} ${members.length}`);
+      }, anyWork ? h('span', { class: 'st-live' }) : h('span', { class: 'st-dot' }), `${t.short} ${members.length}`);
     }),
   ];
 
@@ -2159,7 +2158,7 @@ function joseonSwarmPanel() {
         h('div', { class: 'swarm-kicker' }, `CONNECT AI · ${tInfo.code || tInfo.short}`),
         h('div', { class: 'swarm-hero-title' },
           `@${shortName(selEmp.id)}`,
-          h('span', { class: 'swarm-pill', style: `border:1px solid ${tInfo.color}55;color:${tInfo.color}` }, tInfo.name),
+          h('span', { class: `swarm-pill team-tag tm-${tInfo.key}` }, tInfo.name),
           h('span', { class: `swarm-pill${working ? ' live' : ''}` }, working ? 'ACTIVE' : cooling ? `COOLDOWN ${empCooldownMin(selEmp)}m` : 'IDLE · Z')),
         h('div', { class: 'swarm-hero-sub' }, working && wTask
           ? `진행 중: ${wTask.title}`
@@ -2183,11 +2182,11 @@ function joseonSwarmPanel() {
     const on = selEmp && selEmp.id === e.id;
     const tInfo = empTeamInfo(e);
     const tileVisual = e.avatarImage
-      ? h('img', { src: e.avatarImage, alt: shortName(e.id), width: 48, height: 48, style: 'border-radius:10px;object-fit:cover;display:block' })
+      ? h('img', { src: e.avatarImage, alt: shortName(e.id), width: 48, height: 48, class: 'swarm-av-img' })
       : (px?.SPRITES[e.avatar] || e.avatarStyle === 'pixel'
         ? C.avatarSvg(e.avatar, { size: 48, state: working ? 'working' : (isEmpCooling(e) ? 'cooling' : 'idle'), style: 'pixel' })
         : avatarEl(e, { size: 48, onDark: true }));
-    return h('div', { class: `swarm-item${on ? ' on' : ''}` },
+    return h('div', { class: `swarm-item tm-${tInfo.key}${on ? ' on' : ''}` },
       h('button', {
         type: 'button', class: `swarm-tile${on ? ' on' : ''}`,
         title: `${shortName(e.id)} (${tInfo.name}) — 클릭해 선택`,
@@ -2199,13 +2198,13 @@ function joseonSwarmPanel() {
       },
       tileVisual,
       working ? h('i', { class: 'sw-dot', title: '가동 중' }) : null,
-      h('i', { class: 'sw-team', style: `background:${tInfo.color}` })),
+      h('i', { class: 'sw-team' })),
       h('span', { class: 'swarm-lbl' }, `@${shortName(e.id)}`));
   });
 
   const addTile = h('div', { class: 'swarm-item' },
     h('button', {
-      type: 'button', class: 'swarm-tile', style: 'border-style:dashed;color:#8c94a8;font-size:20px;font-weight:500',
+      type: 'button', class: 'swarm-tile add-tile',
       title: '새 AI 직원 추가',
       onclick: () => openAddEmployee(activeTeamMeta ? { pack: 'joseon', team: activeTeamMeta.key, avatar: teamSampleSprite(activeTeamMeta.key) } : undefined),
     }, '+'),
@@ -3576,7 +3575,7 @@ function empCard(e) {
             h('h3', null,
               e.avatarName || e.name,
               e.avatarName && e.avatarName !== e.name ? h('span', { class: 'tag', style: 'margin-left:6px' }, e.name) : null,
-              h('span', { class: 'team-pill', title: tInfo.hint }, h('i', { style: `background:${tInfo.color}` }), tInfo.short),
+              h('span', { class: `team-pill tm-${tInfo.key}`, title: tInfo.hint }, h('i'), tInfo.short),
               h('span', { class: 'emp-id', title: 'CLI · MCP 직원 아이디' }, e.id)),
             e.persona ? h('div', { class: 'small', style: 'color:var(--ink-2);margin-top:2px' }, e.persona) : null,
             h('div', { class: 'small muted' }, workJob?.statusLine ? `진행 중: ${workJob.statusLine}` : how),

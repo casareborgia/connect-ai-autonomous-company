@@ -1030,6 +1030,19 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .swarm-lbl { font-size: 11px; color: #8c94a8; max-width: 62px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
 .swarm-item.on .swarm-lbl { color: #fff; font-weight: 600; }
 
+.swarm-tab.empty-team { opacity: 0.52; }
+.swarm-tile.add-tile { border-style: dashed; color: #8c94a8; font-size: 20px; font-weight: 500; }
+.swarm-av-img { border-radius: 10px; object-fit: cover; display: block; }
+.tm-exec      { --tm: #d4a359; }
+.tm-dev       { --tm: #34d399; }
+.tm-plan      { --tm: #a78bfa; }
+.tm-design    { --tm: #fb923c; }
+.tm-marketing { --tm: #f472b6; }
+.tm-research  { --tm: #60a5fa; }
+.tm-ops       { --tm: #38bdf8; }
+.st-dot, .sw-team, .team-pill i { background: var(--tm, #38bdf8); }
+.swarm-pill.team-tag { border: 1px solid color-mix(in srgb, var(--tm, #38bdf8) 45%, transparent); color: var(--tm, #38bdf8); }
+
 .gate-guard { display: flex; align-items: center; gap: 10px; }
 .health-doc-badge { display: inline-flex; align-items: center; gap: 7px; }
 .health-doc-btn { padding: 0; border: 0; background: transparent; cursor: pointer; border-radius: 8px; transition: transform .14s ease; }

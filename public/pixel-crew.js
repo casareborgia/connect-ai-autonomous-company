@@ -1,9 +1,9 @@
 // CONNECT AI HQ v2 · 조선 AI 집현전 & K-수호 크루 20×20 16비트 픽셀 엔진 (무의존성 SVG)
 (function () {
   const NS = 'http://www.w3.org/2000/svg';
-  const s = (tag, attrs = {}, ...kids) => {
+  const s = (tag, attrs, ...kids) => {
     const el = document.createElementNS(NS, tag);
-    for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) el.setAttribute(k, String(v));
+    for (const [k, v] of Object.entries(attrs || {})) if (v !== undefined && v !== null) el.setAttribute(k, String(v));
     for (const kid of kids.flat()) if (kid != null && kid !== false) el.appendChild(typeof kid === 'string' ? document.createTextNode(kid) : kid);
     return el;
   };
@@ -1678,7 +1678,7 @@
       'shape-rendering': 'crispEdges', role: 'img', 'aria-label': `조선 AI 픽셀 캐릭터 ${key}`,
     });
     const clipId = `pxc-${key}-${Math.random().toString(36).slice(2, 8)}`;
-    svg.appendChild(s('defs', null, s('clipPath', { id: clipId }, s('rect', { x: 0, y: 0, width: 20, height: 20, rx: round }))));
+    svg.appendChild(s('defs', {}, s('clipPath', { id: clipId }, s('rect', { x: 0, y: 0, width: 20, height: 20, rx: round }))));
     const inner = s('g', { 'clip-path': `url(#${clipId})` });
     inner.appendChild(s('rect', { x: 0, y: 0, width: 20, height: 20, fill: def.pal.bg }));
     inner.appendChild(bgPatternGroup(def.pal, def.pattern));

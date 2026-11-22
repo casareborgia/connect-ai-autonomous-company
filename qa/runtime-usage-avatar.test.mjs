@@ -241,6 +241,19 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(royalSet.body.healthDoctor, 'daejanggeum');
     const pxScript = await fetch(`${origin}/pixel-crew.js`);
     assert.equal(pxScript.status, 200);
+    // 실제 DOM createElementNS 모의로 29종 스프라이트 전원 working/idle 렌더링 크래시 없음 검증
+    const pxCode = await pxScript.text();
+    const mockNode = (tag) => ({ tag, attrs: {}, kids: [], setAttribute(k, v) { this.attrs[k] = v; }, appendChild(c) { this.kids.push(c); return c; } });
+    const win = {};
+    new Function('window', 'document', pxCode)(win, { createElementNS: (_ns, tag) => mockNode(tag), createTextNode: (t) => ({ text: t }) });
+    for (const key of Object.keys(win.PixelCrew.SPRITES)) {
+      const a = win.PixelCrew.renderSvg(key, { size: 48, state: 'working' });
+      const b = win.PixelCrew.renderSvg(key, { size: 48, state: 'idle' });
+      assert.equal(a.tag, 'svg');
+      assert.equal(b.tag, 'svg');
+    }
+    const cl = win.PixelCrew.renderAllClusterSvg(['som', 'jangyeongsil', 'seonbi'], { size: 48 });
+    assert.equal(cl.tag, 'svg');
     const dispatchRelay = await ui('POST', '/api/ui/swarm/dispatch', { missionKey: 'youtube', topic: 'CONNECT AI HQ v2 출시' });
     assert.equal(dispatchRelay.status, 200);
     assert.equal(dispatchRelay.body.stepMode, 'serial');
