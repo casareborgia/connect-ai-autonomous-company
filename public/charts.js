@@ -831,11 +831,18 @@
     return svg;
   }
 
-  function avatarSvg(key = 'haetae', { size = 44, state = 'idle', style = 'motion' } = {}) {
+  function avatarSvg(key = 'haetae', { size = 44, state = 'idle', style = 'motion', showZ = true } = {}) {
+    const px = window.PixelCrew;
+    if (px && (px.isJoseonKey(key) || (style === 'pixel' && px.SPRITES[key]))) {
+      return px.renderSvg(key, { size, state, showZ });
+    }
     const legacy = { fox: 'dokkaebi', cat: 'haetae', owl: 'kkachi', whale: 'cheongnyong', rabbit: 'dalto', bot: 'jangseung', bear: 'bonghwang', spark: 'horangi' };
     const k = CREW_PALETTE[key] ? key : (legacy[key] || 'haetae');
     const pal = CREW_PALETTE[k];
-    if (style === 'pixel') return pixelAvatarSvg(k, pal, { size, state });
+    if (style === 'pixel') {
+      if (px && px.SPRITES[k]) return px.renderSvg(k, { size, state, showZ });
+      return pixelAvatarSvg(k, pal, { size, state });
+    }
 
     const working = state === 'working';
     const cooling = state === 'cooling';
@@ -1078,5 +1085,9 @@
     return svg;
   }
 
-  window.Charts = { spark, paybar, timelineRow, flow, ring, ramChart, healthChart, workloadBars, companyGraph, habitGrid, avatarSvg };
+  function swarmAllSvg(keys, opts) {
+    return window.PixelCrew ? window.PixelCrew.renderAllClusterSvg(keys, opts) : avatarSvg('sejong', opts);
+  }
+
+  window.Charts = { spark, paybar, timelineRow, flow, ring, ramChart, healthChart, workloadBars, companyGraph, habitGrid, avatarSvg, swarmAllSvg };
 })();

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createPowerGuard } from '../lib/runtime.mjs';
 import { scanClaudeUsage, scanCodexUsage, buildEmployeeUsageMap } from '../lib/usage.mjs';
-import { AVATAR_PRESETS, defaultAvatarFor } from '../lib/catalog.mjs';
+import { AVATAR_PRESETS, TEAMS, defaultTeamFor, defaultAvatarFor } from '../lib/catalog.mjs';
 import { ruleAssign } from '../lib/assign.mjs';
 import { seedData } from '../lib/seed.mjs';
 
@@ -96,7 +96,14 @@ test('로컬 세션 기반 Claude · Codex 5시간 토큰 사용량 스캔 (중�
     const map = buildEmployeeUsageMap(d, { claude: cu, codex: xu }, '2026-11-21', now);
     assert.equal(map.claude.pct5h, 88);
     assert.equal(map.codex.pct5h, 64);
-    assert.equal(AVATAR_PRESETS.length, 16);
+    assert.equal(AVATAR_PRESETS.length, 32);
+    assert.equal(TEAMS.length, 7);
+    assert.equal(defaultTeamFor({ name: 'Codex', role: '코딩, 테스트' }), 'dev');
+    assert.equal(defaultTeamFor({ name: '마케팅 AI', role: 'SNS 홍보' }), 'marketing');
+    assert.equal(defaultAvatarFor({ name: 'Codex', role: '코딩' }, 'joseon', 0), 'jangyeongsil');
+    assert.equal(defaultAvatarFor({ name: 'Codex', role: '코딩' }, 'joseon', 1), 'cheomseong');
+    assert.equal(defaultAvatarFor({ name: '마케팅 AI', role: 'SNS 홍보' }, 'joseon', 0), 'bobusang');
+    assert.equal(defaultAvatarFor({ name: '마케팅 AI', role: 'SNS 홍보' }, 'joseon', 1), 'yein');
     assert.equal(defaultAvatarFor({ name: 'Claude 멤버십' }), 'dokkaebi');
     assert.equal(defaultAvatarFor({ name: 'Codex 멤버십' }), 'haetae');
     assert.equal(defaultAvatarFor({ name: 'Claude 멤버십' }, 'modern'), 'nova');
@@ -210,6 +217,20 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(bulkStyle.status, 200);
     assert.equal(bulkStyle.body.avatarStyle, 'pixel');
     assert.equal(bulkStyle.body.pack, 'k-crew');
+
+    // 조선 AI 집현전 (남·여 직업군) 일괄 전환 + 소속 팀/세종·소헌왕후 전환 검증
+    const bulkJoseon = await ui('POST', '/api/ui/employees/avatar-style', { pack: 'joseon' });
+    assert.equal(bulkJoseon.status, 200);
+    assert.equal(bulkJoseon.body.avatarStyle, 'pixel');
+    const teamPatch = await ui('PATCH', '/api/ui/employees/codex', { team: 'dev', avatar: 'jangyeongsil' });
+    assert.equal(teamPatch.status, 200);
+    assert.equal(teamPatch.body.team, 'dev');
+    assert.equal(teamPatch.body.avatar, 'jangyeongsil');
+    const royalSet = await ui('PATCH', '/api/ui/settings', { ownerAvatar: 'queen' });
+    assert.equal(royalSet.status, 200);
+    assert.equal(royalSet.body.ownerAvatar, 'queen');
+    const pxScript = await fetch(`${origin}/pixel-crew.js`);
+    assert.equal(pxScript.status, 200);
 
     const mascotRes = await fetch(`${origin}/mascots/haetae.jpg`);
     assert.equal(mascotRes.status, 200);

@@ -23,7 +23,7 @@ import { readConnectors, summarize, normalizeSite } from './lib/revenue.mjs';
 import { splitUtterance, pickOllamaModel } from './lib/llm.mjs';
 import { ruleAssign, aiAssign, tokens, learnAssignMemory } from './lib/assign.mjs';
 import { detectGate, GATES } from './lib/gates.mjs';
-import { AI_CATALOG, DEFAULT_GROUPS, AVATAR_PACKS, AVATAR_PRESETS, AVATAR_STYLES, defaultAvatarFor, webUrlFor } from './lib/catalog.mjs';
+import { AI_CATALOG, DEFAULT_GROUPS, TEAMS, AVATAR_PACKS, AVATAR_PRESETS, AVATAR_STYLES, defaultTeamFor, defaultAvatarFor, webUrlFor } from './lib/catalog.mjs';
 import { localStatus, localStatusCached, clearLocalStatusCache, reach, validHostname } from './lib/machines.mjs';
 import { startScheduler, ensureRoutineTasks, notify, minutes, isQuiet, INTERVAL_MINS } from './lib/scheduler.mjs';
 import { listLocalModels, localReply, runOnce, runnerInfo, systemPrompt, quoteThread, notInstalled, findBin } from './lib/agents.mjs';
@@ -100,6 +100,7 @@ function migrate(d) {
     if (e.cooldownReason === undefined) e.cooldownReason = '';
     if (!e.avatar || !AVATAR_PRESETS.some((a) => a.key === e.avatar)) e.avatar = defaultAvatarFor(e);
     if (!e.avatarStyle || !AVATAR_STYLES.some((s) => s.key === e.avatarStyle)) e.avatarStyle = 'studio';
+    if (!e.team || !TEAMS.some((t) => t.key === e.team)) e.team = defaultTeamFor(e);
     if (e.avatarName === undefined) e.avatarName = '';
     if (e.avatarImage === undefined) e.avatarImage = '';
     if (e.persona === undefined) e.persona = '';
@@ -1299,7 +1300,7 @@ async function stateView(viaLan = false) {
     runtime: powerGuard.status(),
     bridges: detectDesktopBridges(),
     options: {
-      catalog: AI_CATALOG, avatarPacks: AVATAR_PACKS, avatarPresets: AVATAR_PRESETS, avatarStyles: AVATAR_STYLES, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
+      catalog: AI_CATALOG, teams: TEAMS, avatarPacks: AVATAR_PACKS, avatarPresets: AVATAR_PRESETS, avatarStyles: AVATAR_STYLES, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
       gates: GATES, engines: ENGINES, runModes: RUN_MODES, resKinds: RES_KINDS, resStatus: RES_STATUS,
       phoneModes: PHONE_MODES,
       accountPlatforms: publicAccountCatalog(), accountCategories: ACCOUNT_CATEGORIES, accountPresets: ACCOUNT_PRESETS, permLevels: PERM_LEVELS,
@@ -2305,10 +2306,17 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
     }
   }
   if (body.avatar !== undefined) {
-    if (AVATAR_PRESETS.some((a) => a.key === body.avatar)) e.avatar = body.avatar;
+    if (AVATAR_PRESETS.some((a) => a.key === body.avatar)) {
+      e.avatar = body.avatar;
+      const preset = AVATAR_PRESETS.find((a) => a.key === body.avatar);
+      if (preset?.pack === 'joseon' && body.avatarStyle === undefined) e.avatarStyle = 'pixel';
+    }
   }
   if (body.avatarStyle !== undefined) {
     if (AVATAR_STYLES.some((s) => s.key === body.avatarStyle)) e.avatarStyle = body.avatarStyle;
+  }
+  if (body.team !== undefined) {
+    if (TEAMS.some((t) => t.key === body.team)) e.team = body.team;
   }
   if (body.avatarName !== undefined) e.avatarName = text(body.avatarName, 40);
   if (body.avatarImage !== undefined) e.avatarImage = parseAvatarImage(body.avatarImage);
@@ -2348,7 +2356,7 @@ route('POST', '/api/ui/employees/:id/cooldown', async ({ params, body }) => {
   return updated;
 }, UI);
 
-function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, group, catalog, avatar, avatarStyle, avatarName, avatarImage, persona }) {
+function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, group, catalog, team, avatar, avatarStyle, avatarName, avatarImage, persona }) {
   if (!d.groups.length) d.groups = DEFAULT_GROUPS.map((x) => ({ ...x }));
   if (group && !d.groups.some((x) => x.id === group)) {
     const def = DEFAULT_GROUPS.find((x) => x.id === group);
@@ -2359,11 +2367,13 @@ function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, 
   let id = baseSlug;
   if (!id || id === 'jay' || id === 'system' || d.employees.some((e) => e.id === id)) id = nextId(d, 'e');
   const eng = ENGINES.includes(engine) ? engine : 'web';
-  const avKey = avatar && AVATAR_PRESETS.some((a) => a.key === avatar) ? avatar : defaultAvatarFor({ name, role });
-  const avStyle = avatarStyle && AVATAR_STYLES.some((s) => s.key === avatarStyle) ? avatarStyle : 'studio';
+  const empTeam = team && TEAMS.some((t) => t.key === team) ? team : defaultTeamFor({ name, role, catalog });
+  const avKey = avatar && AVATAR_PRESETS.some((a) => a.key === avatar) ? avatar : defaultAvatarFor({ name, role, team: empTeam });
+  const avPreset = AVATAR_PRESETS.find((a) => a.key === avKey);
+  const avStyle = avatarStyle && AVATAR_STYLES.some((s) => s.key === avatarStyle) ? avatarStyle : (avPreset?.pack === 'joseon' ? 'pixel' : 'studio');
   const defaultRun = (CLI_ENGINES.includes(eng) && Boolean(runnerInfo(eng)?.bin)) || (eng === 'local' && Boolean(model)) ? 'auto' : 'off';
   const e = {
-    id, name, group: g, role: role || '', tools: [], runsOn: '', command: '', salary: null, engine: eng, model: model || '',
+    id, name, group: g, team: empTeam, role: role || '', tools: [], runsOn: '', command: '', salary: null, engine: eng, model: model || '',
     runMode: eng === 'web' || eng === 'none' ? 'off' : (RUN_MODES.includes(runMode) ? runMode : defaultRun),
     userPaused: runMode === 'off',
     webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: '', resources: [], abilities: [],
@@ -2417,17 +2427,24 @@ route('POST', '/api/ui/employees/enable-auto', async () => {
   return { ok: true, turned, count: turned.length };
 }, UI);
 
-// 전체 AI 직원의 캐릭터 스타일 또는 팩(K-수호 크루 / 모던 랩 크루)을 한 번에 통일
+// 전체 AI 직원의 캐릭터 스타일 또는 팩(조선 AI 집현전 / K-수호 크루 / 모던 랩 크루)을 한 번에 통일
 route('POST', '/api/ui/employees/avatar-style', async ({ body }) => {
-  const style = body.avatarStyle ? String(body.avatarStyle).trim() : null;
   const pack = body.pack ? String(body.pack).trim() : null;
+  let style = body.avatarStyle ? String(body.avatarStyle).trim() : null;
+  if (pack === 'joseon' && !style) style = 'pixel';
   if (style && !AVATAR_STYLES.some((s) => s.key === style)) throw new HttpError(400, '올바른 캐릭터 스타일이 아니에요.');
   if (pack && !AVATAR_PACKS.some((p) => p.key === pack)) throw new HttpError(400, '올바른 캐릭터 팩이 아니에요.');
   if (!style && !pack) throw new HttpError(400, '바꿀 스타일이나 팩을 골라 주세요.');
   return store.mutate((d) => {
+    const teamCounts = {};
     for (const e of d.employees) {
+      if (!e.team || !TEAMS.some((t) => t.key === e.team)) e.team = defaultTeamFor(e);
       if (style) e.avatarStyle = style;
-      if (pack) e.avatar = defaultAvatarFor(e, pack);
+      if (pack) {
+        const idx = teamCounts[e.team] || 0;
+        teamCounts[e.team] = idx + 1;
+        e.avatar = defaultAvatarFor(e, pack, idx);
+      }
       if (body.clearCustom === true) e.avatarImage = '';
     }
     return { ok: true, avatarStyle: style, pack, count: d.employees.length };
@@ -2445,7 +2462,7 @@ route('POST', '/api/ui/employees', async ({ body }) => {
     if (!name) throw new HttpError(400, '이름이 필요합니다.');
     const e = makeEmployee(d, {
       name, role: text(body.role, 200) || cat?.role || '', engine, webUrl: cat?.url, general: cat?.general, group: body.group || cat?.group, catalog: cat?.key,
-      avatar: body.avatar, avatarStyle: body.avatarStyle, avatarName: body.avatarName, avatarImage, persona: body.persona,
+      team: body.team, avatar: body.avatar, avatarStyle: body.avatarStyle, avatarName: body.avatarName, avatarImage, persona: body.persona,
     });
     if (cat) e.catalog = cat.key;
     autoWireEmployeeFallbacks(d);
@@ -2702,6 +2719,7 @@ route('PATCH', '/api/ui/settings', async ({ body }) => store.mutate((d) => {
   if (body.autoStartAdded !== undefined) d.settings.autoStartAdded = Boolean(body.autoStartAdded);
   if (body.desktopNotify !== undefined) d.settings.desktopNotify = Boolean(body.desktopNotify);
   if (body.ownerName !== undefined) { const s = text(body.ownerName, 40); if (s) d.owner.name = s; }
+  if (body.ownerAvatar !== undefined && ['sejong', 'queen'].includes(body.ownerAvatar)) d.settings.ownerAvatar = body.ownerAvatar;
   if (body.companyName !== undefined) d.settings.companyName = text(body.companyName, 60);
   if (body.onboarded !== undefined) d.settings.onboarded = Boolean(body.onboarded);
   if (body.quietHours !== undefined) d.settings.quietHours = quietOf(body.quietHours);

@@ -937,6 +937,81 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .pair input { height: 48px; font-size: 22px; text-align: center; letter-spacing: 0.25em; font-variant-numeric: tabular-nums; }
 .pair .err { color: var(--ink); border-left: 2px solid var(--ink); padding-left: 10px; font-size: 13px; margin-top: 12px; }
 
+/* 조선 AI 집현전 16비트 픽셀 엔진 애니메이션 + Swarm 바 */
+.av-pixel-v2 { display: block; image-rendering: pixelated; border-radius: 11px; flex: none; }
+.av-pixel-v2 .av-px-f0 { animation: pxFrame0 .88s steps(1, end) infinite; }
+.av-pixel-v2 .av-px-f1 { animation: pxFrame1 .88s steps(1, end) infinite; }
+.av-pixel-v2.working .av-px-f0, .av-pixel-v2.working .av-px-f1 { transform-origin: center; }
+.av-pixel-v2 .av-px-z { animation: pxZBob 1.3s steps(2, end) infinite; }
+@keyframes pxFrame0 { 0%, 49.9% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes pxFrame1 { 0%, 49.9% { opacity: 0; transform: translateY(-0.5px); } 50%, 100% { opacity: 1; transform: translateY(-0.5px); } }
+@keyframes pxZBob { 0% { transform: translateY(0); opacity: 0.95; } 50% { transform: translateY(-0.8px); opacity: 0.65; } 100% { transform: translateY(0); opacity: 0.95; } }
+.av-px-wrap { position: relative; display: inline-flex; flex: none; }
+.av-px-wrap .av-dot { position: absolute; top: -3px; right: -3px; width: 11px; height: 11px; border-radius: 50%; background: #4ade80; border: 2px solid #fff; box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.25); }
+.av-px-wrap.on-dark .av-dot { border-color: #14161d; }
+.av-px-wrap.cool .av-cool-badge { position: absolute; bottom: -3px; right: -3px; background: #f59e0b; color: #111; font-size: 9px; font-weight: 700; padding: 0 4px; border-radius: 6px; line-height: 14px; }
+
+.swarm-card {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #14161d;
+  color: #f3f5fa;
+  border: 1px solid #262936;
+  box-shadow: 0 10px 28px rgba(17, 17, 17, 0.08);
+}
+.swarm-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.swarm-tabs { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.swarm-tab {
+  height: 27px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04); color: #b4bdd4; font: inherit; font-size: 11.5px; font-weight: 500;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all .14s ease;
+}
+.swarm-tab:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.swarm-tab.on { background: #fff; color: #111; border-color: #fff; font-weight: 600; }
+.swarm-tab .st-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.swarm-tab .st-live { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 6px #4ade80; animation: livePulse 1.3s ease-in-out infinite; }
+.swarm-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.swarm-btn {
+  height: 27px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.07); color: #e5e9f5; font: inherit; font-size: 11.5px; font-weight: 500;
+  cursor: pointer; transition: all .14s ease;
+}
+.swarm-btn:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+.swarm-btn.gold { background: linear-gradient(135deg, #f5b93b, #e0911f); color: #1a1106; border-color: #f5b93b; font-weight: 700; }
+.swarm-btn.gold:hover { filter: brightness(1.06); }
+
+.swarm-hero { display: flex; align-items: center; gap: 14px; padding: 12px 0 10px; }
+.swarm-hero-av {
+  position: relative; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 14px; padding: 0; background: transparent;
+  cursor: pointer; flex: none; transition: transform .14s ease;
+}
+.swarm-hero-av:hover { transform: translateY(-2px); }
+.swarm-hero-info { flex: 1; min-width: 0; }
+.swarm-hero-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; font-weight: 700; color: #fff; }
+.swarm-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); color: #cbd5e1; }
+.swarm-pill.live { background: rgba(74, 222, 128, 0.18); color: #6ee7b7; }
+.swarm-pill.gold { background: rgba(245, 185, 59, 0.2); color: #fde68a; }
+.swarm-hero-sub { font-size: 12px; color: #9ea7be; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.swarm-hero-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }
+
+.swarm-strip { display: flex; align-items: flex-start; gap: 10px; overflow-x: auto; padding: 4px 2px 2px; scrollbar-width: thin; }
+.swarm-item { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: none; width: 62px; }
+.swarm-tile {
+  position: relative; width: 54px; height: 54px; padding: 0; border-radius: 13px; background: #1d202b;
+  border: 2px solid rgba(255, 255, 255, 0.08); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: transform .14s ease, border-color .14s ease;
+}
+.swarm-tile:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.35); }
+.swarm-tile.on { border-color: #ffffff; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18); }
+.swarm-tile .sw-dot { position: absolute; top: -4px; right: -4px; width: 12px; height: 12px; border-radius: 50%; background: #4ade80; border: 2px solid #14161d; }
+.swarm-tile .sw-team { position: absolute; bottom: -3px; left: 50%; transform: translateX(-50%); width: 16px; height: 4px; border-radius: 99px; border: 1px solid #14161d; }
+.swarm-lbl { font-size: 11px; color: #9ea7be; max-width: 62px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+.swarm-item.on .swarm-lbl { color: #fff; font-weight: 600; }
+
+.gate-guard { display: flex; align-items: center; gap: 10px; }
+.health-doc-badge { display: inline-flex; align-items: center; gap: 7px; }
+
 /* 모바일 보강 (cascade 맨 마지막에 두어 .chip.sm 등의 터치 영역을 보장) */
 @media (max-width: 860px) {
   .mob-set { display: inline-flex; }
