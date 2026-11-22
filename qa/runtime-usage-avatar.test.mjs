@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createPowerGuard } from '../lib/runtime.mjs';
 import { scanClaudeUsage, scanCodexUsage, buildEmployeeUsageMap } from '../lib/usage.mjs';
-import { AVATAR_PRESETS, TEAMS, defaultTeamFor, defaultAvatarFor } from '../lib/catalog.mjs';
+import { AVATAR_PRESETS, TEAMS, SWARM_MISSIONS, defaultTeamFor, defaultAvatarFor } from '../lib/catalog.mjs';
 import { ruleAssign } from '../lib/assign.mjs';
 import { seedData } from '../lib/seed.mjs';
 
@@ -96,12 +96,20 @@ test('로컬 세션 기반 Claude · Codex 5시간 토큰 사용량 스캔 (중�
     const map = buildEmployeeUsageMap(d, { claude: cu, codex: xu }, '2026-11-21', now);
     assert.equal(map.claude.pct5h, 88);
     assert.equal(map.codex.pct5h, 64);
-    assert.equal(AVATAR_PRESETS.length, 32);
+    assert.equal(AVATAR_PRESETS.length, 36);
     assert.equal(TEAMS.length, 7);
+    assert.equal(SWARM_MISSIONS.length, 4);
     assert.equal(defaultTeamFor({ name: 'Codex', role: '코딩, 테스트' }), 'dev');
+    assert.equal(defaultTeamFor({ name: 'Claude 멤버십', role: '글쓰기, 기획, 대본' }), 'plan');
+    assert.equal(defaultTeamFor({ name: 'Canva AI', role: '썸네일 디자인' }), 'design');
     assert.equal(defaultTeamFor({ name: '마케팅 AI', role: 'SNS 홍보' }), 'marketing');
     assert.equal(defaultAvatarFor({ name: 'Codex', role: '코딩' }, 'joseon', 0), 'jangyeongsil');
     assert.equal(defaultAvatarFor({ name: 'Codex', role: '코딩' }, 'joseon', 1), 'cheomseong');
+    assert.equal(defaultAvatarFor({ name: 'Canva', role: '디자인' }, 'joseon', 0), 'hwawon');
+    assert.equal(defaultAvatarFor({ name: 'Canva', role: '디자인' }, 'joseon', 1), 'saimdang');
+    assert.equal(defaultAvatarFor({ name: 'Canva', role: '디자인' }, 'joseon', 2), 'angyeon');
+    assert.equal(defaultAvatarFor({ name: 'Canva', role: '디자인' }, 'joseon', 3), 'yunbok');
+    assert.equal(defaultAvatarFor({ name: 'Canva', role: '디자인' }, 'joseon', 4), 'chusa');
     assert.equal(defaultAvatarFor({ name: '마케팅 AI', role: 'SNS 홍보' }, 'joseon', 0), 'bobusang');
     assert.equal(defaultAvatarFor({ name: '마케팅 AI', role: 'SNS 홍보' }, 'joseon', 1), 'yein');
     assert.equal(defaultAvatarFor({ name: 'Claude 멤버십' }), 'dokkaebi');
@@ -218,19 +226,29 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(bulkStyle.body.avatarStyle, 'pixel');
     assert.equal(bulkStyle.body.pack, 'k-crew');
 
-    // 조선 AI 집현전 (남·여 직업군) 일괄 전환 + 소속 팀/세종·소헌왕후 전환 검증
-    const bulkJoseon = await ui('POST', '/api/ui/employees/avatar-style', { pack: 'joseon' });
+    // 조선 AI 집현전 (20종 남·여 직업군) 일괄 전환 + 소속 팀/세종·소헌왕후/허준·대장금 + 합동 출동 검증
+    const bulkJoseon = await ui('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', rebalanceTeams: true });
     assert.equal(bulkJoseon.status, 200);
     assert.equal(bulkJoseon.body.avatarStyle, 'pixel');
     const teamPatch = await ui('PATCH', '/api/ui/employees/codex', { team: 'dev', avatar: 'jangyeongsil' });
     assert.equal(teamPatch.status, 200);
     assert.equal(teamPatch.body.team, 'dev');
     assert.equal(teamPatch.body.avatar, 'jangyeongsil');
-    const royalSet = await ui('PATCH', '/api/ui/settings', { ownerAvatar: 'queen' });
+    const royalSet = await ui('PATCH', '/api/ui/settings', { ownerAvatar: 'queen', healthDoctor: 'daejanggeum' });
     assert.equal(royalSet.status, 200);
     assert.equal(royalSet.body.ownerAvatar, 'queen');
+    assert.equal(royalSet.body.healthDoctor, 'daejanggeum');
     const pxScript = await fetch(`${origin}/pixel-crew.js`);
     assert.equal(pxScript.status, 200);
+    const dispatchRelay = await ui('POST', '/api/ui/swarm/dispatch', { missionKey: 'youtube', topic: 'CONNECT AI HQ v2 출시' });
+    assert.equal(dispatchRelay.status, 200);
+    assert.equal(dispatchRelay.body.stepMode, 'serial');
+    assert.equal(dispatchRelay.body.steps.length, 3);
+    assert.ok(dispatchRelay.body.title.includes('CONNECT AI HQ v2 출시'));
+    const dispatchPar = await ui('POST', '/api/ui/swarm/dispatch', { missionKey: 'morning', topic: '아침 점검' });
+    assert.equal(dispatchPar.status, 200);
+    assert.equal(dispatchPar.body.stepMode, 'parallel');
+    assert.equal(dispatchPar.body.steps.length, 3);
 
     const mascotRes = await fetch(`${origin}/mascots/haetae.jpg`);
     assert.equal(mascotRes.status, 200);

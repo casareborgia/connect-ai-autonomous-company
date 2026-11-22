@@ -23,7 +23,7 @@ import { readConnectors, summarize, normalizeSite } from './lib/revenue.mjs';
 import { splitUtterance, pickOllamaModel } from './lib/llm.mjs';
 import { ruleAssign, aiAssign, tokens, learnAssignMemory } from './lib/assign.mjs';
 import { detectGate, GATES } from './lib/gates.mjs';
-import { AI_CATALOG, DEFAULT_GROUPS, TEAMS, AVATAR_PACKS, AVATAR_PRESETS, AVATAR_STYLES, defaultTeamFor, defaultAvatarFor, webUrlFor } from './lib/catalog.mjs';
+import { AI_CATALOG, DEFAULT_GROUPS, TEAMS, SWARM_MISSIONS, AVATAR_PACKS, AVATAR_PRESETS, AVATAR_STYLES, defaultTeamFor, defaultAvatarFor, webUrlFor } from './lib/catalog.mjs';
 import { localStatus, localStatusCached, clearLocalStatusCache, reach, validHostname } from './lib/machines.mjs';
 import { startScheduler, ensureRoutineTasks, notify, minutes, isQuiet, INTERVAL_MINS } from './lib/scheduler.mjs';
 import { listLocalModels, localReply, runOnce, runnerInfo, systemPrompt, quoteThread, notInstalled, findBin } from './lib/agents.mjs';
@@ -1300,7 +1300,7 @@ async function stateView(viaLan = false) {
     runtime: powerGuard.status(),
     bridges: detectDesktopBridges(),
     options: {
-      catalog: AI_CATALOG, teams: TEAMS, avatarPacks: AVATAR_PACKS, avatarPresets: AVATAR_PRESETS, avatarStyles: AVATAR_STYLES, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
+      catalog: AI_CATALOG, teams: TEAMS, swarmMissions: SWARM_MISSIONS, avatarPacks: AVATAR_PACKS, avatarPresets: AVATAR_PRESETS, avatarStyles: AVATAR_STYLES, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
       gates: GATES, engines: ENGINES, runModes: RUN_MODES, resKinds: RES_KINDS, resStatus: RES_STATUS,
       phoneModes: PHONE_MODES,
       accountPlatforms: publicAccountCatalog(), accountCategories: ACCOUNT_CATEGORIES, accountPresets: ACCOUNT_PRESETS, permLevels: PERM_LEVELS,
@@ -2438,7 +2438,9 @@ route('POST', '/api/ui/employees/avatar-style', async ({ body }) => {
   return store.mutate((d) => {
     const teamCounts = {};
     for (const e of d.employees) {
-      if (!e.team || !TEAMS.some((t) => t.key === e.team)) e.team = defaultTeamFor(e);
+      if (body.rebalanceTeams === true || !e.team || !TEAMS.some((t) => t.key === e.team)) {
+        e.team = defaultTeamFor({ ...e, team: undefined });
+      }
       if (style) e.avatarStyle = style;
       if (pack) {
         const idx = teamCounts[e.team] || 0;
@@ -2449,6 +2451,101 @@ route('POST', '/api/ui/employees/avatar-style', async ({ body }) => {
     }
     return { ok: true, avatarStyle: style, pack, count: d.employees.length };
   });
+}, UI);
+
+// 세종대왕 어명 · 여러 조선 AI 팀 합동 출동 (릴레이/동시 협업 할 일 자동 생성 & 즉시 착수)
+route('POST', '/api/ui/swarm/dispatch', async ({ body }) => {
+  const mission = body.missionKey ? SWARM_MISSIONS.find((m) => m.key === body.missionKey) : null;
+  const rawSteps = Array.isArray(body.steps) && body.steps.length ? body.steps : mission?.steps;
+  if (!rawSteps || !rawSteps.length) throw new HttpError(400, '출동할 팀 단계를 골라 주세요.');
+  const topic = text(body.topic, 140);
+  const mode = STEP_MODES.includes(body.mode) ? body.mode : (mission?.mode || 'serial');
+  const localStat = await currentLocalStat();
+  const offices = dispatcher ? dispatcher.view() : [];
+  const workingList = [...working.values(), ...officeWorking()];
+
+  const pickTeamEmp = (d, teamKey, stepText, usedIds) => {
+    const pool = d.employees.filter((e) => (e.team || defaultTeamFor(e)) === teamKey);
+    const rank = (list) => [...list].sort((a, b) => {
+      const aRun = a.runMode === 'auto' && canRun(a) ? 2 : canRun(a) ? 1 : 0;
+      const bRun = b.runMode === 'auto' && canRun(b) ? 2 : canRun(b) ? 1 : 0;
+      const aFresh = usedIds.has(a.id) ? 0 : 1;
+      const bFresh = usedIds.has(b.id) ? 0 : 1;
+      return (bFresh - aFresh) || (bRun - aRun);
+    });
+    if (pool.length) return rank(pool)[0];
+    const assigned = ruleAssign(stepText, '', d.employees, d.resources, d.settings?.assignMemory);
+    if (assigned?.assignee && assigned.assignee !== 'jay') {
+      const hit = d.employees.find((e) => e.id === assigned.assignee);
+      if (hit) return hit;
+    }
+    const freshAny = rank(d.employees);
+    return freshAny[0] || null;
+  };
+
+  const t = await store.mutate((d) => {
+    if (!d.employees.length) throw new HttpError(400, '먼저 출동할 AI 직원을 1명 이상 추가해 주세요.');
+    const baseTitle = mission
+      ? (topic ? `${mission.title} · ${topic}` : mission.title)
+      : (topic || '조선 AI 팀 합동 출동');
+    const usedIds = new Set();
+    const builtSteps = rawSteps.slice(0, 8).map((st, idx) => {
+      const tKey = TEAMS.some((x) => x.key === st.team) ? st.team : 'plan';
+      const tMeta = TEAMS.find((x) => x.key === tKey);
+      const stTitle = text(st.title, 120) || `${tMeta?.name || tKey} 작업`;
+      const stNote = text(st.note, 1000);
+      const chosen = pickTeamEmp(d, tKey, `${topic} ${stTitle} ${stNote}`, usedIds);
+      if (chosen) usedIds.add(chosen.id);
+      const opt = chosen ? pickOptimalMachine(d, { title: stTitle, note: stNote }, chosen, { localStat, offices, workingList }) : null;
+      return {
+        id: `st_${idx + 1}`,
+        title: stTitle,
+        assignee: chosen ? chosen.id : 'jay',
+        resource: opt?.resource?.id || null,
+        note: topic ? `[주제: ${topic}] ${stNote}` : stNote,
+        status: '대기',
+      };
+    });
+    const taskObj = {
+      id: nextId(d, 't'), order: 0, title: baseTitle, kind: 'ai', assignee: builtSteps[0].assignee || 'jay',
+      date: ymd(), time: null, status: '대기',
+      note: topic ? `어명 주제: ${topic}\n${mission?.hint || ''}`.trim() : (mission?.hint || '여러 팀이 힘을 합쳐 처리하는 합동 작전'),
+      resource: builtSteps[0].resource || null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: null, intervalMin: null,
+      stepMode: mode, sharedFolder: '', steps: normalizeSteps(builtSteps, d, { asTemplate: false }),
+      gate: null, gateApprovedAt: null, reason: '', assignSource: 'jay',
+      queued: false, queueReason: '', retryAfter: null, localOnly: false,
+      routineId: null, jobId: null, createdAt: nowIso(), createdBy: 'jay', history: [], runStartedAt: null, lastRunAt: null,
+      completedAt: null, completedBy: null, resultSummary: '', failoverTrail: [],
+    };
+    taskObj.order = orderFor(d, taskObj);
+    syncTaskFromSteps(d, taskObj);
+    d.tasks.push(taskObj);
+    const teamLine = builtSteps.map((st) => nameOf(d, st.assignee)).join(mode === 'parallel' ? ' + ' : ' → ');
+    pushHistory(taskObj, 'jay', '합동 출동', `${mode === 'parallel' ? '동시' : '릴레이'} · ${teamLine}`);
+    sys(d, `task:${taskObj.id}`, `어명 합동 출동 (${mode === 'parallel' ? '동시 출동' : '릴레이 협업'}): ${teamLine}`);
+    return taskObj;
+  });
+
+  let autoStarted = false;
+  let autoQueued = false;
+  const dNow = store.data;
+  const targetEmp = t.assignee && t.assignee !== 'jay' ? dNow.employees.find((e) => e.id === t.assignee) : null;
+  const targetRes = t.resource ? dNow.resources.find((r) => r.id === t.resource) : null;
+  if (
+    dNow.settings?.autoStartAdded !== false
+    && targetEmp && targetEmp.runMode === 'auto'
+    && !t.gate && !t.officeRun && !isOffice(targetRes)
+    && (canRun(targetEmp) || isCoolingDown(targetEmp))
+  ) {
+    try {
+      const sr = await startRun(t.id, 'auto');
+      autoStarted = Boolean(sr?.started);
+      autoQueued = Boolean(sr?.queued);
+    } catch (e) {
+      console.log(`[합동 출동 즉시 착수 건너뜀] ${t.id} ${e.message}`);
+    }
+  }
+  return { ...t, autoStarted, autoQueued };
 }, UI);
 
 route('POST', '/api/ui/employees', async ({ body }) => {
@@ -2720,6 +2817,7 @@ route('PATCH', '/api/ui/settings', async ({ body }) => store.mutate((d) => {
   if (body.desktopNotify !== undefined) d.settings.desktopNotify = Boolean(body.desktopNotify);
   if (body.ownerName !== undefined) { const s = text(body.ownerName, 40); if (s) d.owner.name = s; }
   if (body.ownerAvatar !== undefined && ['sejong', 'queen'].includes(body.ownerAvatar)) d.settings.ownerAvatar = body.ownerAvatar;
+  if (body.healthDoctor !== undefined && ['heojun', 'daejanggeum'].includes(body.healthDoctor)) d.settings.healthDoctor = body.healthDoctor;
   if (body.companyName !== undefined) d.settings.companyName = text(body.companyName, 60);
   if (body.onboarded !== undefined) d.settings.onboarded = Boolean(body.onboarded);
   if (body.quietHours !== undefined) d.settings.quietHours = quietOf(body.quietHours);
