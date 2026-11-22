@@ -96,7 +96,8 @@ test('로컬 세션 기반 Claude · Codex 5시간 토큰 사용량 스캔 (중�
     const map = buildEmployeeUsageMap(d, { claude: cu, codex: xu }, '2026-11-21', now);
     assert.equal(map.claude.pct5h, 88);
     assert.equal(map.codex.pct5h, 64);
-    assert.equal(AVATAR_PRESETS.length, 36);
+    assert.equal(AVATAR_PRESETS.length, 37);
+    assert.ok(AVATAR_PRESETS.some((p) => p.key === 'som'), '공식 사모예드 마스코트 솜이(som)가 포함되어야 함');
     assert.equal(TEAMS.length, 7);
     assert.equal(SWARM_MISSIONS.length, 4);
     assert.equal(defaultTeamFor({ name: 'Codex', role: '코딩, 테스트' }), 'dev');
@@ -234,9 +235,9 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(teamPatch.status, 200);
     assert.equal(teamPatch.body.team, 'dev');
     assert.equal(teamPatch.body.avatar, 'jangyeongsil');
-    const royalSet = await ui('PATCH', '/api/ui/settings', { ownerAvatar: 'queen', healthDoctor: 'daejanggeum' });
+    const royalSet = await ui('PATCH', '/api/ui/settings', { ownerAvatar: 'som', healthDoctor: 'daejanggeum' });
     assert.equal(royalSet.status, 200);
-    assert.equal(royalSet.body.ownerAvatar, 'queen');
+    assert.equal(royalSet.body.ownerAvatar, 'som');
     assert.equal(royalSet.body.healthDoctor, 'daejanggeum');
     const pxScript = await fetch(`${origin}/pixel-crew.js`);
     assert.equal(pxScript.status, 200);

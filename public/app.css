@@ -1,13 +1,16 @@
-/* CONNECT AI HQ v2 · 화이트·블랙 미니멀 갤러리 OS + K-수호 크루 컬러 포인트 + 주홍 낙관(印) 1% 악센트 */
+/* CONNECT AI HQ v2 · 매트 블랙 × 샴페인 골드(#D4A359) × 갤러리 화이트 OS + K-Heritage 16비트 픽셀 */
 :root {
   --bg: #ffffff;
-  --ink: #111111;
-  --ink-2: #525252;
-  --ink-3: #8a8a8a;
-  --line: #eaeaea;
-  --line-2: #dadada;
-  --fill: #f7f7f7;
-  --grey: #c9c9c9;
+  --ink: #0f1014;
+  --ink-2: #525560;
+  --ink-3: #8a8e99;
+  --line: #eaecef;
+  --line-2: #dadce2;
+  --fill: #f6f7f9;
+  --grey: #c9ccd4;
+  --gold: #d4a359;
+  --gold-hi: #e5bc78;
+  --gold-soft: rgba(212, 163, 89, 0.16);
   --seal: #d9381e;
   --ok: #10b981;
   --warn: #f59e0b;
@@ -38,12 +41,12 @@ a { color: inherit; }
 }
 .brand { display: flex; flex-direction: column; gap: 4px; text-decoration: none; }
 .brand-row { display: inline-flex; align-items: center; gap: 8px; }
-.brand-mark { width: 20px; height: 20px; border-radius: 6px; background: var(--ink); display: inline-flex; align-items: flex-end; justify-content: center; gap: 2px; padding: 4px; flex: none; }
+.brand-mark { width: 20px; height: 20px; border-radius: 6px; background: #0a0a0c; display: inline-flex; align-items: flex-end; justify-content: center; gap: 2px; padding: 4px; flex: none; box-shadow: inset 0 0 0 1px rgba(212, 163, 89, 0.35); }
 .brand-mark i { display: block; width: 4px; background: #fff; border-radius: 1px; }
 .brand-mark i:first-child { height: 11px; }
-.brand-mark i:last-child { height: 6px; }
+.brand-mark i:last-child { height: 6px; background: var(--gold); }
 .brand b { font-weight: 700; font-size: 15px; letter-spacing: -0.02em; }
-.brand-ver { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 5px; border: 1px solid var(--line-2); color: var(--ink-2); line-height: 1.3; }
+.brand-ver { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; padding: 1px 6px; border-radius: 5px; border: 1px solid rgba(212, 163, 89, 0.45); background: rgba(212, 163, 89, 0.08); color: #8c6525; line-height: 1.3; }
 .brand > span { font-size: 11px; color: var(--ink-3); letter-spacing: 0.02em; }
 .nav { display: flex; flex-direction: column; gap: 3px; }
 .nav a {
@@ -952,61 +955,79 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .av-px-wrap.cool .av-cool-badge { position: absolute; bottom: -3px; right: -3px; background: #f59e0b; color: #111; font-size: 9px; font-weight: 700; padding: 0 4px; border-radius: 6px; line-height: 14px; }
 
 .swarm-card {
+  position: relative;
   margin: 0 0 18px;
-  padding: 14px 16px;
+  padding: 15px 17px 14px;
   border-radius: 16px;
-  background: #14161d;
-  color: #f3f5fa;
-  border: 1px solid #262936;
-  box-shadow: 0 10px 28px rgba(17, 17, 17, 0.08);
+  background: #0a0a0c;
+  color: #f5f6fa;
+  border: 1px solid #20222b;
+  box-shadow: 0 14px 36px rgba(10, 10, 12, 0.14);
+  overflow: hidden;
 }
-.swarm-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.swarm-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(212, 163, 89, 0.78), rgba(212, 163, 89, 0.18) 55%, transparent);
+  pointer-events: none;
+}
+.swarm-kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--gold);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.swarm-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-bottom: 11px; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
 .swarm-tabs { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .swarm-tab {
-  height: 27px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04); color: #b4bdd4; font: inherit; font-size: 11.5px; font-weight: 500;
+  height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03); color: #9097ab; font: inherit; font-size: 11.5px; font-weight: 500;
   cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all .14s ease;
 }
-.swarm-tab:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
-.swarm-tab.on { background: #fff; color: #111; border-color: #fff; font-weight: 600; }
-.swarm-tab .st-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
-.swarm-tab .st-live { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 6px #4ade80; animation: livePulse 1.3s ease-in-out infinite; }
+.swarm-tab:hover { background: rgba(255, 255, 255, 0.09); color: #fff; border-color: rgba(255, 255, 255, 0.22); }
+.swarm-tab.on { background: #ffffff; color: #0a0a0c; border-color: #ffffff; font-weight: 600; }
+.swarm-tab .st-dot { width: 5.5px; height: 5.5px; border-radius: 50%; flex: none; }
+.swarm-tab .st-live { width: 6px; height: 6px; border-radius: 50%; background: #34d399; box-shadow: 0 0 7px #34d399; animation: livePulse 1.3s ease-in-out infinite; }
 .swarm-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .swarm-btn {
-  height: 27px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.07); color: #e5e9f5; font: inherit; font-size: 11.5px; font-weight: 500;
+  height: 27px; padding: 0 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04); color: #d8dce8; font: inherit; font-size: 11.5px; font-weight: 500;
   cursor: pointer; transition: all .14s ease;
 }
-.swarm-btn:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
-.swarm-btn.gold { background: linear-gradient(135deg, #f5b93b, #e0911f); color: #1a1106; border-color: #f5b93b; font-weight: 700; }
-.swarm-btn.gold:hover { filter: brightness(1.06); }
+.swarm-btn:hover { background: rgba(255, 255, 255, 0.12); color: #fff; border-color: rgba(255, 255, 255, 0.26); }
+.swarm-btn.gold { background: var(--gold); color: #0b0a08; border-color: var(--gold); font-weight: 700; }
+.swarm-btn.gold:hover { background: var(--gold-hi); border-color: var(--gold-hi); }
 
 .swarm-hero { display: flex; align-items: center; gap: 14px; padding: 12px 0 10px; }
 .swarm-hero-av {
-  position: relative; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 14px; padding: 0; background: transparent;
-  cursor: pointer; flex: none; transition: transform .14s ease;
+  position: relative; border: 1px solid rgba(212, 163, 89, 0.35); border-radius: 13px; padding: 0; background: #111217;
+  cursor: pointer; flex: none; transition: transform .14s ease, border-color .14s ease;
 }
-.swarm-hero-av:hover { transform: translateY(-2px); }
+.swarm-hero-av:hover { transform: translateY(-2px); border-color: var(--gold); }
 .swarm-hero-info { flex: 1; min-width: 0; }
-.swarm-hero-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; font-weight: 700; color: #fff; }
-.swarm-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); color: #cbd5e1; }
-.swarm-pill.live { background: rgba(74, 222, 128, 0.18); color: #6ee7b7; }
-.swarm-pill.gold { background: rgba(245, 185, 59, 0.2); color: #fde68a; }
-.swarm-hero-sub { font-size: 12px; color: #9ea7be; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.swarm-hero-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; font-weight: 700; color: #fff; letter-spacing: -0.015em; }
+.swarm-pill { font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: #b8c0d4; }
+.swarm-pill.live { background: rgba(52, 211, 153, 0.16); color: #6ee7b7; }
+.swarm-pill.gold { background: rgba(212, 163, 89, 0.16); color: #e8c78b; border: 1px solid rgba(212, 163, 89, 0.32); }
+.swarm-hero-sub { font-size: 12px; color: #8c94a8; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .swarm-hero-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }
 
 .swarm-strip { display: flex; align-items: flex-start; gap: 10px; overflow-x: auto; padding: 4px 2px 2px; scrollbar-width: thin; }
 .swarm-item { display: flex; flex-direction: column; align-items: center; gap: 5px; flex: none; width: 62px; }
 .swarm-tile {
-  position: relative; width: 54px; height: 54px; padding: 0; border-radius: 13px; background: #1d202b;
-  border: 2px solid rgba(255, 255, 255, 0.08); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  position: relative; width: 54px; height: 54px; padding: 0; border-radius: 13px; background: #111217;
+  border: 1.5px solid rgba(255, 255, 255, 0.08); cursor: pointer; display: flex; align-items: center; justify-content: center;
   transition: transform .14s ease, border-color .14s ease;
 }
-.swarm-tile:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.35); }
-.swarm-tile.on { border-color: #ffffff; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18); }
-.swarm-tile .sw-dot { position: absolute; top: -4px; right: -4px; width: 12px; height: 12px; border-radius: 50%; background: #4ade80; border: 2px solid #14161d; }
-.swarm-tile .sw-team { position: absolute; bottom: -3px; left: 50%; transform: translateX(-50%); width: 16px; height: 4px; border-radius: 99px; border: 1px solid #14161d; }
-.swarm-lbl { font-size: 11px; color: #9ea7be; max-width: 62px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+.swarm-tile:hover { transform: translateY(-2px); border-color: rgba(212, 163, 89, 0.55); }
+.swarm-tile.on { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(212, 163, 89, 0.22); }
+.swarm-tile .sw-dot { position: absolute; top: -4px; right: -4px; width: 12px; height: 12px; border-radius: 50%; background: #34d399; border: 2px solid #0a0a0c; }
+.swarm-tile .sw-team { position: absolute; bottom: -3px; left: 50%; transform: translateX(-50%); width: 16px; height: 3.5px; border-radius: 99px; border: 1px solid #0a0a0c; }
+.swarm-lbl { font-size: 11px; color: #8c94a8; max-width: 62px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
 .swarm-item.on .swarm-lbl { color: #fff; font-weight: 600; }
 
 .gate-guard { display: flex; align-items: center; gap: 10px; }

@@ -1882,24 +1882,24 @@ function approvalInlineCard(a) {
           h('div', { style: 'font-size:15px;font-weight:600' },
             a.accountName ? h('span', { class: 'tag', style: 'margin-right:8px' }, `${a.accountName}${a.accountAction ? ` · ${a.accountAction}` : ''}`) : null,
             a.what),
-          h('div', { class: 'small muted', style: 'margin-top:3px' }, ['수문장 차단 · 대표 윤허 대기', a.kind, nameOf(a.from), linkedTask ? `할 일: ${linkedTask.title}` : '', stamp(a.requestedAt)].filter(Boolean).join(' · ')))),
+          h('div', { class: 'small muted', style: 'margin-top:3px' }, ['대표 승인 대기', a.kind, nameOf(a.from), linkedTask ? `할 일: ${linkedTask.title}` : '', stamp(a.requestedAt)].filter(Boolean).join(' · ')))),
       linkedTask ? h('button', { type: 'button', class: 'btn link', onclick: () => openTaskById(linkedTask.id) }, '할 일 열기') : null),
     a.original ? h('div', { class: 'orig' }, `원본 · ${a.original}`) : null,
     draftEl ? h('label', { class: 'field' }, h('span', { class: 'small muted' }, '보낼 초안 (수정 후 승인 가능)'), draftEl) : null,
     h('div', { class: 'row', style: 'justify-content:flex-end' },
       h('button', { type: 'button', class: 'btn sm', onclick: () => once(`ap-r-${a.id}`, () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '반려' }, '반려했어요')) }, '반려'),
-      h('button', { type: 'button', class: 'btn sm dark', onclick: () => once(`ap-a-${a.id}`, () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인', ...(draftEl ? { finalText: draftEl.value } : {}) }, '승인했어요')) }, '윤허 · 승인')));
+      h('button', { type: 'button', class: 'btn sm dark', onclick: () => once(`ap-a-${a.id}`, () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인', ...(draftEl ? { finalText: draftEl.value } : {}) }, '승인했어요')) }, '승인')));
 }
 
-// ───────── 세종대왕 · 조선 AI 집현전 스웜 바 (남·여 직업군 · 부서별 라이브 현황) ─────────
+// ───────── CONNECT AI · LIVE CREW (매트 블랙 × 샴페인 골드 · K-Heritage 16비트 픽셀) ─────────
 
 function empTeamInfo(e) {
   const teams = S.options?.teams || [];
-  return teams.find((t) => t.key === e.team) || teams.find((t) => t.key === 'ops') || { key: 'ops', name: '운영 · 마당쇠방', short: '운영', color: '#38BDF8', hint: '운영 자동화' };
+  return teams.find((t) => t.key === e.team) || teams.find((t) => t.key === 'ops') || { key: 'ops', name: '운영 · OPS', short: '운영', code: 'OPS', color: '#38BDF8', hint: '운영 자동화' };
 }
 
 function teamSampleSprite(teamKey) {
-  const map = { exec: 'sejong', dev: 'jangyeongsil', plan: 'seonbi', design: 'hwawon', marketing: 'bobusang', research: 'damo', ops: 'madangsoe' };
+  const map = { exec: 'sejong', dev: 'jangyeongsil', plan: 'seonbi', design: 'saimdang', marketing: 'bobusang', research: 'damo', ops: 'madangsoe' };
   return map[teamKey] || 'seonbi';
 }
 
@@ -1908,9 +1908,9 @@ function openSwarmMissionModal(defaultKey = null) {
   dlg.className = 'wide';
   const missions = S.options?.swarmMissions || [];
   const teams = S.options?.teams || [];
-  if (!missions.length) { toast('합동 출동 프리셋을 불러오지 못했어요'); return; }
+  if (!missions.length) { toast('멀티 팀 프리셋을 불러오지 못했어요'); return; }
   let pickedKey = defaultKey && missions.some((m) => m.key === defaultKey) ? defaultKey : missions[0].key;
-  const topicIn = h('input', { class: 'in big', placeholder: missions[0].placeholder || '주제를 적어 주세요', 'aria-label': '합동 출동 주제' });
+  const topicIn = h('input', { class: 'in big', placeholder: missions[0].placeholder || '실행할 주제를 적어 주세요', 'aria-label': '멀티 팀 실행 주제' });
   const cardsWrap = h('div', { class: 'mission-grid' });
   const previewWrap = h('div');
 
@@ -1922,7 +1922,7 @@ function openSwarmMissionModal(defaultKey = null) {
 
   const renderMissionBody = () => {
     const cur = missions.find((m) => m.key === pickedKey) || missions[0];
-    topicIn.placeholder = cur.placeholder || '합동 출동 주제를 적어 주세요';
+    topicIn.placeholder = cur.placeholder || '실행할 주제를 적어 주세요';
     cardsWrap.replaceChildren(...missions.map((m) => h('button', {
       type: 'button', class: `mission-card${m.key === pickedKey ? ' on' : ''}`,
       onclick: () => { pickedKey = m.key; renderMissionBody(); },
@@ -1937,8 +1937,8 @@ function openSwarmMissionModal(defaultKey = null) {
     previewWrap.replaceChildren(
       h('div', { class: 'mission-step-list' },
         h('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:2px' },
-          h('b', { style: 'font-size:12.5px;color:#fde68a' }, `${cur.mode === 'parallel' ? '동시 합동 출동' : '순서대로 바통 터치'} · 참여 일꾼 ${cur.steps.length}팀`),
-          h('span', { style: 'font-size:11px;color:#9ea7be' }, '자동 실행 AI는 즉시 깨어나 착수합니다')),
+          h('b', { style: 'font-size:12px;color:#d4a359;letter-spacing:0.04em' }, `${cur.mode === 'parallel' ? 'PARALLEL · 동시 실행' : 'RELAY · 순차 바통 터치'} · ${cur.steps.length} TEAMS`),
+          h('span', { style: 'font-size:11px;color:#8c94a8' }, '자동 실행 AI는 즉시 가동됩니다')),
         ...cur.steps.map((st, idx) => {
           const tMeta = teams.find((t) => t.key === st.team);
           const assigned = guessEmpForTeam(st.team);
@@ -1948,13 +1948,13 @@ function openSwarmMissionModal(defaultKey = null) {
             C.avatarSvg(avKey, { size: 30, state: 'working', style: 'pixel' }),
             h('div', { style: 'min-width:0;flex:1' },
               h('div', { style: 'font-weight:600;color:#fff' }, st.title),
-              h('div', { style: 'font-size:11px;color:#9ea7be' }, `${tMeta?.name || st.team} · 담당: ${assigned ? shortName(assigned.id) : '대표'}`)));
+              h('div', { style: 'font-size:11px;color:#8c94a8' }, `${tMeta?.name || st.team} · 담당: ${assigned ? shortName(assigned.id) : '대표'}`)));
         })));
   };
 
   renderMissionBody();
   const launch = () => once('swarm-dispatch', async () => {
-    const r = await act('POST', '/api/ui/swarm/dispatch', { missionKey: pickedKey, topic: topicIn.value.trim() }, '어명 합동 출동을 시작했어요!');
+    const r = await act('POST', '/api/ui/swarm/dispatch', { missionKey: pickedKey, topic: topicIn.value.trim() }, '멀티 팀 협업을 시작했어요');
     if (r) {
       closeDlg();
       if (ui.route !== 'home') location.hash = '#home';
@@ -1965,14 +1965,15 @@ function openSwarmMissionModal(defaultKey = null) {
   topicIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) launch(); });
 
   setDlg(dlg,
-    h('h3', null, '세종대왕 어명 · 여러 팀 합동 출동'),
-    h('p', { class: 'small muted', style: 'margin:-6px 0 8px' }, '원하는 작전을 고르고 주제만 적으면, 여러 부서 AI 일꾼들이 잠에서 깨어나 릴레이 또는 동시 출동합니다.'),
+    h('div', { class: 'swarm-kicker', style: 'margin-bottom:4px' }, 'CONNECT AI · SYSTEMIZATION'),
+    h('h3', { style: 'margin-top:0' }, '멀티 팀 협업 실행'),
+    h('p', { class: 'small muted', style: 'margin:-6px 0 8px' }, '워크플로우를 고르고 주제만 적으면, 각 부서 AI 크루가 순서대로 또는 동시에 바로 가동됩니다.'),
     cardsWrap,
-    h('label', { class: 'field' }, '출동 주제 (선택 · 적으면 각 팀 지시서에 자동 반영)', topicIn),
+    h('label', { class: 'field' }, '실행 주제 (선택 · 각 팀 지시서에 자동 반영)', topicIn),
     previewWrap,
     h('div', { class: 'bar' },
       h('button', { type: 'button', class: 'btn', onclick: closeDlg }, '닫기'),
-      h('button', { type: 'button', class: 'btn dark', onclick: launch }, '어명 내리기 · 출동!')));
+      h('button', { type: 'button', class: 'btn dark', onclick: launch }, '멀티 팀 실행')));
   dlg.showModal();
   topicIn.focus();
 }
@@ -1982,13 +1983,13 @@ function openJoseonCodexModal() {
   dlg.className = 'wide';
   const presets = (S.options?.avatarPresets || []).filter((p) => p.pack === 'joseon');
   const groups = [
-    ['총괄 · 세종실 & 안전 수문장', ['sejong', 'queen', 'sumunjang']],
-    ['개발 · 장영실방 (해시계 · 혼천의)', ['jangyeongsil', 'cheomseong']],
-    ['기획 · 집현전 (갓 선비 · 문인 아씨)', ['seonbi', 'munin']],
-    ['디자인 · 도화서 5거장 (김홍도 · 신사임당 · 안견 · 신윤복 · 추사)', ['hwawon', 'saimdang', 'angyeon', 'yunbok', 'chusa']],
-    ['마케팅 · 보부상 & 예인 아씨', ['bobusang', 'yein']],
-    ['리서치 · 착호 사냥꾼 & 다모 수사관', ['hunter', 'damo']],
-    ['운영 · 마당쇠 & 행랑 아씨 · 내의원 (허준 · 대장금)', ['madangsoe', 'haengrang', 'heojun', 'daejanggeum']],
+    ['HQ · FOUNDER & MASCOT (세종 · 소헌왕후 · 솜이 · 수문장)', ['som', 'sejong', 'queen', 'sumunjang']],
+    ['DEV · 개발 (장영실 · 천문 아씨)', ['jangyeongsil', 'cheomseong']],
+    ['PLAN · 기획 (집현전 선비 · 문인 아씨)', ['seonbi', 'munin']],
+    ['DESIGN · 디자인 (김홍도 · 신사임당 · 안견 · 신윤복 · 추사)', ['hwawon', 'saimdang', 'angyeon', 'yunbok', 'chusa']],
+    ['GROWTH · 마케팅 (보부상 · 예인 아씨)', ['bobusang', 'yein']],
+    ['RESEARCH · 리서치 & QA (사냥꾼 · 다모)', ['hunter', 'damo']],
+    ['OPS & HEALTH · 운영 · 헬스 (마당쇠 · 행랑 아씨 · 허준 · 대장금)', ['madangsoe', 'haengrang', 'heojun', 'daejanggeum']],
   ];
   let mode = 'working';
   const stateBar = h('div', { class: 'picker' });
@@ -1996,7 +1997,7 @@ function openJoseonCodexModal() {
 
   const renderCodex = () => {
     stateBar.replaceChildren(
-      ...[['working', '일하는 중 (초록불 · 모션)'], ['idle', '대기 · Z 낮잠 (갓·패랭이 내려씀)']].map(([mk, ml]) => h('button', {
+      ...[['working', 'ACTIVE · 가동 모션'], ['idle', 'IDLE · Z 대기 모션']].map(([mk, ml]) => h('button', {
         type: 'button', class: `chip sm${mode === mk ? ' on' : ''}`,
         onclick: () => { mode = mk; renderCodex(); },
       }, ml)));
@@ -2007,18 +2008,18 @@ function openJoseonCodexModal() {
         h('div', { class: 'codex-sec' }, gTitle),
         h('div', { class: 'codex-grid' }, items.map((p) => h('button', {
           type: 'button', class: 'codex-card',
-          title: `${p.name} — 클릭해 이 직업으로 새 AI 직원 채용`,
+          title: `${p.name} — 클릭해 적용 또는 채용`,
           onclick: () => {
-            if (p.key === 'sejong' || p.key === 'queen') {
+            if (p.key === 'sejong' || p.key === 'queen' || p.key === 'som') {
               once('codex-royal', async () => {
-                await act('PATCH', '/api/ui/settings', { ownerAvatar: p.key }, `${p.name.split(' ')[0]}으로 대표 캐릭터를 바꿨어요`);
+                await act('PATCH', '/api/ui/settings', { ownerAvatar: p.key }, `Coordinator 캐릭터를 ${p.name.split(' ')[0]}(으)로 바꿨어요`);
                 closeDlg();
               });
               return;
             }
             if (p.key === 'heojun' || p.key === 'daejanggeum') {
               once('codex-doc', async () => {
-                await act('PATCH', '/api/ui/settings', { healthDoctor: p.key }, `${p.name.split(' ')[0]}으로 헬스 담당 의관을 바꿨어요`);
+                await act('PATCH', '/api/ui/settings', { healthDoctor: p.key }, `컨디션 담당 캐릭터를 ${p.name.split(' ')[0]}(으)로 바꿨어요`);
                 closeDlg();
               });
               return;
@@ -2036,18 +2037,20 @@ function openJoseonCodexModal() {
   renderCodex();
   setDlg(dlg,
     h('div', { class: 'row', style: 'justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap' },
-      h('h3', { style: 'margin:0' }, '세종대왕 · 조선 AI 집현전 20인 도감'),
+      h('div', null,
+        h('div', { class: 'swarm-kicker', style: 'margin-bottom:2px' }, 'CONNECT AI LAB · SIGNATURE DROP'),
+        h('h3', { style: 'margin:0' }, 'K-Heritage Pixel Edition (21)')),
       stateBar),
-    h('p', { class: 'small muted', style: 'margin:6px 0 8px' }, '캐릭터를 누르면 그 직업으로 새 AI 직원을 바로 채용합니다 (세종·왕후는 총괄, 허준·대장금은 대시보드 헬스 의관으로 전환).'),
+    h('p', { class: 'small muted', style: 'margin:6px 0 8px' }, '캐릭터를 클릭하면 해당 팀으로 새 AI 직원을 추가합니다 (솜이·세종·왕후는 Coordinator, 허준·대장금은 헬스 담당으로 전환).'),
     body,
     h('div', { class: 'bar' },
       h('button', {
         type: 'button', class: 'btn',
         onclick: () => once('codex-dress-all', async () => {
-          await act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, '전체 AI 직원에게 부서별 조선 직업군을 입혔어요!');
+          await act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, '전체 AI 직원에게 K-Heritage Pixel을 적용했어요');
           closeDlg();
         }),
-      }, '전체 직원에 부서별 자동 배정'),
+      }, '전체 직원에 부서별 적용'),
       h('button', { type: 'button', class: 'btn dark', onclick: closeDlg }, '닫기')));
   dlg.showModal();
 }
@@ -2062,8 +2065,10 @@ function joseonSwarmPanel() {
   const filtered = teamFilter === 'all' ? d.employees : d.employees.filter((e) => (e.team || 'ops') === teamFilter);
   const visible = teamFilter === 'all' ? d.employees : filtered;
   const selEmp = ui.swarmSelected && ui.swarmSelected !== 'all' ? d.employees.find((e) => e.id === ui.swarmSelected) : null;
-  const ownerAv = d.settings?.ownerAvatar === 'queen' ? 'queen' : 'sejong';
-  const ownerTitle = ownerAv === 'queen' ? '소헌왕후 · 총괄' : '세종대왕 · 총괄';
+  const royalOrder = ['sejong', 'som', 'queen'];
+  const ownerAv = royalOrder.includes(d.settings?.ownerAvatar) ? d.settings.ownerAvatar : 'sejong';
+  const nextOwnerAv = royalOrder[(royalOrder.indexOf(ownerAv) + 1) % royalOrder.length];
+  const ownerLabels = { sejong: '세종대왕', som: '솜이', queen: '소헌왕후' };
   const workingCount = S.working.length;
   const activeTeamMeta = teams.find((t) => t.key === teamFilter);
 
@@ -2076,66 +2081,67 @@ function joseonSwarmPanel() {
       render();
       setTimeout(() => document.querySelector('[data-k="add-title"]')?.focus(), 20);
     }
-    toast(`${shortName(empObj.id)}에게 바로 시킬 일을 적어 주세요`);
+    toast(`${shortName(empObj.id)}에게 맡길 일을 적어 주세요`);
   };
 
-  // 1. 상단 팀 필터 탭 (6개 부서 전체 표시) + 합동 출동 / 도감 20종 / 복장 전환
+  // 1. 상단 부서 필터 탭 + CONNECT AI 액션
   const teamTabs = [
     h('button', {
       type: 'button', class: `swarm-tab${teamFilter === 'all' ? ' on' : ''}`,
       onclick: () => { ui.swarmTeam = 'all'; ui.swarmSelected = 'all'; render(); },
-    }, workingCount ? h('span', { class: 'st-live' }) : null, `전체 (${d.employees.length})`),
+    }, workingCount ? h('span', { class: 'st-live' }) : null, `ALL (${d.employees.length})`),
     ...teams.filter((t) => t.key !== 'exec').map((t) => {
       const members = d.employees.filter((e) => (e.team || 'ops') === t.key);
       const anyWork = members.some((e) => isWorking(e.id));
       return h('button', {
         type: 'button', class: `swarm-tab${teamFilter === t.key ? ' on' : ''}`,
-        style: members.length ? undefined : 'opacity:.6',
-        title: t.hint,
+        style: members.length ? undefined : 'opacity:.52',
+        title: `${t.name} · ${t.hint}`,
         onclick: () => { ui.swarmTeam = t.key; ui.swarmSelected = members.length === 1 ? members[0].id : 'all'; render(); },
       }, anyWork ? h('span', { class: 'st-live' }) : h('span', { class: 'st-dot', style: `background:${t.color}` }), `${t.short} ${members.length}`);
     }),
   ];
 
   const topActions = h('div', { class: 'swarm-actions' },
-    h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => openSwarmMissionModal() }, '⚡ 합동 출동'),
-    h('button', { type: 'button', class: 'swarm-btn', onclick: openJoseonCodexModal }, '도감 20종'),
+    h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => openSwarmMissionModal() }, '멀티 팀 실행'),
+    h('button', { type: 'button', class: 'swarm-btn', onclick: openJoseonCodexModal }, '크루 에디션'),
     !isJoseonMode
       ? h('button', {
         type: 'button', class: 'swarm-btn',
-        title: '모든 AI 직원에게 장영실·선비·김홍도·신사임당·보부상·사냥꾼·다모·마당쇠 16비트 복장을 한 번에 입힙니다',
-        onclick: () => once('dress-joseon', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, '조선 AI 일꾼단(남·여)으로 갈아입었어요!')),
-      }, '조선 일꾼단 입히기')
+        title: '전체 AI 직원에게 K-Heritage 16비트 픽셀 에디션을 적용합니다',
+        onclick: () => once('dress-joseon', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, 'K-Heritage Pixel 에디션을 적용했어요')),
+      }, 'K-픽셀')
       : h('button', {
         type: 'button', class: 'swarm-btn',
-        onclick: () => once('dress-k3d', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'k-crew', avatarStyle: 'studio' }, 'K-수호 크루 3D로 바꿨어요')),
-      }, 'K-수호 3D'));
+        onclick: () => once('dress-k3d', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'k-crew', avatarStyle: 'studio' }, 'K-Guardian 3D로 전환했어요')),
+      }, '3D 스튜디오'));
 
-  // 2. 중앙 스포트라이트 (Coordinator 세종대왕/소헌왕후 OR 선택한 일꾼)
+  // 2. 중앙 스포트라이트 (Coordinator OR 선택한 AI 직원)
   let heroNode;
   if (!selEmp) {
-    const ownerName = d.owner?.name ? `${d.owner.name} 대표` : '대표님';
+    const ownerName = d.owner?.name ? `${d.owner.name} · Coordinator` : 'THE FOUNDER · Coordinator';
     const anyWork = workingCount > 0;
     const teamPick = activeTeamMeta ? (visible.find((e) => e.runMode === 'auto') || visible[0]) : null;
     const heroSprite = activeTeamMeta ? teamSampleSprite(activeTeamMeta.key) : ownerAv;
     heroNode = h('div', { class: 'swarm-hero' },
       h('button', {
         type: 'button', class: 'swarm-hero-av',
-        title: activeTeamMeta ? `${activeTeamMeta.name} — 클릭해 20인 도감 열기` : '클릭해 세종대왕 ↔ 소헌왕후 전환',
-        onclick: () => activeTeamMeta ? openJoseonCodexModal() : once('flip-royal', () => act('PATCH', '/api/ui/settings', { ownerAvatar: ownerAv === 'sejong' ? 'queen' : 'sejong' }, ownerAv === 'sejong' ? '소헌왕후로 전환했어요' : '세종대왕으로 전환했어요')),
+        title: activeTeamMeta ? `${activeTeamMeta.name} — 클릭해 크루 에디션 열기` : `클릭해 Coordinator 캐릭터 전환 (${ownerLabels[ownerAv]} → ${ownerLabels[nextOwnerAv]})`,
+        onclick: () => activeTeamMeta ? openJoseonCodexModal() : once('flip-royal', () => act('PATCH', '/api/ui/settings', { ownerAvatar: nextOwnerAv }, `Coordinator를 ${ownerLabels[nextOwnerAv]}(으)로 전환했어요`)),
       }, C.avatarSvg(heroSprite, { size: 62, state: anyWork ? 'working' : 'idle', style: 'pixel' })),
       h('div', { class: 'swarm-hero-info' },
+        h('div', { class: 'swarm-kicker' }, activeTeamMeta ? `CONNECT AI · ${activeTeamMeta.code || activeTeamMeta.short}` : 'CONNECT AI · LIVE CREW'),
         h('div', { class: 'swarm-hero-title' },
-          activeTeamMeta ? activeTeamMeta.name : `${ownerName} · ${ownerTitle}`,
-          h('span', { class: `swarm-pill${anyWork ? ' live' : ' gold'}` }, anyWork ? `가동 중 · ${workingCount}명 일함` : `전원 대기 · Z 낮잠 (${d.employees.length}명)`)),
+          activeTeamMeta ? activeTeamMeta.name : ownerName,
+          h('span', { class: `swarm-pill${anyWork ? ' live' : ' gold'}` }, anyWork ? `ACTIVE · ${workingCount} / ${d.employees.length}` : `STANDBY · ${d.employees.length}`)),
         h('div', { class: 'swarm-hero-sub' }, activeTeamMeta
           ? activeTeamMeta.hint
-          : '훈민정음 본사 · 일하는 일꾼은 초록불, 대기 일꾼은 갓·패랭이 내려쓰고 Z 낮잠 중')),
+          : '가동 중인 AI는 초록불과 모션, 대기 중인 AI는 Z 상태로 실시간 표시됩니다')),
       h('div', { class: 'swarm-hero-acts' },
         activeTeamMeta && !visible.length
-          ? h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => openAddEmployee({ pack: 'joseon', team: activeTeamMeta.key, avatar: teamSampleSprite(activeTeamMeta.key) }) }, `+ ${activeTeamMeta.short}팀 채용`)
+          ? h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => openAddEmployee({ pack: 'joseon', team: activeTeamMeta.key, avatar: teamSampleSprite(activeTeamMeta.key) }) }, `+ ${activeTeamMeta.short}팀 추가`)
           : teamPick
-            ? h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => assignTo(teamPick) }, `${activeTeamMeta.short}팀 일 시키기 →`)
+            ? h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => assignTo(teamPick) }, `${activeTeamMeta.short}팀에 맡기기 →`)
             : null));
   } else {
     const working = isWorking(selEmp.id);
@@ -2146,27 +2152,28 @@ function joseonSwarmPanel() {
     const preset = (S.options?.avatarPresets || []).find((p) => p.key === selEmp.avatar);
     heroNode = h('div', { class: 'swarm-hero' },
       h('button', {
-        type: 'button', class: 'swarm-hero-av', title: '클릭해 캐릭터·직업·팀 바꾸기',
+        type: 'button', class: 'swarm-hero-av', title: '클릭해 캐릭터 · 팀 설정',
         onclick: () => openAvatarModal(selEmp, { tab: isJoseonMode ? 'joseon' : undefined }),
       }, avatarEl(selEmp, { size: 62, onDark: true })),
       h('div', { class: 'swarm-hero-info' },
+        h('div', { class: 'swarm-kicker' }, `CONNECT AI · ${tInfo.code || tInfo.short}`),
         h('div', { class: 'swarm-hero-title' },
           `@${shortName(selEmp.id)}`,
           h('span', { class: 'swarm-pill', style: `border:1px solid ${tInfo.color}55;color:${tInfo.color}` }, tInfo.name),
-          h('span', { class: `swarm-pill${working ? ' live' : ''}` }, working ? '일하는 중' : cooling ? `휴식 ${empCooldownMin(selEmp)}분` : '대기 · Z 낮잠')),
+          h('span', { class: `swarm-pill${working ? ' live' : ''}` }, working ? 'ACTIVE' : cooling ? `COOLDOWN ${empCooldownMin(selEmp)}m` : 'IDLE · Z')),
         h('div', { class: 'swarm-hero-sub' }, working && wTask
-          ? `지금 하는 일: ${wTask.title}`
+          ? `진행 중: ${wTask.title}`
           : [preset?.name, selEmp.role].filter(Boolean).join(' · ') || '클릭해서 바로 일을 맡겨 보세요')),
       h('div', { class: 'swarm-hero-acts' },
-        h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => assignTo(selEmp) }, '일 시키기'),
-        h('button', { type: 'button', class: 'swarm-btn', onclick: () => openAvatarModal(selEmp, { tab: 'joseon' }) }, '직업·팀 변경')));
+        h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => assignTo(selEmp) }, '일 맡기기'),
+        h('button', { type: 'button', class: 'swarm-btn', onclick: () => openAvatarModal(selEmp, { tab: 'joseon' }) }, '캐릭터 · 팀')));
   }
 
-  // 3. 하단 워커 타일 스트립 (All 3인 클러스터 + 팀 일꾼들)
+  // 3. 하단 워커 타일 스트립 (All 3인 클러스터 + 팀 AI 직원들)
   const clusterKeys = (visible.length ? visible : d.employees).slice(0, 3).map((e) => (px?.SPRITES[e.avatar] ? e.avatar : 'seonbi'));
   const allItem = h('div', { class: `swarm-item${!selEmp ? ' on' : ''}` },
     h('button', {
-      type: 'button', class: `swarm-tile${!selEmp ? ' on' : ''}`, title: '전체 보기 (세종대왕 총괄)',
+      type: 'button', class: `swarm-tile${!selEmp ? ' on' : ''}`, title: '전체 보기 (Coordinator)',
       onclick: () => { ui.swarmSelected = 'all'; render(); },
     }, C.swarmAllSvg(clusterKeys, { size: 48 })),
     h('span', { class: 'swarm-lbl' }, 'All'));
@@ -2183,7 +2190,7 @@ function joseonSwarmPanel() {
     return h('div', { class: `swarm-item${on ? ' on' : ''}` },
       h('button', {
         type: 'button', class: `swarm-tile${on ? ' on' : ''}`,
-        title: `${shortName(e.id)} (${tInfo.name}) — 클릭해 선택 · 바로 일 시키기`,
+        title: `${shortName(e.id)} (${tInfo.name}) — 클릭해 선택`,
         onclick: () => {
           ui.swarmSelected = e.id;
           if (ui.route === 'home') ui.taskPick = e.id;
@@ -2191,20 +2198,20 @@ function joseonSwarmPanel() {
         },
       },
       tileVisual,
-      working ? h('i', { class: 'sw-dot', title: '일하는 중' }) : null,
+      working ? h('i', { class: 'sw-dot', title: '가동 중' }) : null,
       h('i', { class: 'sw-team', style: `background:${tInfo.color}` })),
       h('span', { class: 'swarm-lbl' }, `@${shortName(e.id)}`));
   });
 
   const addTile = h('div', { class: 'swarm-item' },
     h('button', {
-      type: 'button', class: 'swarm-tile', style: 'border-style:dashed;color:#9ea7be;font-size:20px;font-weight:500',
-      title: '새 조선 일꾼(AI 직원) 추가',
+      type: 'button', class: 'swarm-tile', style: 'border-style:dashed;color:#8c94a8;font-size:20px;font-weight:500',
+      title: '새 AI 직원 추가',
       onclick: () => openAddEmployee(activeTeamMeta ? { pack: 'joseon', team: activeTeamMeta.key, avatar: teamSampleSprite(activeTeamMeta.key) } : undefined),
     }, '+'),
     h('span', { class: 'swarm-lbl' }, '추가'));
 
-  return h('section', { class: 'swarm-card', 'aria-label': '조선 AI 집현전 라이브 팀 현황' },
+  return h('section', { class: 'swarm-card', 'aria-label': 'CONNECT AI LIVE CREW' },
     h('div', { class: 'swarm-top' }, h('div', { class: 'swarm-tabs' }, teamTabs), topActions),
     heroNode,
     h('div', { class: 'swarm-strip' }, allItem, workerItems, addTile));
@@ -3695,7 +3702,7 @@ function openAddEmployee(opts = {}) {
     const fake = { id: 'new-emp', name: avatarName.value.trim() || name.value.trim() || '새 AI 직원', avatar: pickedAvatar, avatarStyle: isJ ? 'pixel' : 'studio', avatarImage: customImg };
     avPreview.replaceChildren(avatarEl(fake, { size: 48, stateOverride: isJ ? 'working' : 'idle', styleOverride: isJ ? 'pixel' : 'studio' }));
     avPackRow.replaceChildren(
-      ...[['joseon', '조선 AI 집현전 (남·여)'], ['k-crew', 'K-수호 크루 3D']].map(([pk, pl]) => h('button', {
+      ...[['joseon', 'K-Heritage Pixel (21)'], ['k-crew', 'K-Guardian 3D']].map(([pk, pl]) => h('button', {
         type: 'button', class: `chip sm${pickedPack === pk ? ' on' : ''}`,
         onclick: () => {
           pickedPack = pk;
@@ -3760,8 +3767,8 @@ function openAddEmployee(opts = {}) {
       h('div', { class: 'row', style: 'gap:10px;align-items:center;margin-bottom:8px' },
         avPreview,
         h('div', null,
-          h('div', { style: 'font-size:13px;font-weight:600' }, '캐릭터 · 직업 고르기 또는 내 이미지 넣기'),
-          h('div', { class: 'small muted' }, '조선 AI 집현전(장영실·선비·보부상·사냥꾼·다모·마당쇠) 또는 K-수호 크루를 골라 보세요'))),
+          h('div', { style: 'font-size:13px;font-weight:600' }, '캐릭터 에디션 또는 내 이미지'),
+          h('div', { class: 'small muted' }, 'K-Heritage 16비트 픽셀(장영실·선비·신사임당·솜이 등) 또는 3D 피규어를 골라 보세요'))),
       avPackRow,
       avStrip),
     h('div', { class: 'bar' }, h('button', { class: 'btn', onclick: closeAdd }, '취소'),
@@ -3803,8 +3810,8 @@ function pageStaff() {
     h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, 'AI 직원')),
       h('div', { class: 'sub' }, `AI 직원 ${d.employees.length}명 · 월급 합계 월 ${won(total)}${unknown ? ` · 미입력 ${unknown}명` : ''} · 토큰 한도 시 대체 직원으로 자동 전환`)),
     h('div', { class: 'row' },
-      h('button', { class: 'btn sm', onclick: openJoseonCodexModal }, '조선 도감 20종'),
-      h('button', { class: 'btn sm', onclick: () => once('staff-joseon', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, '조선 AI 일꾼단(남·여)으로 갈아입었어요!')) }, '조선 일꾼단 입히기'),
+      h('button', { class: 'btn sm', onclick: openJoseonCodexModal }, '크루 에디션 (21)'),
+      h('button', { class: 'btn sm', onclick: () => once('staff-joseon', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, 'K-Heritage Pixel 에디션을 적용했어요')) }, 'K-픽셀 적용'),
       h('button', { class: 'btn sm', onclick: () => { location.hash = '#pocket'; } }, '폰 라이브 뷰'),
       h('button', { class: 'btn sm', onclick: openConnectModal }, 'AI 도구 연결 (MCP · 스킬)'),
       h('button', { class: 'btn dark sm', onclick: () => openAddEmployee() }, '직원 추가'))),

@@ -2487,7 +2487,7 @@ route('POST', '/api/ui/swarm/dispatch', async ({ body }) => {
     if (!d.employees.length) throw new HttpError(400, '먼저 출동할 AI 직원을 1명 이상 추가해 주세요.');
     const baseTitle = mission
       ? (topic ? `${mission.title} · ${topic}` : mission.title)
-      : (topic || '조선 AI 팀 합동 출동');
+      : (topic || '멀티 팀 협업 실행');
     const usedIds = new Set();
     const builtSteps = rawSteps.slice(0, 8).map((st, idx) => {
       const tKey = TEAMS.some((x) => x.key === st.team) ? st.team : 'plan';
@@ -2509,7 +2509,7 @@ route('POST', '/api/ui/swarm/dispatch', async ({ body }) => {
     const taskObj = {
       id: nextId(d, 't'), order: 0, title: baseTitle, kind: 'ai', assignee: builtSteps[0].assignee || 'jay',
       date: ymd(), time: null, status: '대기',
-      note: topic ? `어명 주제: ${topic}\n${mission?.hint || ''}`.trim() : (mission?.hint || '여러 팀이 힘을 합쳐 처리하는 합동 작전'),
+      note: topic ? `주제: ${topic}\n${mission?.hint || ''}`.trim() : (mission?.hint || '여러 팀이 함께 처리하는 멀티 팀 협업'),
       resource: builtSteps[0].resource || null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: null, intervalMin: null,
       stepMode: mode, sharedFolder: '', steps: normalizeSteps(builtSteps, d, { asTemplate: false }),
       gate: null, gateApprovedAt: null, reason: '', assignSource: 'jay',
@@ -2521,8 +2521,8 @@ route('POST', '/api/ui/swarm/dispatch', async ({ body }) => {
     syncTaskFromSteps(d, taskObj);
     d.tasks.push(taskObj);
     const teamLine = builtSteps.map((st) => nameOf(d, st.assignee)).join(mode === 'parallel' ? ' + ' : ' → ');
-    pushHistory(taskObj, 'jay', '합동 출동', `${mode === 'parallel' ? '동시' : '릴레이'} · ${teamLine}`);
-    sys(d, `task:${taskObj.id}`, `어명 합동 출동 (${mode === 'parallel' ? '동시 출동' : '릴레이 협업'}): ${teamLine}`);
+    pushHistory(taskObj, 'jay', '멀티 팀 실행', `${mode === 'parallel' ? '동시' : '릴레이'} · ${teamLine}`);
+    sys(d, `task:${taskObj.id}`, `멀티 팀 실행 (${mode === 'parallel' ? '동시 가동' : '릴레이 협업'}): ${teamLine}`);
     return taskObj;
   });
 
@@ -2816,7 +2816,7 @@ route('PATCH', '/api/ui/settings', async ({ body }) => store.mutate((d) => {
   if (body.autoStartAdded !== undefined) d.settings.autoStartAdded = Boolean(body.autoStartAdded);
   if (body.desktopNotify !== undefined) d.settings.desktopNotify = Boolean(body.desktopNotify);
   if (body.ownerName !== undefined) { const s = text(body.ownerName, 40); if (s) d.owner.name = s; }
-  if (body.ownerAvatar !== undefined && ['sejong', 'queen'].includes(body.ownerAvatar)) d.settings.ownerAvatar = body.ownerAvatar;
+  if (body.ownerAvatar !== undefined && ['sejong', 'queen', 'som'].includes(body.ownerAvatar)) d.settings.ownerAvatar = body.ownerAvatar;
   if (body.healthDoctor !== undefined && ['heojun', 'daejanggeum'].includes(body.healthDoctor)) d.settings.healthDoctor = body.healthDoctor;
   if (body.companyName !== undefined) d.settings.companyName = text(body.companyName, 60);
   if (body.onboarded !== undefined) d.settings.onboarded = Boolean(body.onboarded);
