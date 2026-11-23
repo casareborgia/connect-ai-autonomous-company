@@ -366,6 +366,20 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(delGym.status, 200);
     assert.equal(delGym.body.assignee, 'jay', '몸/현장이 필요한 운동 일정은 대표(jay)로 분류되어야 함');
 
+    // 초 단위 예약("10초 뒤") · 후치 오전/오후("9시 30분 오전") · 개인 알람 예약 검증
+    const del10s = await ui('POST', '/api/ui/coordinator/delegate', { title: '지금부터 10초 뒤에 이메일 체크' });
+    assert.equal(del10s.status, 200);
+    assert.equal(del10s.body.delaySec, 10);
+    assert.ok(del10s.body.runAt, '10초 뒤 예약 시각(runAt)이 설정되어야 함');
+    assert.equal(del10s.body.autoStarted, false, '10초 뒤 예약 작업은 즉시 착수하지 않고 10초 뒤 실행되어야 함');
+    assert.equal(del10s.body.assigneeRunnable, true, '미연결 피클이 아닌 실제 연결 AI에게 배분되어야 함');
+
+    const delAlarm = await ui('POST', '/api/ui/coordinator/delegate', { title: '11시 30분 오후 나한테 알람줘' });
+    assert.equal(delAlarm.status, 200);
+    assert.equal(delAlarm.body.isAlarm, true);
+    assert.equal(delAlarm.body.time, '23:30');
+    assert.equal(delAlarm.body.assignee, 'jay');
+
     const mascotRes = await fetch(`${origin}/mascots/haetae.jpg`);
     assert.equal(mascotRes.status, 200);
     assert.match(mascotRes.headers.get('content-type') || '', /image\/jpeg/);

@@ -534,7 +534,19 @@ function detectLiveEvents(prev, next) {
         duration: 5400,
       });
     }
-    if (old.status !== '완료' && t.status === '완료' && (t.completedBy || t.assignee) !== 'jay') {
+    if (!old.alarmFiredAt && t.alarmFiredAt) {
+      pushLiveCard({
+        kind: 'approve',
+        kicker: 'CONNECT AI · 알람',
+        title: `⏰ ${t.title}`,
+        body: t.time ? `${fmtKoTime(t.time)} 예약 알람이 울렸습니다` : '예약 알람이 울렸습니다',
+        taskId: t.id,
+        actionLabel: '확인 →',
+        sound: 'done',
+        duration: 12000,
+      });
+    }
+    if (old.status !== '완료' && t.status === '완료' && (t.completedBy || t.assignee) !== 'jay' && !t.alarmFiredAt) {
       const byId = t.completedBy || t.assignee;
       pushLiveCard({
         kind: 'done',
@@ -1765,11 +1777,22 @@ function parseSmartTime(raw, { allowBareDigits = false } = {}) {
     const mi = m1[4] ? 30 : m1[3] ? Number(m1[3]) : 0;
     if (h <= 23 && mi <= 59) return `${pad(h)}:${pad(mi)}`;
   }
+  const mPost = /(?<!\d)(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분|\s*(반))?\s*(오전|오후|아침|점심|낮|저녁|밤|새벽)/.exec(s);
+  if (mPost) {
+    const h = adj(mPost[4], Number(mPost[1]));
+    const mi = mPost[3] ? 30 : mPost[2] ? Number(mPost[2]) : 0;
+    if (h <= 23 && mi <= 59) return `${pad(h)}:${pad(mi)}`;
+  }
   const m2 = /(?<!\d)(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분(?!마다)|\s*(반))/.exec(s);
   if (m2) {
     let h = Number(m2[1]);
     const mi = m2[3] ? 30 : Number(m2[2]);
     if (h <= 23 && mi <= 59) { if (h >= 1 && h <= 6) h += 12; return `${pad(h)}:${pad(mi)}`; }
+  }
+  const mBare = /(?<!\d)(\d{1,2})\s*시(?:에|까지|부터)(?!\d)/.exec(s);
+  if (mBare) {
+    let h = Number(mBare[1]);
+    if (h <= 23) { if (h >= 1 && h <= 6) h += 12; return `${pad(h)}:00`; }
   }
   const m3 = /(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)/.exec(s);
   if (m3) return `${pad(Number(m3[1]))}:${m3[2]}`;
@@ -1911,22 +1934,26 @@ function addBar() {
       whoBar.resetSuggest();
       const multi = Array.isArray(r.steps) && r.steps.length >= 2;
       const isHuman = r.assignee === 'jay';
+      const isAlarm = Boolean(r.isAlarm);
       const unlinked = !isHuman && r.assigneeRunnable === false && !r.gate;
       const host = !isHuman && r.mainMachineName ? ` · ${r.mainMachineName}` : '';
+      const schedTag = r.delaySec ? ` · ${r.delaySec}초 뒤 자동 실행` : (!r.autoStarted && r.time && !r.gate ? ` · ${fmtKoTime(r.time)} 예약` : '');
       const aiLabel = r.mainAiId ? shortName(r.mainAiId) : (r.mainAiName || '메인 AI');
       pushLiveCard({
         kind: r.gate ? 'approve' : unlinked ? 'handoff' : 'connect',
-        kicker: `CONNECT AI · ${multi ? '멀티 팀 자동 배분' : isHuman ? '대표 일정 분류' : unlinked ? '미연결 AI 배정' : '자동 배분'}`,
+        kicker: `CONNECT AI · ${multi ? '멀티 팀 자동 배분' : isAlarm ? '알람 예약' : isHuman ? '대표 일정 분류' : unlinked ? '미연결 AI 배정' : '자동 배분'}`,
         title: multi
           ? `${koSubject(aiLabel)} ${r.steps.length}단계로 팀에 배분했어요`
-          : isHuman
-            ? '대표님이 직접 할 일로 분류했어요'
-            : unlinked
-              ? `${shortName(r.assignee)} 배정 (미연결 · 수동 확인 필요)`
-              : `${aiLabel} → ${shortName(r.assignee)} 배정 완료`,
+          : isAlarm
+            ? `⏰ 알람을 예약했어요${r.delaySec ? ` (${r.delaySec}초 뒤)` : r.time ? ` (${fmtKoTime(r.time)})` : ''}`
+            : isHuman
+              ? '대표님이 직접 할 일로 분류했어요'
+              : unlinked
+                ? `${shortName(r.assignee)} 배정 (미연결 · 수동 확인 필요)`
+                : `${aiLabel} → ${shortName(r.assignee)} 배정 완료`,
         body: isHuman
           ? (r.reason || '몸이나 현장이 필요한 일')
-          : `${r.stepSummary || shortName(r.assignee)}${host}${r.autoStarted ? ' · 즉시 실행 시작' : r.gate ? ` · ${r.gate} 승인 대기` : unlinked ? ' · AI 직원에서 연결하거나 복사 실행해 주세요' : ''}`,
+          : `${r.stepSummary || shortName(r.assignee)}${host}${r.autoStarted ? ' · 즉시 실행 시작' : r.gate ? ` · ${r.gate} 승인 대기` : unlinked ? ' · AI 직원에서 연결하거나 복사 실행해 주세요' : schedTag}`,
         empId: r.assignee !== 'jay' ? r.assignee : null,
         taskId: r.id,
         actionLabel: isHuman ? '일정 보기 →' : '배분 내역 보기 →',

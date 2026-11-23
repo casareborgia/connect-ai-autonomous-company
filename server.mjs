@@ -17,7 +17,7 @@ import { Store } from './lib/store.mjs';
 import { seedData, emptyData } from './lib/seed.mjs';
 import {
   STATUSES, APPROVAL_KINDS, METRIC_NAMES, HttpError,
-  ymd, hm, addDays, nowIso, nextId, orderFor, text, optText, timeOrNull, extractKoreanTime, dateOrNull, periodOrNull, numberOrNull,
+  ymd, hm, addDays, nowIso, nextId, orderFor, text, optText, timeOrNull, extractKoreanTime, extractKoreanDelaySec, dateOrNull, periodOrNull, numberOrNull,
 } from './lib/util.mjs';
 import { readConnectors, summarize, normalizeSite } from './lib/revenue.mjs';
 import { splitUtterance, pickOllamaModel } from './lib/llm.mjs';
@@ -792,6 +792,9 @@ function taskPromptCommon(d, emp, t) {
   const empSkillRepos = new Set(empSkills.map((s) => (s.repo || s.name || '').toLowerCase()).filter(Boolean));
   const extraOss = oss.filter((x) => !empSkillRepos.has((x.repo || x.name || '').toLowerCase()));
   const fmtSkill = (x) => `- ${x.name}${x.repo ? ` · GitHub: ${x.repo}` : ''}${x.command ? ` · 명령: ${x.command}` : ''}${x.skillPath ? ` · 스킬: ${x.skillPath}` : ''}${x.when ? ` · 용도: ${x.when}` : ''}${x.note ? ` · ${x.note}` : ''}`;
+  const autoEgoLine = !browser && /(ego\s*lite|egolite|에고\s*라이트|ego-browser)/i.test(fullText) && findBin('ego-browser', 'AIHQ_EGO_BIN')
+    ? '쓸 브라우저: Ego Lite (명령: ego-browser nodejs · 웹 확인 후 task.finish({ keep: [] })로 스페이스를 닫으세요)'
+    : '';
   return [
     `할 일 ${t.id}: ${t.title}`,
     t.time ? `시간: ${t.time}` : '',
@@ -799,7 +802,7 @@ function taskPromptCommon(d, emp, t) {
     cost ? `예상 비용(예산): ${cost.toLocaleString('ko-KR')}원` : '',
     noteTrim ? `프롬프트(지시서):\n${noteTrim}` : '',
     res ? `쓸 리소스: ${res.name} (${res.kind}${res.path ? ` · 경로: ${res.path}` : ''})` : '',
-    browser ? `쓸 브라우저: ${browser.name}${browser.guide ? ` (사용법: ${browser.guide})` : browser.command ? ` (명령: ${browser.command})` : ''}` : '',
+    browser ? `쓸 브라우저: ${browser.name}${browser.guide ? ` (사용법: ${browser.guide})` : browser.command ? ` (명령: ${browser.command})` : ''}` : autoEgoLine,
     phoneBlock,
     accountBlock,
     designBlock,
@@ -1216,19 +1219,59 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
 }
 
 // 매일 할 일 자동 실행 + RAM/토큰 대기열(queued) 자동 해제 실행
+const ALARM_RE = /(알람|알림\s*(줘|해|보내|울려)|리마인드|깨워\s*줘|타이머)/;
+const AI_WORK_FOR_ALARM_RE = /(이메일|메일|검색|조사|작성|대본|코딩|분석|정리|만들|체크|확인|인스타|유튜브|ego\s*lite|에고)/i;
+function isPersonalAlarm(title) {
+  const s = String(title || '').trim();
+  return ALARM_RE.test(s) && !AI_WORK_FOR_ALARM_RE.test(s);
+}
+function scheduleExactWake(runAtIso) {
+  if (!runAtIso) return;
+  const ms = Date.parse(runAtIso) - Date.now();
+  if (ms > 0 && ms <= 15 * 60 * 1000) {
+    setTimeout(() => { autoRun(new Date()).catch(() => {}); }, ms + 150);
+  }
+}
+
 async function autoRun(now) {
   const d = store.data;
   const today = ymd(now);
   const cur = minutes(hm(now));
   const nowMs = now.getTime();
+
+  // 0) 대표 개인 알람 (예: "10초 뒤에 나한테 알람줘", "9시 30분 알람") — 시각 도래 시 맥 네이티브 알림 + UI 알람 카드 발동
+  const duePersonalAlarms = d.tasks.filter((t) => {
+    if (t.status !== '대기' || t.assignee !== 'jay' || t.alarmFiredAt) return false;
+    if (!t.isAlarm && !isPersonalAlarm(t.title)) return false;
+    if (t.date !== today) return false;
+    if (t.runAt) return Date.parse(t.runAt) <= nowMs;
+    return Boolean(t.time && minutes(t.time) <= cur);
+  });
+  for (const t of duePersonalAlarms) {
+    await store.mutate((x) => {
+      const hit = x.tasks.find((item) => item.id === t.id);
+      if (!hit || hit.alarmFiredAt) return;
+      hit.alarmFiredAt = nowIso();
+      hit.status = '완료';
+      hit.completedAt = nowIso();
+      hit.completedBy = 'system';
+      hit.resultSummary = `⏰ 알람 전달 완료 (${hit.time || hm(now)})`;
+      pushHistory(hit, 'system', '알람', hit.resultSummary);
+    });
+    if (process.env.AIHQ_NO_NOTIFY !== '1') {
+      notify('CONNECT AI HQ · 알람', `${t.time ? `${t.time} ` : ''}${t.title}`).catch(() => {});
+    }
+  }
+
   // 우선순위: 대기열(시간 도래) → 정해진 시각 빠른 순 → 기본 order 순
-  const candidates = [...d.tasks].filter((t) => {
+  const candidates = [...store.data.tasks].filter((t) => {
     if (t.status !== '대기' || t.runStartedAt) return false;
     if (t.date > today) return false;
     if (t.officeRun || isOffice(d.resources.find((r) => r.id === t.resource))) return false;
     if (t.gate && !t.gateApprovedAt) return false;
     if (t.queued) return !t.retryAfter || Date.parse(t.retryAfter) <= nowMs;
     if (t.date !== today) return false;
+    if (t.runAt) return Date.parse(t.runAt) <= nowMs;
     if (!t.routineId) {
       if (d.settings?.autoStartAdded === false) return false;
       if (!t.time || minutes(t.time) > cur) return false;
@@ -1509,9 +1552,12 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
   const t = await store.mutate((d) => {
     const title = text(body.title, 300);
     if (!title) throw new HttpError(400, '할 일 제목이 필요합니다.');
-    const parsedTime = timeOrNull(body.time) || extractKoreanTime(title);
+    const explicitTime = timeOrNull(body.time);
+    const delaySec = !explicitTime ? extractKoreanDelaySec(title) : null;
+    const runAt = delaySec ? new Date(Date.now() + delaySec * 1000).toISOString() : null;
+    const parsedTime = explicitTime || (runAt ? hm(new Date(runAt)) : extractKoreanTime(title));
     const t = {
-      id: nextId(d, 't'), order: 0, title, kind: 'human', assignee: 'jay', date: dateOrNull(body.date) || ymd(), time: parsedTime,
+      id: nextId(d, 't'), order: 0, title, kind: 'human', assignee: 'jay', date: dateOrNull(body.date) || ymd(), time: parsedTime, runAt, isAlarm: isPersonalAlarm(title), alarmFiredAt: null,
       status: '대기', note: text(body.note, 4000), resource: null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: costOrNull(body.estCost), intervalMin: null,
       stepMode: STEP_MODES.includes(body.stepMode) ? body.stepMode : 'serial', sharedFolder: text(body.sharedFolder, 400), steps: [],
       gate: null, gateApprovedAt: null, reason: '', assignSource: 'jay',
@@ -1571,8 +1617,11 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
   const dNow = store.data;
   const targetEmp = t.assignee && t.assignee !== 'jay' ? dNow.employees.find((e) => e.id === t.assignee) : null;
   const targetRes = t.resource ? dNow.resources.find((r) => r.id === t.resource) : null;
+  if (t.runAt) scheduleExactWake(t.runAt);
   const nowDate = new Date();
-  const dueNow = t.date === ymd(nowDate) && (!t.time || minutes(t.time) <= minutes(hm(nowDate)));
+  const dueNow = t.runAt
+    ? Date.parse(t.runAt) <= nowDate.getTime()
+    : (t.date === ymd(nowDate) && (!t.time || minutes(t.time) <= minutes(hm(nowDate))));
   if (
     dNow.settings?.autoStartAdded !== false
     && targetEmp && targetEmp.runMode === 'auto'
@@ -2684,7 +2733,10 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
   const localStat = await currentLocalStat();
   const offices = dispatcher ? dispatcher.view() : [];
   const workingList = [...working.values(), ...officeWorking()];
-  const parsedTime = timeOrNull(body.time) || extractKoreanTime(goal);
+  const explicitTime = timeOrNull(body.time);
+  const delaySec = !explicitTime ? extractKoreanDelaySec(goal) : null;
+  const runAt = delaySec ? new Date(Date.now() + delaySec * 1000).toISOString() : null;
+  const parsedTime = explicitTime || (runAt ? hm(new Date(runAt)) : extractKoreanTime(goal));
   const targetDate = dateOrNull(body.date) || ymd();
 
   const LOCAL_CU_RE = /(ego\s*lite|egolite|에고\s*라이트|ego-browser|aside|어사이드|컴퓨터\s*유즈|화면\s*조작|아이폰\s*미러링)/i;
@@ -2786,7 +2838,7 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       const stepMode = isParallel ? 'parallel' : 'serial';
       const taskObj = {
         id: nextId(d, 't'), order: 0, title: goal, kind: 'ai', assignee: builtSteps[0].assignee || 'jay',
-        date: targetDate, time: parsedTime, status: '대기',
+        date: targetDate, time: parsedTime, runAt, isAlarm: false, alarmFiredAt: null, status: '대기',
         note: `메인 AI(${mainAiName})가 ${builtSteps.length}단계로 자동 배분했습니다.${mainMachineName ? ` · 메인 컴퓨터: ${mainMachineName}` : ''}`,
         resource: builtSteps[0].resource || null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: null, intervalMin: null,
         stepMode, sharedFolder: '', steps: normalizeSteps(builtSteps, d, { asTemplate: false }),
@@ -2806,9 +2858,10 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       return taskObj;
     }
 
-    // 단일 작업: 몸·현장이 필요한 대표 직접 일이면 대표에게, 아니면 최적 팀 AI + 메인 컴퓨터 자동 배정
+    // 단일 작업: 개인 알람/몸·현장 일정이면 대표에게, 아니면 실제 연결된 최적 AI + 메인 컴퓨터 자동 배정
+    const personalAlarm = isPersonalAlarm(goal);
     const ruledSingle = ruleAssign(goal, '', d.employees, d.resources, d.settings?.assignMemory);
-    const isHumanOnly = !body.forceAi && ruledSingle?.assignee === 'jay' && !ruledSingle.noMatch && !ruledSingle.gate && !LOCAL_CU_RE.test(goal);
+    const isHumanOnly = personalAlarm || (!body.forceAi && ruledSingle?.assignee === 'jay' && !ruledSingle.noMatch && !ruledSingle.gate && !LOCAL_CU_RE.test(goal));
     const tKey = inferClauseTeam(goal);
     const chosen = isHumanOnly ? null : pickBestEmp(d, goal, tKey, usedIds);
     const opt = chosen ? pickOptimalMachine(d, { title: goal, note: '' }, chosen, { localStat, offices, workingList, preferredResId: mainRes?.id || null }) : null;
@@ -2829,13 +2882,15 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
     const hostLabel = opt?.resource?.name || mainMachineName;
     const taskObj = {
       id: nextId(d, 't'), order: 0, title: goal, kind: chosen ? 'ai' : 'human', assignee: chosen ? chosen.id : 'jay',
-      date: targetDate, time: parsedTime, status: '대기', note: '',
+      date: targetDate, time: parsedTime, runAt, isAlarm: personalAlarm, alarmFiredAt: null, status: '대기', note: '',
       resource: opt?.resource?.id || null, account: accId, browser: brId, design: desId, tools: tIds, manualLinks: {}, estCost: null, intervalMin: null,
       stepMode: 'serial', sharedFolder: '', steps: [],
       gate: g, gateApprovedAt: null,
-      reason: isHumanOnly
-        ? (ruledSingle.reason || '몸이나 현장이 필요한 일 → 대표')
-        : `메인 AI(${mainAiName}) 자동 배분${matchedSk.length ? ` · 스킬(${matchedSk[0].name})` : brObj ? ` · ${brObj.name}` : tMeta ? ` · ${tMeta.short}팀` : ''}${hostLabel ? ` · ${hostLabel}` : ''}${opt?.rerouted ? ' (과부하 우회)' : ''}`,
+      reason: personalAlarm
+        ? `개인 알람 예약${delaySec ? ` (${delaySec}초 뒤 맥 알림·소리)` : parsedTime ? ` (${parsedTime} 맥 알림·소리)` : ''}`
+        : isHumanOnly
+          ? (ruledSingle.reason || '몸이나 현장이 필요한 일 → 대표')
+          : `메인 AI(${mainAiName}) 자동 배분${matchedSk.length ? ` · 스킬(${matchedSk[0].name})` : brObj ? ` · ${brObj.name}` : tMeta ? ` · ${tMeta.short}팀` : ''}${hostLabel ? ` · ${hostLabel}` : ''}${opt?.rerouted ? ' (과부하 우회)' : ''}`,
       assignSource: 'auto',
       queued: false, queueReason: '', retryAfter: null, localOnly: false,
       routineId: null, jobId: null, createdAt: nowIso(), createdBy: 'jay', history: [], runStartedAt: null, lastRunAt: null,
@@ -2854,8 +2909,11 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
   const dNow = store.data;
   const targetEmp = t.assignee && t.assignee !== 'jay' ? dNow.employees.find((e) => e.id === t.assignee) : null;
   const targetRes = t.resource ? dNow.resources.find((r) => r.id === t.resource) : null;
+  if (t.runAt) scheduleExactWake(t.runAt);
   const nowDate = new Date();
-  const dueNow = t.date === ymd(nowDate) && (!t.time || minutes(t.time) <= minutes(hm(nowDate)));
+  const dueNow = t.runAt
+    ? Date.parse(t.runAt) <= nowDate.getTime()
+    : (t.date === ymd(nowDate) && (!t.time || minutes(t.time) <= minutes(hm(nowDate))));
   if (
     dNow.settings?.autoStartAdded !== false
     && targetEmp && targetEmp.runMode === 'auto'
@@ -2871,7 +2929,7 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
     }
   }
   const assigneeRunnable = Boolean(targetEmp && targetEmp.runMode !== 'off' && canRun(targetEmp));
-  return { ...t, delegated: true, ...meta, assigneeRunnable, autoStarted, autoQueued };
+  return { ...t, delegated: true, ...meta, delaySec: delaySec || null, assigneeRunnable, autoStarted, autoQueued };
 }, UI);
 
 route('POST', '/api/ui/employees', async ({ body }) => {
