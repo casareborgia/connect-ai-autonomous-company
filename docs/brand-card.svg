@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 220" width="1280" height="220" role="img" aria-label="CONNECT AI LAB — AI Mentor Jay (정원석)">
+  <defs>
+    <linearGradient id="fbg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#09090B"/>
+      <stop offset="100%" stop-color="#141419"/>
+    </linearGradient>
+    <radialGradient id="fglow" cx="85%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#D4A359" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#09090B" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="fstroke" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#D4A359" stop-opacity="0.22"/>
+      <stop offset="50%" stop-color="#E5C07B" stop-opacity="0.72"/>
+      <stop offset="100%" stop-color="#D4A359" stop-opacity="0.22"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="1279" height="219" rx="18" fill="url(#fbg)" stroke="url(#fstroke)" stroke-width="1.1"/>
+  <rect x="1" y="1" width="1278" height="218" rx="17.5" fill="url(#fglow)"/>
+
+  <!-- Left Brand Identity -->
+  <g transform="translate(54, 42)">
+    <text x="0" y="14" fill="#D4A359" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" letter-spacing="2.4">BUILT BY CONNECT AI LAB · SEOUL</text>
+    <text x="0" y="58" fill="#FFFFFF" font-family="'Apple SD Gothic Neo', 'Pretendard', system-ui, sans-serif" font-size="30" font-weight="800" letter-spacing="-0.6">정원석 (AI Mentor Jay)</text>
+    <text x="0" y="92" fill="#C7CBD6" font-family="'Apple SD Gothic Neo', 'Pretendard', system-ui, sans-serif" font-size="15.5" font-weight="500">"AI를 단순한 툴이 아니라, 나의 삶과 비즈니스를 함께 운영하는 자율 팀으로."</text>
+    <text x="0" y="122" fill="#8C93A6" font-family="system-ui, -apple-system, sans-serif" font-size="13">Founder of CONNECT AI LAB · AI Autonomous Company Architect · 400K+ Community</text>
+  </g>
+
+  <!-- Right 3 Channel Metric Cards -->
+  <g transform="translate(736, 48)">
+    <!-- YouTube -->
+    <rect x="0" y="0" width="160" height="122" rx="14" fill="#16171F" stroke="#FFFFFF" stroke-opacity="0.1"/>
+    <text x="18" y="30" fill="#D4A359" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" letter-spacing="1.4">YOUTUBE</text>
+    <text x="18" y="68" fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-size="26" font-weight="800">127K+</text>
+    <text x="18" y="94" fill="#A0A8B8" font-family="system-ui, -apple-system, sans-serif" font-size="11.5">@CONNECT-AI-LAB</text>
+
+    <!-- Instagram -->
+    <rect x="174" y="0" width="160" height="122" rx="14" fill="#16171F" stroke="#D4A359" stroke-opacity="0.38"/>
+    <text x="192" y="30" fill="#D4A359" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" letter-spacing="1.4">INSTAGRAM</text>
+    <text x="192" y="68" fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-size="26" font-weight="800">268K+</text>
+    <text x="192" y="94" fill="#E6C992" font-family="system-ui, -apple-system, sans-serif" font-size="11.5">@aimentorjay</text>
+
+    <!-- Open Source -->
+    <rect x="348" y="0" width="144" height="122" rx="14" fill="#16171F" stroke="#FFFFFF" stroke-opacity="0.1"/>
+    <text x="366" y="30" fill="#34D399" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" letter-spacing="1.4">OPEN OS</text>
+    <text x="366" y="68" fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-size="26" font-weight="800">v2.0</text>
+    <text x="366" y="94" fill="#A0A8B8" font-family="system-ui, -apple-system, sans-serif" font-size="11.5">Fair-Code · Local</text>
+  </g>
+</svg>

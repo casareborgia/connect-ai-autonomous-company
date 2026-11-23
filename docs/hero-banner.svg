@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 390" width="1280" height="390" role="img" aria-label="CONNECT AI HQ v2 — CONNECT AI LAB">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#070709"/>
+      <stop offset="55%" stop-color="#0D0E12"/>
+      <stop offset="100%" stop-color="#141318"/>
+    </linearGradient>
+    <radialGradient id="goldGlow" cx="76%" cy="20%" r="55%">
+      <stop offset="0%" stop-color="#D4A359" stop-opacity="0.22"/>
+      <stop offset="45%" stop-color="#D4A359" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#0A0A0C" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="leftGlow" cx="15%" cy="85%" r="48%">
+      <stop offset="0%" stop-color="#D4A359" stop-opacity="0.11"/>
+      <stop offset="100%" stop-color="#0A0A0C" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="goldStroke" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#D4A359" stop-opacity="0.18"/>
+      <stop offset="35%" stop-color="#E5C07B" stop-opacity="0.75"/>
+      <stop offset="70%" stop-color="#D4A359" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#D4A359" stop-opacity="0.14"/>
+    </linearGradient>
+    <linearGradient id="goldText" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F6E3BC"/>
+      <stop offset="50%" stop-color="#D4A359"/>
+      <stop offset="100%" stop-color="#B8863B"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#FFFFFF" stroke-opacity="0.032" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <!-- Outer Matte Jet Black Frame -->
+  <rect x="0.5" y="0.5" width="1279" height="389" rx="22" fill="url(#bg)" stroke="url(#goldStroke)" stroke-width="1.2"/>
+  <rect x="1" y="1" width="1278" height="388" rx="21.5" fill="url(#grid)"/>
+  <rect x="1" y="1" width="1278" height="388" rx="21.5" fill="url(#goldGlow)"/>
+  <rect x="1" y="1" width="1278" height="388" rx="21.5" fill="url(#leftGlow)"/>
+
+  <!-- Architectural Accent Lines -->
+  <line x1="64" y1="74" x2="1216" y2="74" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="1"/>
+  <line x1="64" y1="318" x2="1216" y2="318" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="1"/>
+
+  <!-- Top Brand Header Row -->
+  <g transform="translate(64, 34)">
+    <rect x="0" y="0" width="26" height="26" rx="7" fill="#16171E" stroke="#D4A359" stroke-opacity="0.75" stroke-width="1.2"/>
+    <rect x="6" y="7" width="4.5" height="12" rx="1.5" fill="#F5F2EB"/>
+    <rect x="13" y="7" width="7" height="4.5" rx="1.5" fill="#D4A359"/>
+    <rect x="13" y="14.5" width="7" height="4.5" rx="1.5" fill="#F5F2EB" fill-opacity="0.88"/>
+    <text x="38" y="18" fill="#F5F2EB" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" font-weight="700" letter-spacing="2.6">CONNECT AI LAB</text>
+    <text x="204" y="18" fill="#8E95A5" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11.5" font-weight="500" letter-spacing="1.6">·  SEOUL  ·  LIFE × AI OPERATING SYSTEM</text>
+  </g>
+
+  <!-- Top Right Live Pill (generous width so text fits with wide margin) -->
+  <g transform="translate(972, 34)">
+    <rect x="0" y="0" width="244" height="26" rx="13" fill="#15161D" stroke="#D4A359" stroke-opacity="0.45" stroke-width="1"/>
+    <circle cx="18" cy="13" r="4" fill="#34D399"/>
+    <text x="130" y="17" text-anchor="middle" fill="#E8DFCF" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="11" font-weight="600" letter-spacing="0.9">LOCAL-FIRST · OPEN SOURCE</text>
+  </g>
+
+  <!-- Centerpiece Title & Subtitle -->
+  <g transform="translate(64, 132)">
+    <text x="0" y="38" fill="#FFFFFF" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="56" font-weight="800" letter-spacing="-1.6">CONNECT AI HQ</text>
+    <rect x="442" y="-2" width="84" height="36" rx="18" fill="#1E1912" stroke="url(#goldText)" stroke-width="1.4"/>
+    <text x="484" y="22" text-anchor="middle" fill="url(#goldText)" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="17" font-weight="800" letter-spacing="0.8">v2.0</text>
+
+    <text x="0" y="88" fill="#EAE6DC" font-family="'Apple SD Gothic Neo', 'Pretendard', system-ui, -apple-system, sans-serif" font-size="22" font-weight="600" letter-spacing="-0.4">인공지능 시대, 당신의 삶과 AI 일을 함께 최적화하는 나만의 자율 회사 본사</text>
+    <text x="0" y="122" fill="#9AA2B4" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="14.5" font-weight="400" letter-spacing="0.2">Optimize your Life, AI Staff, Automations, and AI Offices inside one local-first gallery OS.</text>
+  </g>
+
+  <!-- Right-side Minimal Architecture Card Graphic (2-line stacked rows = zero overlap) -->
+  <g transform="translate(868, 94)">
+    <rect x="0" y="0" width="348" height="202" rx="16" fill="#12131A" fill-opacity="0.92" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="1"/>
+    <text x="20" y="26" fill="#D4A359" font-family="system-ui, -apple-system, sans-serif" font-size="10.5" font-weight="700" letter-spacing="1.8">AUTONOMOUS COMPANY STACK</text>
+
+    <!-- Row 1 -->
+    <rect x="18" y="38" width="312" height="44" rx="10" fill="#1A1C26" stroke="#FFFFFF" stroke-opacity="0.06"/>
+    <circle cx="34" cy="54" r="3.8" fill="#D4A359"/>
+    <text x="46" y="58" fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" letter-spacing="0.5">LIFE &amp; FOUNDER</text>
+    <text x="46" y="74" fill="#9BA3B5" font-family="system-ui, -apple-system, sans-serif" font-size="11">Health Condition · Hard Approval Gates · Alarms</text>
+
+    <!-- Row 2 -->
+    <rect x="18" y="90" width="312" height="44" rx="10" fill="#1A1C26" stroke="#D4A359" stroke-opacity="0.38"/>
+    <circle cx="34" cy="106" r="3.8" fill="#34D399"/>
+    <text x="46" y="110" fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" letter-spacing="0.5">AI STAFF &amp; GITHUB SKILLS</text>
+    <text x="46" y="126" fill="#E6C992" font-family="system-ui, -apple-system, sans-serif" font-size="11">Claude · Codex · Antigravity · OpenCode · MCP</text>
+
+    <!-- Row 3 -->
+    <rect x="18" y="142" width="312" height="44" rx="10" fill="#1A1C26" stroke="#FFFFFF" stroke-opacity="0.06"/>
+    <circle cx="34" cy="158" r="3.8" fill="#60A5FA"/>
+    <text x="46" y="162" fill="#FFFFFF" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="700" letter-spacing="0.5">AUTOMATIONS &amp; OFFICES</text>
+    <text x="46" y="178" fill="#9BA3B5" font-family="system-ui, -apple-system, sans-serif" font-size="11">Schedules · Runs · Ego Lite · Local Mac · SSH</text>
+  </g>
+
+  <!-- Bottom Meta Bar -->
+  <g transform="translate(64, 342)">
+    <rect x="0" y="0" width="124" height="24" rx="6" fill="#161820" stroke="#FFFFFF" stroke-opacity="0.1"/>
+    <text x="62" y="15.5" text-anchor="middle" fill="#D5DBE8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600">0 NPM DEPS</text>
+
+    <rect x="134" y="0" width="150" height="24" rx="6" fill="#161820" stroke="#FFFFFF" stroke-opacity="0.1"/>
+    <text x="209" y="15.5" text-anchor="middle" fill="#D5DBE8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600">9+ AI TOOLS · MCP</text>
+
+    <rect x="294" y="0" width="166" height="24" rx="6" fill="#161820" stroke="#FFFFFF" stroke-opacity="0.1"/>
+    <text x="377" y="15.5" text-anchor="middle" fill="#E6C992" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600">21 K-HERITAGE CREW</text>
+
+    <rect x="470" y="0" width="130" height="24" rx="6" fill="#161820" stroke="#34D399" stroke-opacity="0.32"/>
+    <text x="535" y="15.5" text-anchor="middle" fill="#6EE7B7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600">57 / 57 TESTS</text>
+
+    <text x="1152" y="16" text-anchor="end" fill="#9DA5B8" font-family="'Apple SD Gothic Neo', system-ui, -apple-system, sans-serif" font-size="12.5" font-weight="500">Created by <tspan fill="#F5F2EB" font-weight="700">정원석 (AI Mentor Jay)</tspan> · <tspan fill="#D4A359" font-weight="700">CONNECT AI LAB</tspan></text>
+  </g>
+</svg>
