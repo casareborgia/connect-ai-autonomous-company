@@ -29,6 +29,13 @@
 - **RAM 85% 상한 보호 · 대체 컴퓨터 우회 · 대기열 보호**
 - **접속 통로 확장**: Computer Use 스위치, 7종 브라우저(+직접 추가), 스마트폰(아이폰 미러링/안드로이드 adb/모바일 AI) 안전선, 팀 분업 워크플로우, 수강생 공유용 청사진(Blueprint) 내보내기/가져오기
 
+### 5. 메인 AI · 2-탭 오토메이션 · 직원별 GitHub 스킬 & 새 AI 직원 생성기
+- **2-탭 오토메이션 (`#automations` · `#daily`)**: `오토메이션 | 실행 기록(Runs)` 탭 분리, 실시간 검색·필터 바, `▶ 실행` 즉시 실행, 1인 AI 대표·크리에이터 실전 템플릿 5종 스택 카드 및 `+ 새 오토메이션` 모달
+- **기본 에이전트 & 메인 컴퓨터 지정 + `✦ 자동 배분`**: 온보딩 및 홈에서 기본 AI/메인 컴퓨터를 카드 UI로 선택하고, Enter 한 번으로 실제 실행 연결된 AI에게 자동 배분(미연결 AI 오배정 차단)
+- **새 AI 직원 생성기**: 픽셀 크루(21종 K-Heritage + 솜이) 아바타, 팀·역할, 컴퓨터, Provider/Model/Thinking 강도(`Default · Low · Med · High`) 및 1클릭 오픈소스 스킬 연결
+- **직원별 Skills & GitHub 오픈소스 연동**: Remotion · Hyperframes · Blender · Playwright · Firecrawl 등 GitHub URL/카탈로그 연결, 자동 라우팅·프롬프트 주입·청사진 공유
+- **실전 실행 안정화 & 좌측 실시간 한도 바**: Codex `--skip-git-repo-check`, Claude 범위 제한 `--allowedTools`, 한국어 초·시각 알람(`10초 뒤`, `9시 30분 오전`) 및 사이드바 5시간 토큰 사용량 표시
+
 ---
 
 ## v0.1.0 — CONNECT AI HQ v1 (초기 공개 버전)
