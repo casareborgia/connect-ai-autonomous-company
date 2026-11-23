@@ -1041,6 +1041,85 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .ms-sub { font-size: 11px; color: #8c94a8; }
 .codex-top { justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .codex-desc { margin: 6px 0 8px; }
+.hidden { display: none !important; }
+
+/* 직원별 스킬 · GitHub 오픈소스 배지 및 모달 */
+.skill-pills { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.skill-pills.on-dark { margin-top: 6px; }
+.skill-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--fill);
+  font-size: 11.5px; color: var(--ink); line-height: 1.5;
+}
+.skill-pill.on-dark {
+  border-color: rgba(212, 163, 89, 0.36); background: rgba(212, 163, 89, 0.1);
+  color: #f5f6fa; font-size: 11px;
+}
+.skill-pill-name { font-weight: 600; }
+.skill-gh-link {
+  color: #8c6525; font-size: 10.5px; font-weight: 600; text-decoration: none;
+  border-left: 1px solid var(--line-2); padding-left: 5px;
+}
+.skill-gh-link:hover { text-decoration: underline; color: var(--ink); }
+.skill-pill.on-dark .skill-gh-link { color: var(--gold-hi); border-left-color: rgba(212, 163, 89, 0.3); }
+.skill-pill.on-dark .skill-gh-link:hover { color: #fff; }
+.skill-pill-add {
+  height: 23px; padding: 0 8px; border-radius: 999px;
+  border: 1px dashed var(--line-2); background: transparent; color: var(--ink-2);
+  font: inherit; font-size: 11px; font-weight: 600; cursor: pointer;
+}
+.skill-pill-add:hover { border-color: var(--ink); color: var(--ink); }
+.skill-pill-add.on-dark { border-color: rgba(255, 255, 255, 0.22); color: #b8c0d4; }
+.skill-pill-add.on-dark:hover { border-color: var(--gold); color: var(--gold-hi); }
+
+.skill-sec-h { font-size: 12px; font-weight: 700; color: var(--ink); margin: 8px 0 6px; letter-spacing: -0.01em; }
+.skill-sec-sub { margin-top: 12px; }
+.skill-empty {
+  padding: 14px 16px; border: 1px dashed var(--line-2); border-radius: 12px;
+  background: var(--fill); font-size: 12.5px; color: var(--ink-2);
+}
+.skill-list { display: flex; flex-direction: column; gap: 8px; }
+.skill-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 11px 13px; border: 1px solid var(--line-2); border-radius: 12px; background: #fff;
+}
+.skill-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.skill-row-top { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 13.5px; }
+.skill-repo-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px;
+  background: #0a0a0c; color: var(--gold-hi); border: 1px solid rgba(212, 163, 89, 0.45);
+  font-size: 11px; font-weight: 600; text-decoration: none;
+}
+.skill-repo-badge:hover { background: #181a22; color: #fff; }
+.skill-cmd {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px;
+  padding: 2px 7px; border-radius: 6px; background: var(--fill); border: 1px solid var(--line); color: var(--ink-2);
+}
+.skill-row-meta { font-size: 11.5px; color: var(--ink-2); }
+.skill-row-note { font-size: 11.5px; color: var(--ink-3); }
+.skill-row-acts { display: flex; align-items: center; gap: 6px; flex: none; }
+
+.skill-form {
+  margin-top: 14px; padding: 14px 16px; border: 1px solid var(--line-2);
+  border-radius: 13px; background: var(--fill);
+}
+.skill-form-acts { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 12px; }
+
+.skill-preset-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.skill-preset-btn {
+  text-align: left; padding: 10px 11px; border-radius: 11px;
+  border: 1px solid var(--line-2); background: #fff; cursor: pointer;
+  display: flex; flex-direction: column; gap: 4px; transition: border-color .14s ease, background .14s ease;
+}
+.skill-preset-btn:hover { border-color: var(--ink); }
+.skill-preset-btn.on { border-color: var(--gold); background: rgba(212, 163, 89, 0.08); }
+.skill-preset-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12.5px; }
+.skill-preset-st { font-size: 10.5px; font-weight: 600; color: var(--ink-3); }
+.skill-preset-st.on { color: #8c6525; }
+.skill-preset-hint { font-size: 11px; color: var(--ink-2); line-height: 1.35; }
+.skill-preset-repo { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 10px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .swarm-hero-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }
 
 .swarm-strip { display: flex; align-items: flex-start; gap: 10px; overflow-x: auto; padding: 4px 2px 2px; scrollbar-width: thin; }
@@ -1132,6 +1211,8 @@ body.onboarding .shell { grid-template-columns: 1fr; }
   .avatar-grid, .av-custom-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mission-grid { grid-template-columns: 1fr; }
   .codex-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .skill-preset-grid { grid-template-columns: 1fr; }
+  .skill-row { flex-direction: column; }
   .live-dock { top: 10px; right: 10px; left: 10px; width: auto; }
   .live-worker { right: 10px; bottom: 12px; left: 10px; }
   .live-worker-pill { max-width: none; width: 100%; }

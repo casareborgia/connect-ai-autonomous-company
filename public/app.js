@@ -115,6 +115,245 @@ function closeDlg() {
   if (dlg.open) dlg.close();
 }
 
+function githubShortLabel(url) {
+  const s = String(url || '').trim();
+  if (!s) return '';
+  const m = /^https?:\/\/github\.com\/([^/\s]+\/[^/\s]+)(?:\/tree\/[^/]+\/(.+))?/i.exec(s);
+  if (m) return m[2] ? `${m[1]}/${m[2].split('/').slice(-1)[0]}` : m[1];
+  return s.replace(/^https?:\/\//i, '').slice(0, 36);
+}
+
+function parseClientRepoHint(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return { name: '', command: '' };
+  const ghUrl = /^https?:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(\/.*)?$/i.exec(s);
+  if (ghUrl) {
+    const subParts = (ghUrl[3] || '').replace(/\/+$/, '').split('/').filter(Boolean);
+    const subLeaf = subParts.length >= 3 && (subParts[0] === 'tree' || subParts[0] === 'blob')
+      ? subParts[subParts.length - 1].replace(/\.(md|mjs|js|ts|py)$/i, '')
+      : '';
+    return {
+      name: subLeaf && subLeaf.toLowerCase() !== 'skill' ? subLeaf : ghUrl[2],
+      command: `npx github:${ghUrl[1]}/${ghUrl[2]}`,
+    };
+  }
+  const ghShort = /^(?:npx\s+(?:-y\s+)?)?github:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/i.exec(s);
+  if (ghShort) return { name: ghShort[2], command: s.startsWith('npx') ? s : `npx ${s}` };
+  const pair = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/.exec(s);
+  if (pair && !s.startsWith('@')) return { name: pair[2], command: `npx github:${pair[1]}/${pair[2]}` };
+  const npx = /^npx\s+(?:-y\s+)?(@?[A-Za-z0-9_./@-]+)/i.exec(s);
+  if (npx) return { name: npx[1].split('/').pop().replace(/@[^@]+$/, ''), command: s };
+  return { name: '', command: '' };
+}
+
+function skillPillsEl(empObj, { onDark = false, max = 6 } = {}) {
+  const skills = Array.isArray(empObj?.skills) ? empObj.skills : [];
+  if (!skills.length) {
+    return onDark
+      ? h('div', { class: 'swarm-brain-bar' },
+        h('button', { type: 'button', class: 'swarm-brain-pill', onclick: () => openEmployeeSkillsModal(empObj.id) }, '+ GitHub 스킬 연결 (예: Remotion)'))
+      : h('button', { type: 'button', class: 'input-me', onclick: () => openEmployeeSkillsModal(empObj.id) }, '+ GitHub 스킬 연결 (예: Remotion)');
+  }
+  const shown = skills.slice(0, max);
+  const more = skills.length - shown.length;
+  return h('div', { class: `skill-pills${onDark ? ' on-dark' : ''}` },
+    shown.map((sk) => h('span', { class: `skill-pill${onDark ? ' on-dark' : ''}`, title: [sk.when ? `키워드: ${sk.when}` : '', sk.command ? `명령: ${sk.command}` : '', sk.repo || ''].filter(Boolean).join('\n') },
+      h('span', { class: 'skill-pill-name' }, sk.name),
+      sk.repo ? h('a', { class: 'skill-gh-link', href: sk.repo, target: '_blank', rel: 'noopener noreferrer', title: sk.repo }, 'GitHub ↗') : null)),
+    more > 0 ? h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id) }, `+${more}`) : null,
+    h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id) }, '+ 스킬'));
+}
+
+function openEmployeeSkillsModal(empOrId) {
+  const empId = typeof empOrId === 'string' ? empOrId : empOrId?.id;
+  if (!empId) return;
+  const dlg = document.getElementById('dlg');
+  dlg.className = 'wide';
+  let editingSkillId = null;
+
+  const repoIn = h('input', { class: 'in', placeholder: 'https://github.com/remotion-dev/remotion 또는 owner/repo · npx 명령', 'aria-label': 'GitHub 주소 또는 실행 명령' });
+  const nameIn = h('input', { class: 'in', placeholder: '예: Remotion 모션그래픽', 'aria-label': '스킬 이름' });
+  const cmdIn = h('input', { class: 'in mono', placeholder: '예: npx remotion (선택)', 'aria-label': '실행 명령' });
+  const whenIn = h('input', { class: 'in', placeholder: '예: 영상편집, 모션그래픽, 리모션, 쇼츠', 'aria-label': '언제 쓸지 키워드' });
+  const noteIn = h('input', { class: 'in', placeholder: '예: 9:16 세로 쇼츠 인트로 기준 (선택)', 'aria-label': '스킬 메모' });
+  let nameTouched = false;
+  let cmdTouched = false;
+  nameIn.addEventListener('input', () => { nameTouched = Boolean(nameIn.value.trim()); });
+  cmdIn.addEventListener('input', () => { cmdTouched = Boolean(cmdIn.value.trim()); });
+  repoIn.addEventListener('input', () => {
+    const hint = parseClientRepoHint(repoIn.value);
+    if (!nameTouched && hint.name) nameIn.value = hint.name;
+    if (!cmdTouched && hint.command) cmdIn.value = hint.command;
+  });
+
+  const resetForm = () => {
+    editingSkillId = null;
+    repoIn.value = '';
+    nameIn.value = '';
+    cmdIn.value = '';
+    whenIn.value = '';
+    noteIn.value = '';
+    nameTouched = false;
+    cmdTouched = false;
+    submitBtn.textContent = '+ 스킬 장착';
+    cancelEditBtn.classList.add('hidden');
+  };
+
+  const listWrap = h('div');
+  const presetWrap = h('div');
+  const headCount = h('span', { class: 'tag' });
+  const cancelEditBtn = h('button', { type: 'button', class: 'btn sm hidden', onclick: resetForm }, '편집 취소');
+
+  const submitSkill = () => once('emp-skill-save', async () => {
+    const rawRepo = repoIn.value.trim();
+    const rawName = nameIn.value.trim();
+    if (!rawRepo && !rawName) { repoIn.focus(); toast('GitHub 주소나 스킬 이름을 입력해 주세요'); return; }
+    if (editingSkillId) {
+      const r = await act('PATCH', `/api/ui/employees/${empId}/skills/${editingSkillId}`, {
+        name: rawName,
+        repo: rawRepo,
+        command: cmdIn.value.trim(),
+        when: whenIn.value.trim(),
+        note: noteIn.value.trim(),
+      }, '스킬을 수정했어요');
+      if (r) { resetForm(); renderBody(); }
+      return;
+    }
+    const isRepoLike = /^(https?:\/\/|github:|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$)/i.test(rawRepo);
+    const r = await act('POST', `/api/ui/employees/${empId}/skills`, {
+      sourceInput: rawRepo,
+      repo: isRepoLike ? rawRepo : '',
+      name: rawName,
+      command: cmdIn.value.trim(),
+      when: whenIn.value.trim(),
+      note: noteIn.value.trim(),
+    }, '스킬을 장착했어요');
+    if (r) { resetForm(); renderBody(); }
+  });
+
+  const submitBtn = h('button', { type: 'button', class: 'btn gold', onclick: submitSkill }, '+ 스킬 장착');
+  repoIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) submitSkill(); });
+  whenIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) submitSkill(); });
+
+  const renderBody = () => {
+    const e = emp(empId);
+    if (!e) { closeDlg(); render(); return; }
+    const skills = Array.isArray(e.skills) ? e.skills : [];
+    headCount.textContent = `${skills.length}개 장착`;
+
+    if (!skills.length) {
+      listWrap.replaceChildren(h('div', { class: 'skill-empty' }, '아직 연결된 스킬이 없어요. 아래에 GitHub 주소를 붙여넣거나 추천 오픈소스를 1클릭으로 장착해 보세요.'));
+    } else {
+      listWrap.replaceChildren(h('div', { class: 'skill-list' }, skills.map((sk) => h('div', { class: 'skill-row' },
+        h('div', { class: 'skill-row-main' },
+          h('div', { class: 'skill-row-top' },
+            h('b', null, sk.name),
+            sk.repo ? h('a', { class: 'skill-repo-badge', href: sk.repo, target: '_blank', rel: 'noopener noreferrer', title: sk.repo }, `GitHub · ${githubShortLabel(sk.repo)} ↗`) : null,
+            sk.command ? h('code', { class: 'skill-cmd' }, sk.command) : null),
+          sk.when ? h('div', { class: 'skill-row-meta' }, `자동 배분 키워드: ${sk.when}`) : null,
+          sk.note ? h('div', { class: 'skill-row-note' }, sk.note) : null),
+        h('div', { class: 'skill-row-acts' },
+          h('button', {
+            type: 'button', class: 'btn sm',
+            onclick: () => {
+              editingSkillId = sk.id;
+              repoIn.value = sk.repo || '';
+              nameIn.value = sk.name || '';
+              cmdIn.value = sk.command || '';
+              whenIn.value = sk.when || '';
+              noteIn.value = sk.note || '';
+              nameTouched = Boolean(sk.name);
+              cmdTouched = Boolean(sk.command);
+              submitBtn.textContent = '스킬 수정 저장';
+              cancelEditBtn.classList.remove('hidden');
+              nameIn.focus();
+            },
+          }, '편집'),
+          h('button', {
+            type: 'button', class: 'btn sm',
+            onclick: () => once(`del-sk-${sk.id}`, async () => {
+              const r = await act('DELETE', `/api/ui/employees/${empId}/skills/${sk.id}`, undefined, `${sk.name} 스킬을 뺐어요`);
+              if (r) { if (editingSkillId === sk.id) resetForm(); renderBody(); }
+            }),
+          }, '제거'))))));
+    }
+
+    const equippedKeys = new Set(skills.map((s) => (s.preset || '').toLowerCase()).filter(Boolean));
+    const equippedRepos = new Set(skills.map((s) => (s.repo || '').toLowerCase()).filter(Boolean));
+    const equippedNames = new Set(skills.map((s) => (s.name || '').toLowerCase()).filter(Boolean));
+    const catalog = [...(S.options?.ossCatalog || [])].sort((a, b) => {
+      const am = a.team === (e.team || 'ops') ? 1 : 0;
+      const bm = b.team === (e.team || 'ops') ? 1 : 0;
+      return bm - am;
+    });
+    const officeOss = (S.data.resources || []).filter((r) => r.kind === '오픈소스' && r.status !== '꺼짐'
+      && !catalog.some((c) => c.key === r.preset || c.name.toLowerCase() === String(r.name || '').toLowerCase()));
+
+    presetWrap.replaceChildren(
+      h('div', { class: 'skill-preset-grid' }, catalog.map((c) => {
+        const on = equippedKeys.has(c.key) || (c.repo && equippedRepos.has(c.repo.toLowerCase())) || equippedNames.has(c.name.toLowerCase());
+        return h('button', {
+          type: 'button',
+          class: `skill-preset-btn${on ? ' on' : ''}`,
+          onclick: () => once(`preset-sk-${c.key}`, async () => {
+            const r = await act('POST', `/api/ui/employees/${empId}/skills`, { presetKey: c.key }, on ? `${c.name} 스킬을 최신으로 맞췄어요` : `${shortName(empId)}에게 ${c.name} 스킬을 장착했어요`);
+            if (r) renderBody();
+          }),
+        },
+        h('div', { class: 'skill-preset-top' },
+          h('b', null, c.name),
+          h('span', { class: `skill-preset-st${on ? ' on' : ''}` }, on ? '장착됨 ✓' : '+ 장착')),
+        h('span', { class: 'skill-preset-hint' }, c.hint),
+        c.repo ? h('span', { class: 'skill-preset-repo' }, githubShortLabel(c.repo)) : null);
+      })),
+      officeOss.length ? h('div', { class: 'skill-sec-sub' },
+        h('div', { class: 'skill-sec-h' }, '내 사무실에 등록된 오픈소스 연결'),
+        h('div', { class: 'picker' }, officeOss.map((r) => {
+          const on = (r.repo && equippedRepos.has(r.repo.toLowerCase())) || equippedNames.has(String(r.name || '').toLowerCase());
+          return h('button', {
+            type: 'button',
+            class: `chip sm${on ? ' on' : ''}`,
+            onclick: () => once(`res-sk-${r.id}`, async () => {
+              const out = await act('POST', `/api/ui/employees/${empId}/skills`, { resourceId: r.id }, `${r.name} 스킬을 연결했어요`);
+              if (out) renderBody();
+            }),
+          }, `${on ? '✓ ' : '+ '}${r.name}`);
+        }))) : null);
+  };
+
+  const e0 = emp(empId);
+  const tInfo = e0 ? empTeamInfo(e0) : null;
+  renderBody();
+  const finish = () => { closeDlg(); render(); };
+
+  setDlg(dlg,
+    h('div', { class: 'row codex-top' },
+      h('div', null,
+        h('div', { class: 'swarm-kicker' }, 'CONNECT AI · EMPLOYEE SKILLS & GITHUB'),
+        h('h3', { class: 'coord-dlg-h' }, `${shortName(empId)} · 스킬 & GitHub 오픈소스`,
+          tInfo ? h('span', { class: `team-pill tm-${tInfo.key}` }, h('i'), tInfo.short) : null)),
+      headCount),
+    h('p', { class: 'small muted codex-desc' }, 'GitHub 오픈소스 주소(예: Remotion, Hyperframes 또는 직접 만든 커스텀 스킬 레포)를 연결하면 자동 배분과 실행 프롬프트에 바로 반영되고, 강의 청사진 공유에도 함께 담깁니다.'),
+    h('div', { class: 'skill-sec-h' }, '장착된 스킬'),
+    listWrap,
+    h('div', { class: 'skill-form' },
+      h('div', { class: 'skill-sec-h' }, 'GitHub 주소 · 커스텀 스킬 직접 연결'),
+      h('label', { class: 'field' }, 'GitHub 주소 (또는 owner/repo · npx 명령)', repoIn),
+      h('div', { class: 'grid2 coord-dlg-gap' },
+        h('label', { class: 'field' }, '스킬 이름', nameIn),
+        h('label', { class: 'field' }, '실행 명령 (선택)', cmdIn)),
+      h('div', { class: 'grid2 coord-dlg-gap' },
+        h('label', { class: 'field' }, '언제 쓸지 · 자동 배분 키워드 (쉼표 구분)', whenIn),
+        h('label', { class: 'field' }, '사용 메모 (선택)', noteIn)),
+      h('div', { class: 'skill-form-acts' }, cancelEditBtn, submitBtn)),
+    h('div', { class: 'skill-sec-h coord-dlg-gap' }, '추천 오픈소스 스킬 (1클릭 장착)'),
+    presetWrap,
+    h('div', { class: 'bar' },
+      h('button', { type: 'button', class: 'btn dark', onclick: finish }, '완료')));
+  dlg.showModal();
+  repoIn.focus();
+}
+
 function koSubject(word) {
   const s = String(word || '').trim();
   if (!s) return '';
@@ -2242,9 +2481,11 @@ function joseonSwarmPanel() {
           h('span', { class: `swarm-pill${working ? ' live' : ''}` }, working ? 'ACTIVE' : cooling ? `COOLDOWN ${empCooldownMin(selEmp)}m` : 'IDLE · Z')),
         h('div', { class: 'swarm-hero-sub' }, working && wTask
           ? `진행 중: ${wTask.title}`
-          : [preset?.name, selEmp.role].filter(Boolean).join(' · ') || '클릭해서 바로 일을 맡겨 보세요')),
+          : [preset?.name, selEmp.role].filter(Boolean).join(' · ') || '클릭해서 바로 일을 맡겨 보세요'),
+        skillPillsEl(selEmp, { onDark: true, max: 4 })),
       h('div', { class: 'swarm-hero-acts' },
         h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => assignTo(selEmp) }, '일 맡기기'),
+        h('button', { type: 'button', class: 'swarm-btn', onclick: () => openEmployeeSkillsModal(selEmp.id) }, '스킬 · GitHub'),
         h('button', { type: 'button', class: 'swarm-btn', onclick: () => openAvatarModal(selEmp, { tab: 'joseon' }) }, '캐릭터 · 팀')));
   }
 
@@ -3328,6 +3569,7 @@ async function openBlueprintExport() {
       h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '로컬 파일 경로, 이메일, API 키, 매출 기록, 개인 루틴은 모두 자동으로 제거했습니다. 수강생이나 팀원에게 안전하게 공유할 수 있어요.'),
       h('div', { class: 'row', style: 'margin-bottom:12px' },
         h('span', { class: 'tag' }, `오픈소스 ${(bp.openSource || []).length}개`),
+        h('span', { class: 'tag' }, `직원 스킬 ${bp.summary?.employeeSkills || 0}개`),
         h('span', { class: 'tag' }, `디자인 ${(bp.designs || []).length}개`),
         h('span', { class: 'tag' }, `계정 틀 ${(bp.accounts || []).length}개`),
         h('span', { class: 'tag' }, `AI 루틴 ${(bp.routines || []).length}개`)),
@@ -3364,6 +3606,7 @@ function openBlueprintImport() {
       const sum = [];
       if (a.employees) sum.push(`직원 ${a.employees}`);
       if (a.openSource) sum.push(`오픈소스 ${a.openSource}`);
+      if (a.skills) sum.push(`직원 스킬 ${a.skills}`);
       if (a.designs) sum.push(`디자인 ${a.designs}`);
       if (a.accounts) sum.push(`계정 ${a.accounts}`);
       if (a.routines) sum.push(`루틴 ${a.routines}`);
@@ -3666,6 +3909,7 @@ function empCard(e) {
       channels.length ? h('div', { class: 'access-badges' }, channels.map((c) => h('span', { class: 'tag' }, c))) : null,
       h('dl', { class: 'kv' },
         h('dt', null, '역할'), h('dd', null, valOr(e.role, 'role')),
+        h('dt', null, '스킬 · GitHub'), h('dd', null, skillPillsEl(e, { max: 5 })),
         h('dt', null, '도구'), h('dd', null, valOr(e.tools.join(', '), 'tools')),
         h('dt', null, '업무 매뉴얼'), h('dd', null, e.manual ? h('span', { class: 'clamp2' }, e.manual) : valOr('', 'manual')),
         h('dt', null, '막히면 대체'), h('dd', null, e.fallbackTo && emp(e.fallbackTo) ? `${shortName(e.fallbackTo)} (토큰 소진 시 자동 전환)` : h('button', { class: 'input-me', onclick: () => openEdit('fallbackTo') }, '자동 선택')),
@@ -3675,6 +3919,7 @@ function empCard(e) {
       h('div', { class: 'foot' },
         ['none', 'web'].includes(e.engine) ? h('span', { class: 'small muted' }, e.engine === 'web' ? '할 일에서 복사해서 맡겨요' : 'MCP, CLI 로 스스로 보고') : runSeg,
         h('div', { class: 'row' },
+          h('button', { class: 'btn sm', onclick: () => openEmployeeSkillsModal(e.id) }, `스킬${e.skills?.length ? ` (${e.skills.length})` : ''}`),
           h('button', { class: 'btn sm', onclick: () => openAvatarModal(e) }, '캐릭터'),
           coolBtn,
           h('button', { class: 'btn sm', onclick: () => { ui.editingEmp = e.id; ui.empDraftEngine[e.id] = e.engine; render(); } }, '편집'))));

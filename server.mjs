@@ -32,7 +32,7 @@ import { startDispatcher, isOffice, officeName, guessSshAlias, validAlias, ssh, 
 import { TEMPLATES, validateJob } from './lib/jobspec.mjs';
 import { MUSE_DEFAULTS, MUSE_HOSTS, runMuseOnce } from './lib/muse.mjs';
 import { modelFor, recordModels, UNKNOWN as MODEL_UNKNOWN } from './lib/models.mjs';
-import { BROWSER_CATALOG, PHONE_MODES, OSS_CATALOG, DESIGN_PRESETS, parseOpenSourceInput, detectBrowsers, detectOpenSource, detectDesktopBridges, pickBrowser, pickPhone, phonePromptBlock, pickTools, pickDesigns } from './lib/tools.mjs';
+import { BROWSER_CATALOG, PHONE_MODES, OSS_CATALOG, DESIGN_PRESETS, sanitizeSkillRepoUrl, parseOpenSourceInput, normalizeEmployeeSkill, matchEmployeeSkills, detectBrowsers, detectOpenSource, detectDesktopBridges, pickBrowser, pickPhone, phonePromptBlock, pickTools, pickDesigns } from './lib/tools.mjs';
 import { ensureHealth, rotateHealthToken, ingestHealthEntry, evaluateHealth } from './lib/health.mjs';
 import { createPowerGuard, DEFAULT_HANG_MS } from './lib/runtime.mjs';
 import { scanLocalUsageCached, buildEmployeeUsageMap } from './lib/usage.mjs';
@@ -95,6 +95,9 @@ function migrate(d) {
     e.manual = e.manual || '';
     e.resources = e.resources || [];
     e.abilities = e.abilities || [];
+    e.skills = Array.isArray(e.skills)
+      ? e.skills.map((sk, i) => normalizeEmployeeSkill(sk, i)).filter(Boolean).slice(0, 20)
+      : [];
     if (e.fallbackTo === undefined) e.fallbackTo = null;
     if (e.cooldownUntil === undefined) e.cooldownUntil = null;
     if (e.cooldownReason === undefined) e.cooldownReason = '';
@@ -781,6 +784,14 @@ function taskPromptCommon(d, emp, t) {
   const noteTrim = String(t.note || '').trim();
   const instTrim = String(routine?.instruction || '').trim();
   const showInst = Boolean(instTrim && instTrim !== noteTrim);
+  const fullText = `${t.title} ${noteTrim} ${instTrim}`;
+  const empSkills = Array.isArray(emp?.skills) ? emp.skills : [];
+  const matchedEmpSkills = matchEmployeeSkills(fullText, emp, tokens);
+  const matchedIds = new Set(matchedEmpSkills.map((s) => s.id));
+  const otherEmpSkills = empSkills.filter((s) => !matchedIds.has(s.id));
+  const empSkillRepos = new Set(empSkills.map((s) => (s.repo || s.name || '').toLowerCase()).filter(Boolean));
+  const extraOss = oss.filter((x) => !empSkillRepos.has((x.repo || x.name || '').toLowerCase()));
+  const fmtSkill = (x) => `- ${x.name}${x.repo ? ` · GitHub: ${x.repo}` : ''}${x.command ? ` · 명령: ${x.command}` : ''}${x.skillPath ? ` · 스킬: ${x.skillPath}` : ''}${x.when ? ` · 용도: ${x.when}` : ''}${x.note ? ` · ${x.note}` : ''}`;
   return [
     `할 일 ${t.id}: ${t.title}`,
     t.time ? `시간: ${t.time}` : '',
@@ -793,7 +804,9 @@ function taskPromptCommon(d, emp, t) {
     accountBlock,
     designBlock,
     stepsPromptBlock(d, t, emp?.id || null),
-    oss.length ? `반드시 사용할 오픈소스 도구:\n${oss.map((x) => `- ${x.name}${x.command ? ` · 명령: ${x.command}` : ''}${x.repo ? ` · GitHub: ${x.repo}` : ''}${x.skillPath ? ` · 스킬: ${x.skillPath}` : ''}${x.note ? ` · ${x.note}` : ''}`).join('\n')}` : '',
+    matchedEmpSkills.length ? `이 직원의 핵심 스킬 · GitHub 오픈소스 (우선 활용):\n${matchedEmpSkills.map(fmtSkill).join('\n')}` : '',
+    otherEmpSkills.length ? `보유 중인 기타 스킬:\n${otherEmpSkills.slice(0, 8).map(fmtSkill).join('\n')}` : '',
+    extraOss.length ? `반드시 사용할 오픈소스 도구:\n${extraOss.map((x) => `- ${x.name}${x.command ? ` · 명령: ${x.command}` : ''}${x.repo ? ` · GitHub: ${x.repo}` : ''}${x.skillPath ? ` · 스킬: ${x.skillPath}` : ''}${x.note ? ` · ${x.note}` : ''}`).join('\n')}` : '',
     showInst ? `루틴 지시서:\n${instTrim}` : '',
   ].filter(Boolean);
 }
@@ -1319,6 +1332,7 @@ async function stateView(viaLan = false) {
       stepModes: STEP_MODES, stepModeLabels: STEP_MODE_LABELS,
       stepTemplates: STEP_TEMPLATES.map(({ key, label, mode, steps }) => ({ key, label, mode, count: steps.length })),
       intervalMins: INTERVAL_MINS,
+      ossCatalog: OSS_CATALOG,
       designPresets: DESIGN_PRESETS,
       routinePacks: ROUTINE_PACKS.map(({ key, badge, title, summary, routines }) => ({ key, badge, title, summary, count: routines.length, titles: routines.map((r) => r.title) })),
     },
@@ -2340,9 +2354,85 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
       e.salary = n;
     }
   }
-  const again = ['role', 'tools', 'name', 'avatarName', 'manual'].some((k) => body[k] !== undefined) ? reassignUnmatched(d) : { task: [], routine: [] };
+  if (body.skills !== undefined) {
+    const rawList = Array.isArray(body.skills) ? body.skills : [];
+    e.skills = rawList.map((sk, i) => normalizeEmployeeSkill(sk, i)).filter(Boolean).slice(0, 20);
+  }
+  const again = ['role', 'tools', 'name', 'avatarName', 'manual', 'skills'].some((k) => body[k] !== undefined) ? reassignUnmatched(d) : { task: [], routine: [] };
   return { ...e, reassigned: again };
 }).then((r) => { refineMany(r.reassigned); if (body.engine !== undefined || body.model !== undefined || body.resources !== undefined) maybeRefreshModels(true); return r; }), UI);
+
+// 직원별 스킬 · GitHub 오픈소스 연결 (프리셋 1클릭, #office 리소스 연결, 또는 GitHub 주소/npx 직접 추가)
+route('POST', '/api/ui/employees/:id/skills', async ({ params, body }) => {
+  const out = await store.mutate((d) => {
+    const e = d.employees.find((x) => x.id === params.id);
+    if (!e) throw new HttpError(404, '직원이 없습니다.');
+    if (!Array.isArray(e.skills)) e.skills = [];
+    const presetObj = body.presetKey ? OSS_CATALOG.find((c) => c.key === body.presetKey) : null;
+    const resObj = body.resourceId ? d.resources.find((r) => r.id === body.resourceId && r.kind === '오픈소스') : null;
+    const rawSource = text(body.sourceInput || body.repo || '', 400);
+    if (body.repo && !sanitizeSkillRepoUrl(body.repo)) {
+      throw new HttpError(400, 'GitHub 주소는 https://github.com/owner/repo 또는 owner/repo 형식으로 입력해 주세요.');
+    }
+    const parsed = rawSource ? parseOpenSourceInput(rawSource) : { name: '', repo: '', command: '' };
+    const candidate = normalizeEmployeeSkill({
+      id: `sk_${crypto.randomBytes(4).toString('hex')}`,
+      preset: presetObj?.key || resObj?.preset || text(body.preset, 60),
+      name: text(body.name, 80) || presetObj?.name || resObj?.name || parsed.name,
+      repo: sanitizeSkillRepoUrl(body.repo || parsed.repo || presetObj?.repo || resObj?.repo || ''),
+      command: text(body.command, 240) || parsed.command || presetObj?.command || resObj?.command || '',
+      when: text(body.when, 300) || presetObj?.when || resObj?.when || '',
+      note: text(body.note, 240) || presetObj?.hint || resObj?.note || '',
+      skillPath: text(body.skillPath, 300) || resObj?.skillPath || '',
+    }, e.skills.length);
+    if (!candidate) throw new HttpError(400, '스킬 이름이나 GitHub 주소를 입력해 주세요.');
+    const existing = e.skills.find((ex) =>
+      (candidate.repo && ex.repo && ex.repo.toLowerCase() === candidate.repo.toLowerCase())
+      || ex.name.toLowerCase() === candidate.name.toLowerCase());
+    if (existing) {
+      existing.name = candidate.name;
+      if (candidate.repo) existing.repo = candidate.repo;
+      if (candidate.command) existing.command = candidate.command;
+      if (candidate.when) existing.when = candidate.when;
+      if (candidate.note) existing.note = candidate.note;
+      if (candidate.skillPath) existing.skillPath = candidate.skillPath;
+      if (candidate.preset) existing.preset = candidate.preset;
+      return { employee: e, skill: existing, updated: true, reassigned: reassignUnmatched(d) };
+    }
+    if (e.skills.length >= 20) throw new HttpError(400, '직원 1명당 스킬은 최대 20개까지 연결할 수 있어요.');
+    e.skills.push(candidate);
+    return { employee: e, skill: candidate, updated: false, reassigned: reassignUnmatched(d) };
+  });
+  refineMany(out.reassigned);
+  return out;
+}, UI);
+
+route('PATCH', '/api/ui/employees/:id/skills/:skillId', async ({ params, body }) => store.mutate((d) => {
+  const e = d.employees.find((x) => x.id === params.id);
+  if (!e) throw new HttpError(404, '직원이 없습니다.');
+  const sk = (e.skills || []).find((x) => x.id === params.skillId);
+  if (!sk) throw new HttpError(404, '해당 스킬을 찾을 수 없어요.');
+  if (body.name !== undefined) { const s = text(body.name, 80); if (s) sk.name = s; }
+  if (body.repo !== undefined) {
+    const raw = text(body.repo, 400);
+    if (raw && !sanitizeSkillRepoUrl(raw)) throw new HttpError(400, 'GitHub 주소는 https:// 또는 owner/repo 형식으로 입력해 주세요.');
+    sk.repo = raw ? sanitizeSkillRepoUrl(raw) : '';
+  }
+  if (body.command !== undefined) sk.command = text(body.command, 240);
+  if (body.when !== undefined) sk.when = text(body.when, 300);
+  if (body.note !== undefined) sk.note = text(body.note, 240);
+  if (body.skillPath !== undefined) sk.skillPath = text(body.skillPath, 300);
+  return { employee: e, skill: sk };
+}), UI);
+
+route('DELETE', '/api/ui/employees/:id/skills/:skillId', async ({ params }) => store.mutate((d) => {
+  const e = d.employees.find((x) => x.id === params.id);
+  if (!e) throw new HttpError(404, '직원이 없습니다.');
+  const before = (e.skills || []).length;
+  e.skills = (e.skills || []).filter((x) => x.id !== params.skillId);
+  if (e.skills.length === before) throw new HttpError(404, '해당 스킬을 찾을 수 없어요.');
+  return { ok: true, employee: e };
+}), UI);
 
 // AI 직원 토큰·한도 휴식(쿨다운) 수동 설정 / 즉시 해제
 route('POST', '/api/ui/employees/:id/cooldown', async ({ params, body }) => {
@@ -2367,7 +2457,7 @@ route('POST', '/api/ui/employees/:id/cooldown', async ({ params, body }) => {
   return updated;
 }, UI);
 
-function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, group, catalog, team, avatar, avatarStyle, avatarName, avatarImage, persona }) {
+function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, group, catalog, team, avatar, avatarStyle, avatarName, avatarImage, persona, skills }) {
   if (!d.groups.length) d.groups = DEFAULT_GROUPS.map((x) => ({ ...x }));
   if (group && !d.groups.some((x) => x.id === group)) {
     const def = DEFAULT_GROUPS.find((x) => x.id === group);
@@ -2383,11 +2473,12 @@ function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, 
   const avPreset = AVATAR_PRESETS.find((a) => a.key === avKey);
   const avStyle = avatarStyle && AVATAR_STYLES.some((s) => s.key === avatarStyle) ? avatarStyle : (avPreset?.pack === 'joseon' ? 'pixel' : 'studio');
   const defaultRun = (CLI_ENGINES.includes(eng) && Boolean(runnerInfo(eng)?.bin)) || (eng === 'local' && Boolean(model)) ? 'auto' : 'off';
+  const empSkills = Array.isArray(skills) ? skills.map((sk, i) => normalizeEmployeeSkill(sk, i)).filter(Boolean).slice(0, 20) : [];
   const e = {
     id, name, group: g, team: empTeam, role: role || '', tools: [], runsOn: '', command: '', salary: null, engine: eng, model: model || '',
     runMode: eng === 'web' || eng === 'none' ? 'off' : (RUN_MODES.includes(runMode) ? runMode : defaultRun),
     userPaused: runMode === 'off',
-    webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: '', resources: [], abilities: [],
+    webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: '', resources: [], abilities: [], skills: empSkills,
     avatar: avKey, avatarStyle: avStyle, avatarName: text(avatarName || '', 40), avatarImage: avatarImage || '', persona: text(persona || '', 80),
     fallbackTo: null, cooldownUntil: null, cooldownReason: '',
   };
@@ -2579,7 +2670,7 @@ function splitGoalClauses(raw) {
 function inferClauseTeam(clause) {
   const s = String(clause || '').toLowerCase();
   if (/마케팅|홍보|sns|인스타|유튜브\s*(제목|설명|태그|업로드)|스레드|트위터|\bx\b|바이럴|광고|댓글/.test(s)) return 'marketing';
-  if (/썸네일|디자인|배너|카드뉴스|로고|타이포|색감|시안|블렌더|3d|이미지|영상\s*편집|포스터/.test(s)) return 'design';
+  if (/썸네일|디자인|배너|카드뉴스|로고|타이포|색감|시안|블렌더|3d|이미지|영상\s*편집|모션|리모션|remotion|hyperframes|하이퍼프레임|쇼츠|포스터/.test(s)) return 'design';
   if (/코딩|코드|버그|구현|개발|리팩터링|테스트|스크립트|api|서버|배포|빌드|오류|수정/.test(s)) return 'dev';
   if (/조사|리서치|검색|트렌드|경쟁사|벤치마크|뉴스|소식|검증|qa|보안|출처|비교/.test(s)) return 'research';
   if (/이메일|메일|문의|일정|캘린더|정리|체크|점검|백업|감시|ram|알림|운영/.test(s)) return 'ops';
@@ -2603,6 +2694,14 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       const coolPenalty = isCoolingDown(e) ? -5 : 0;
       return autoBonus + freshBonus + coolPenalty;
     };
+    // 1순위: 해당 작업에 딱 맞는 스킬(GitHub 오픈소스 포함)을 장착한 직원 우선 배정
+    const skillPool = d.employees
+      .map((e) => ({ e, hits: matchEmployeeSkills(clause, e, tokens) }))
+      .filter((x) => x.hits.length > 0);
+    if (skillPool.length) {
+      skillPool.sort((a, b) => (b.hits.length * 5 + score(b.e)) - (a.hits.length * 5 + score(a.e)));
+      return skillPool[0].e;
+    }
     if (teamKey) {
       const pool = d.employees.filter((e) => (e.team || defaultTeamFor(e)) === teamKey);
       if (pool.length) return [...pool].sort((a, b) => score(b) - score(a))[0];
@@ -2689,6 +2788,7 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
     if (pol?.level === 'approval' && !g) g = pol.gate || '게시';
 
     const tMeta = tKey ? TEAMS.find((x) => x.key === tKey) : null;
+    const matchedSk = chosen ? matchEmployeeSkills(goal, chosen, tokens) : [];
     const hostLabel = opt?.resource?.name || mainMachineName;
     const taskObj = {
       id: nextId(d, 't'), order: 0, title: goal, kind: chosen ? 'ai' : 'human', assignee: chosen ? chosen.id : 'jay',
@@ -2696,7 +2796,7 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       resource: opt?.resource?.id || null, account: accId, browser: brId, design: desId, tools: tIds, manualLinks: {}, estCost: null, intervalMin: null,
       stepMode: 'serial', sharedFolder: '', steps: [],
       gate: g, gateApprovedAt: null,
-      reason: `메인 AI(${mainAiName}) 자동 배분${tMeta ? ` · ${tMeta.short}팀` : ''}${hostLabel ? ` · ${hostLabel}` : ''}${opt?.rerouted ? ' (과부하 우회)' : ''}`,
+      reason: `메인 AI(${mainAiName}) 자동 배분${matchedSk.length ? ` · 스킬(${matchedSk[0].name})` : tMeta ? ` · ${tMeta.short}팀` : ''}${hostLabel ? ` · ${hostLabel}` : ''}${opt?.rerouted ? ' (과부하 우회)' : ''}`,
       assignSource: 'auto',
       queued: false, queueReason: '', retryAfter: null, localOnly: false,
       routineId: null, jobId: null, createdAt: nowIso(), createdBy: 'jay', history: [], runStartedAt: null, lastRunAt: null,
@@ -2745,7 +2845,7 @@ route('POST', '/api/ui/employees', async ({ body }) => {
     if (!name) throw new HttpError(400, '이름이 필요합니다.');
     const e = makeEmployee(d, {
       name, role: text(body.role, 200) || cat?.role || '', engine, webUrl: cat?.url, general: cat?.general, group: body.group || cat?.group, catalog: cat?.key,
-      team: body.team, avatar: body.avatar, avatarStyle: body.avatarStyle, avatarName: body.avatarName, avatarImage, persona: body.persona,
+      team: body.team, avatar: body.avatar, avatarStyle: body.avatarStyle, avatarName: body.avatarName, avatarImage, persona: body.persona, skills: body.skills,
     });
     if (cat) e.catalog = cat.key;
     autoWireEmployeeFallbacks(d);
@@ -3142,7 +3242,7 @@ route('GET', '/api/agent/whoami', async ({ query }) => {
     return { id: r.id, name: r.name, platform: cfg.platform, url: r.url || plat?.url || '', spaceName: cfg.spaceName || '', browser: br?.name || null, assignee: cfg.assignee, assigneeName: cfg.assignee ? nameOf(d, cfg.assignee) : null, preset: cfg.preset, permissions: cfg.permissions };
   });
   return {
-    id: e.id, name: e.name, role: e.role, tools: e.tools, manual: e.manual, runsOn: e.runsOn,
+    id: e.id, name: e.name, role: e.role, tools: e.tools, skills: e.skills || [], manual: e.manual, runsOn: e.runsOn,
     resources: e.resources.map((id) => d.resources.find((r) => r.id === id)).filter(Boolean).map((r) => ({ id: r.id, name: r.name, kind: r.kind, status: r.status })),
     defaultBrowser: defBrowser ? { id: defBrowser.id, name: defBrowser.name, command: defBrowser.command || '', guide: defBrowser.guide || '' } : null,
     openSourceTools,
@@ -3155,7 +3255,7 @@ route('GET', '/api/agent/whoami', async ({ query }) => {
   };
 });
 
-route('GET', '/api/agent/employees', async () => store.data.employees.map((e) => ({ id: e.id, name: e.name, role: e.role, tools: e.tools })));
+route('GET', '/api/agent/employees', async () => store.data.employees.map((e) => ({ id: e.id, name: e.name, role: e.role, team: e.team, tools: e.tools, skills: e.skills || [] })));
 route('GET', '/api/agent/resources', async () => store.data.resources.map((r) => {
   const base = { id: r.id, name: r.name, kind: r.kind, status: r.status, note: r.note };
   if (r.kind === '계정') {

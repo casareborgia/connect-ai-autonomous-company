@@ -301,6 +301,59 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.ok(delRisky.body.gate, '결제/삭제 키워드가 포함된 복합 자동 배분도 승인 게이트가 걸려야 함');
     assert.equal(delRisky.body.autoStarted, false);
 
+    // 직원별 스킬 · GitHub 오픈소스 연결 (1클릭 프리셋, 커스텀 모노레포 URL, 보안 차단, 자동 배분, 프롬프트 주입, 청사진 내보내기)
+    const badSkill = await ui('POST', '/api/ui/employees/codex/skills', { name: '악성', repo: 'javascript:alert(1)' });
+    assert.equal(badSkill.status, 400, 'https 이외의 스킬 주소는 거부해야 함');
+
+    const addRemotion = await ui('POST', '/api/ui/employees/codex/skills', { presetKey: 'remotion' });
+    assert.equal(addRemotion.status, 200);
+    assert.equal(addRemotion.body.skill.name, 'Remotion');
+    assert.equal(addRemotion.body.skill.repo, 'https://github.com/remotion-dev/remotion');
+    assert.equal(addRemotion.body.skill.command, 'npx remotion');
+
+    const addCustomGh = await ui('POST', '/api/ui/employees/codex/skills', {
+      sourceInput: 'https://github.com/connect-ai-lab/creator-skills/tree/main/skills/shorts-edit',
+      when: '숏폼 컷편집, 인트로 자막',
+      skillPath: '/Users/secret/private/SKILL.md',
+    });
+    assert.equal(addCustomGh.status, 200);
+    assert.equal(addCustomGh.body.skill.name, 'shorts-edit');
+    assert.equal(addCustomGh.body.skill.repo, 'https://github.com/connect-ai-lab/creator-skills/tree/main/skills/shorts-edit');
+
+    const delBySkill = await ui('POST', '/api/ui/coordinator/delegate', {
+      title: '유튜브 인트로 모션그래픽 리모션으로 만들어줘',
+    });
+    assert.equal(delBySkill.status, 200);
+    assert.equal(delBySkill.body.assignee, 'codex', 'Remotion 스킬을 장착한 직원에게 우선 배분되어야 함');
+    assert.ok(delBySkill.body.reason.includes('Remotion'));
+
+    const pr = await ui('GET', `/api/ui/tasks/${delBySkill.body.id}/prompt-preview`);
+    assert.equal(pr.status, 200);
+    assert.ok(pr.body.prompt.includes('https://github.com/remotion-dev/remotion'), '실행 프롬프트에 직원의 GitHub 스킬 주소가 자동 주입되어야 함');
+
+    const bp2 = await ui('GET', '/api/ui/blueprint/export');
+    assert.equal(bp2.status, 200);
+    assert.ok(bp2.body.summary.employeeSkills >= 2);
+    assert.ok(JSON.stringify(bp2.body.employeeSkills).includes('https://github.com/remotion-dev/remotion'));
+    assert.ok(!JSON.stringify(bp2.body).includes('/Users/secret/private'), '청사진에 로컬 스킬 경로가 유출되면 안 됨');
+
+    const patchSk = await ui('PATCH', `/api/ui/employees/codex/skills/${addCustomGh.body.skill.id}`, {
+      name: '쇼츠 자동 편집',
+      note: '9:16 세로 포맷',
+    });
+    assert.equal(patchSk.status, 200);
+    assert.equal(patchSk.body.skill.name, '쇼츠 자동 편집');
+
+    const delSk = await ui('DELETE', `/api/ui/employees/codex/skills/${addCustomGh.body.skill.id}`);
+    assert.equal(delSk.status, 200);
+    const delRem = await ui('DELETE', `/api/ui/employees/codex/skills/${addRemotion.body.skill.id}`);
+    assert.equal(delRem.status, 200);
+
+    // 청사진 가져오기로 수강생 회사에 직원 스킬이 자동 장착되는지 검증
+    const bpImp = await ui('POST', '/api/ui/blueprint/import', { blueprint: bp2.body });
+    assert.equal(bpImp.status, 200);
+    assert.ok(bpImp.body.added.skills >= 2, '청사진 가져오기 시 직원 스킬이 자동 장착되어야 함');
+
     const mascotRes = await fetch(`${origin}/mascots/haetae.jpg`);
     assert.equal(mascotRes.status, 200);
     assert.match(mascotRes.headers.get('content-type') || '', /image\/jpeg/);
