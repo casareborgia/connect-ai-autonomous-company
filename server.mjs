@@ -1189,6 +1189,8 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
       engine: emp.engine,
       workspace: path.join(WORKSPACES, emp.id),
       prompt,
+      model: emp.model || '',
+      effort: emp.effort || '',
       hangMs: DEFAULT_HANG_MS,
       onProgress: (line) => { job.statusLine = line; },
       env: { AIHQ_URL: `http://127.0.0.1:${PORT}`, HQ_EMPLOYEE: emp.id },
@@ -2437,9 +2439,20 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
     if (e.engine === 'none' || e.engine === 'web') e.runMode = 'off';
   }
   if (body.model !== undefined) {
-    const mdl = text(body.model, 200);
-    if (mdl && !/^(ollama|lmstudio):[\w.:/\-]+$/.test(mdl)) throw new HttpError(400, '모델 형식이 아닙니다.');
+    const mdl = text(body.model, 120);
+    if (mdl) {
+      if (e.engine === 'local') {
+        if (!/^(ollama|lmstudio):[\w.:/\-]+$/.test(mdl)) throw new HttpError(400, '로컬 모델 형식이 아닙니다.');
+      } else if (mdl.startsWith('-') || !/^[A-Za-z0-9_.:/@#\-]+$/.test(mdl)) {
+        throw new HttpError(400, '모델 이름 형식이 올바르지 않습니다.');
+      }
+    }
     e.model = mdl;
+  }
+  if (body.effort !== undefined) {
+    const ef = String(body.effort || '').trim().toLowerCase();
+    if (ef && !['low', 'medium', 'high'].includes(ef)) throw new HttpError(400, '사고 강도는 기본, low, medium, high 중 하나입니다.');
+    e.effort = ef;
   }
   if (body.runMode !== undefined) {
     if (!RUN_MODES.includes(body.runMode)) throw new HttpError(400, '실행 방식은 꺼짐, 누를 때만, 자동 실행 중 하나입니다.');
@@ -2581,7 +2594,7 @@ route('POST', '/api/ui/employees/:id/cooldown', async ({ params, body }) => {
   return updated;
 }, UI);
 
-function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, group, catalog, team, avatar, avatarStyle, avatarName, avatarImage, persona, skills }) {
+function makeEmployee(d, { name, role, manual, engine, webUrl, model, effort, general, runMode, group, catalog, team, avatar, avatarStyle, avatarName, avatarImage, persona, skills, resources }) {
   if (!d.groups.length) d.groups = DEFAULT_GROUPS.map((x) => ({ ...x }));
   if (group && !d.groups.some((x) => x.id === group)) {
     const def = DEFAULT_GROUPS.find((x) => x.id === group);
@@ -2596,13 +2609,16 @@ function makeEmployee(d, { name, role, engine, webUrl, model, general, runMode, 
   const avKey = avatar && AVATAR_PRESETS.some((a) => a.key === avatar) ? avatar : defaultAvatarFor({ name, role, team: empTeam });
   const avPreset = AVATAR_PRESETS.find((a) => a.key === avKey);
   const avStyle = avatarStyle && AVATAR_STYLES.some((s) => s.key === avatarStyle) ? avatarStyle : (avPreset?.pack === 'joseon' ? 'pixel' : 'studio');
-  const defaultRun = (CLI_ENGINES.includes(eng) && Boolean(runnerInfo(eng)?.bin)) || (eng === 'local' && Boolean(model)) ? 'auto' : 'off';
+  const cleanMdl = model && !String(model).startsWith('-') && /^[A-Za-z0-9_.:/@#\-]{1,120}$/.test(String(model)) ? String(model) : '';
+  const cleanEf = ['low', 'medium', 'high'].includes(String(effort || '').toLowerCase()) ? String(effort).toLowerCase() : '';
+  const defaultRun = (CLI_ENGINES.includes(eng) && Boolean(runnerInfo(eng)?.bin)) || (eng === 'local' && Boolean(cleanMdl)) ? 'auto' : 'off';
   const empSkills = Array.isArray(skills) ? skills.map((sk, i) => normalizeEmployeeSkill(sk, i)).filter(Boolean).slice(0, 20) : [];
+  const empRes = Array.isArray(resources) ? resources.filter((rid) => d.resources.some((r) => r.id === rid)).slice(0, 10) : [];
   const e = {
-    id, name, group: g, team: empTeam, role: role || '', tools: [], runsOn: '', command: '', salary: null, engine: eng, model: model || '',
+    id, name, group: g, team: empTeam, role: role || '', tools: [], runsOn: '', command: '', salary: null, engine: eng, model: cleanMdl, effort: cleanEf,
     runMode: eng === 'web' || eng === 'none' ? 'off' : (RUN_MODES.includes(runMode) ? runMode : defaultRun),
     userPaused: runMode === 'off',
-    webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: '', resources: [], abilities: [], skills: empSkills,
+    webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: text(manual || '', 8000), resources: empRes, abilities: [], skills: empSkills,
     avatar: avKey, avatarStyle: avStyle, avatarName: text(avatarName || '', 40), avatarImage: avatarImage || '', persona: text(persona || '', 80),
     fallbackTo: null, cooldownUntil: null, cooldownReason: '',
   };
@@ -3016,9 +3032,12 @@ route('POST', '/api/ui/employees', async ({ body }) => {
   const out = await store.mutate((d) => {
     const name = text(body.name, 80);
     if (!name) throw new HttpError(400, '이름이 필요합니다.');
+    const empResources = body.machineId && d.resources.some((r) => r.id === body.machineId && r.kind === '기계') ? [body.machineId] : [];
     const e = makeEmployee(d, {
-      name, role: text(body.role, 200) || cat?.role || '', engine, webUrl: cat?.url, general: cat?.general, group: body.group || cat?.group, catalog: cat?.key,
-      team: body.team, avatar: body.avatar, avatarStyle: body.avatarStyle, avatarName: body.avatarName, avatarImage, persona: body.persona, skills: body.skills,
+      name, role: text(body.role, 200) || cat?.role || '', manual: text(body.manual, 8000), engine, model: text(body.model, 120), effort: body.effort,
+      webUrl: cat?.url, general: cat?.general, group: body.group || cat?.group, catalog: cat?.key,
+      team: body.team, avatar: body.avatar, avatarStyle: body.avatarStyle, avatarName: body.avatarName, avatarImage, persona: body.persona,
+      skills: body.skills, resources: empResources,
     });
     if (cat) e.catalog = cat.key;
     autoWireEmployeeFallbacks(d);

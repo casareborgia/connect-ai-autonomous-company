@@ -4220,129 +4220,301 @@ function modelLine(e) {
 function engineText(e) {
   if (e.engine === 'web') return `복사해서 맡기기${e.webUrl ? ` · ${e.webUrl.replace(/^https:\/\//, '').replace(/\/.*$/, '')}` : ''}`;
   if (e.engine === 'local') return `로컬 모델 · ${e.model ? e.model.replace(/^(ollama|lmstudio):/, '') : '모델을 골라 주세요'}`;
-  if (CLI_ENGINES.includes(e.engine)) return `${ENGINE_LABEL[e.engine]} · ${S.runners[e.engine] ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음, 복사해서 맡기기로 씀'}`;
+  if (CLI_ENGINES.includes(e.engine)) {
+    const extra = [e.model, e.effort ? ({ low: 'Low', medium: 'Med', high: 'High' }[e.effort] || e.effort) : ''].filter(Boolean).join(' · ');
+    return `${ENGINE_LABEL[e.engine]}${extra ? ` (${extra})` : ''} · ${S.runners[e.engine] ? '이 컴퓨터에 설치됨' : '이 컴퓨터에 없음, 복사해서 맡기기로 씀'}`;
+  }
   return ENGINE_LABEL[e.engine] || e.engine;
 }
+
+const BOT_AGENT_OPTIONS = [
+  { engine: 'claude', label: 'Claude', badge: '✦', tone: 'ag-claude', hasEffort: true, models: [['', '기본 모델 (CLI 설정)'], ['sonnet', 'Claude Sonnet (빠름 · 균형)'], ['opus', 'Claude Opus (최고 추론)'], ['haiku', 'Claude Haiku (초고속)']] },
+  { engine: 'codex', label: 'Codex', badge: '◎', tone: 'ag-codex', hasEffort: true, models: [['', '기본 모델 (CLI 설정)'], ['gpt-5.4', 'GPT-5.4 (최신 코딩·추론)'], ['gpt-5.4-mini', 'GPT-5.4 Mini (빠름)'], ['o3', 'o3 (깊은 추론)']] },
+  { engine: 'agy', label: 'Antigravity', badge: '▲', tone: 'ag-agy', hasEffort: false, models: [['', '기본 모델 (CLI 설정)'], ['gemini-2.5-pro', 'Gemini 2.5 Pro'], ['gemini-2.5-flash', 'Gemini 2.5 Flash']] },
+  { engine: 'opencode', label: 'OpenCode', badge: '⌘', tone: 'ag-opencode', hasEffort: false, models: [['', '기본 모델 (CLI 설정)']] },
+  { engine: 'gemini', label: 'Gemini CLI', badge: '◆', tone: 'ag-gemini', hasEffort: false, models: [['', '기본 모델 (CLI 설정)'], ['gemini-2.5-pro', 'Gemini 2.5 Pro'], ['gemini-2.5-flash', 'Gemini 2.5 Flash']] },
+  { engine: 'local', label: '로컬 AI', badge: '◈', tone: 'ag-local', hasEffort: false, models: [] },
+  { engine: 'web', label: '웹 복사', badge: '↗', tone: 'ag-other', hasEffort: false, models: [] },
+];
 
 function openAddEmployee(opts = {}) {
   const cfg = opts && !opts.target ? opts : {};
   const dlg = document.getElementById('dlg');
   dlg.className = 'wide';
-  const name = h('input', { class: 'in', 'aria-label': 'AI 이름', placeholder: '예: ChatGPT, Claude, 나만의 AI' });
-  const avatarName = h('input', { class: 'in', 'aria-label': '캐릭터 이름', placeholder: '예: 장영실 팀장 · 신사임당 (선택)', maxlength: '40' });
-  const role = h('input', { class: 'in', 'aria-label': '역할', placeholder: '예: 글쓰기, 고객 답장, 코딩 자동화' });
-  let picked = null;
-  let pickedPack = cfg.pack || (S.data.employees.some((e) => window.PixelCrew?.isJoseonKey(e.avatar)) ? 'joseon' : 'k-crew');
+
+  const d = S.data;
+  const machines = d.resources.filter((r) => r.kind === '기계');
+  const defaultMainEmp = (d.settings?.mainAi && d.employees.find((e) => e.id === d.settings.mainAi)) || null;
+  const firstInstalled = BOT_AGENT_OPTIONS.find((o) => CLI_ENGINES.includes(o.engine) && S.runners?.[o.engine]);
+  let pickedEngine = (defaultMainEmp && CLI_ENGINES.includes(defaultMainEmp.engine) && S.runners?.[defaultMainEmp.engine])
+    ? defaultMainEmp.engine
+    : (firstInstalled?.engine || 'web');
+  let pickedModel = '';
+  let pickedEffort = '';
+  let pickedMac = d.settings?.mainMachine || machines.find((m) => m.isThisMac)?.id || machines[0]?.id || '';
+  let pickedPack = cfg.pack || (d.employees.some((e) => window.PixelCrew?.isJoseonKey(e.avatar)) ? 'joseon' : 'k-crew');
   let pickedAvatar = cfg.avatar || (pickedPack === 'joseon' ? 'jangyeongsil' : 'haetae');
   let pickedTeam = cfg.team || 'dev';
   let customImg = '';
+  let avOpen = false;
+  let agentOpen = false;
+  const pickedSkills = new Set();
+
   const allPresets = S.options.avatarPresets || [];
   const teams = S.options.teams || [];
-  const savedCustom = S.data.settings?.customAvatars || [];
-  const have = new Set(S.data.employees.map((e) => e.catalog).filter(Boolean));
-  const multi = S.data.groups.length > 1;
-  const group = multi ? h('select', { class: 'in', 'aria-label': '근무 형태' }, S.data.groups.map((g) => h('option', { value: g.id }, [g.title, g.subtitle].filter(Boolean).join(' · ')))) : null;
-  const teamSel = h('select', { class: 'in', 'aria-label': '소속 팀(부서)' }, teams.map((t) => h('option', { value: t.key, selected: t.key === pickedTeam }, t.name)));
-  teamSel.addEventListener('change', () => { pickedTeam = teamSel.value; });
-  const avPreview = h('div');
-  const avPackRow = h('div', { class: 'picker', style: 'margin-bottom:8px' });
-  const avStrip = h('div', { class: 'add-av-strip' });
-  const fileIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', style: 'display:none' });
+  const savedCustom = d.settings?.customAvatars || [];
+  const ossCatalog = (S.options?.ossCatalog || []).slice(0, 6);
 
-  const renderAvPicker = () => {
+  const nameIn = h('input', { class: 'bot-name-in', 'aria-label': 'AI 직원 이름', placeholder: '이름 (예: 문어봇 · 영상편집 팀장 · 마케터)' });
+  const bioIn = h('textarea', {
+    class: 'in bot-bio-in', rows: 3, 'aria-label': '역할 및 업무 설명',
+    placeholder: '이 직원이 누구고 어떤 일을 하나요?\n예: 유튜브 쇼츠와 모션그래픽을 Remotion으로 제작하는 영상편집 전담 AI',
+  });
+  const ghSkillIn = h('input', { class: 'in sm', 'aria-label': 'GitHub 스킬 주소 (선택)', placeholder: 'GitHub 스킬 주소 붙여넣기 (선택 · 예: https://github.com/remotion-dev/remotion)' });
+  const teamSel = h('select', { class: 'in sm bot-team-sel', 'aria-label': '소속 팀' },
+    teams.filter((t) => t.key !== 'exec').map((t) => h('option', { value: t.key, selected: t.key === pickedTeam }, t.name)));
+  teamSel.addEventListener('change', () => { pickedTeam = teamSel.value; });
+
+  const macSel = h('select', { class: 'in', 'aria-label': '실행 컴퓨터', onchange: (ev) => { pickedMac = ev.target.value; } },
+    h('option', { value: '', selected: !pickedMac }, '자동 최적화 (메인 컴퓨터)'),
+    ...machines.map((m) => {
+      const mh = S.machineHealth?.[m.id];
+      const ram = typeof mh?.ramPct === 'number' ? ` · RAM ${mh.ramPct}%` : '';
+      return h('option', { value: m.id, selected: m.id === pickedMac }, `${m.name}${m.isThisMac ? ' (Local Mac)' : ''}${ram}`);
+    }));
+
+  const fileIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', class: 'hidden' });
+  const avBtnWrap = h('button', {
+    type: 'button', class: 'bot-av-btn', title: '클릭해 캐릭터 또는 내 이미지 변경',
+    onclick: () => { avOpen = !avOpen; renderAvDrawer(); },
+  });
+  const avDrawer = h('div', { class: 'bot-av-drawer hidden' });
+  const agentTrigger = h('button', {
+    type: 'button', class: 'in bot-agent-trigger',
+    onclick: () => {
+      agentOpen = !agentOpen;
+      if (agentOpen && pickedEngine === 'local') ensureModels();
+      renderAgentPanel();
+    },
+  });
+  const agentPanel = h('div', { class: 'bot-agent-panel hidden' });
+  const skillChipsWrap = h('div', { class: 'picker' });
+
+  const renderAvButton = () => {
+    const isJ = pickedPack === 'joseon';
+    const fake = { id: 'new-emp', name: nameIn.value.trim() || '새 AI 직원', avatar: pickedAvatar, avatarStyle: isJ ? 'pixel' : 'studio', avatarImage: customImg };
+    avBtnWrap.replaceChildren(
+      avatarEl(fake, { size: 54, stateOverride: isJ ? 'working' : 'idle', styleOverride: isJ ? 'pixel' : 'studio' }),
+      h('span', { class: 'bot-av-edit', 'aria-hidden': 'true' }, '✎'));
+  };
+
+  const renderAvDrawer = () => {
+    renderAvButton();
+    avDrawer.classList.toggle('hidden', !avOpen);
+    if (!avOpen) { avDrawer.replaceChildren(); return; }
     const isJ = pickedPack === 'joseon';
     const presets = allPresets.filter((p) => p.pack === pickedPack);
-    const fake = { id: 'new-emp', name: avatarName.value.trim() || name.value.trim() || '새 AI 직원', avatar: pickedAvatar, avatarStyle: isJ ? 'pixel' : 'studio', avatarImage: customImg };
-    avPreview.replaceChildren(avatarEl(fake, { size: 48, stateOverride: isJ ? 'working' : 'idle', styleOverride: isJ ? 'pixel' : 'studio' }));
-    avPackRow.replaceChildren(
-      ...[['joseon', 'K-Heritage Pixel (21)'], ['k-crew', 'K-Guardian 3D']].map(([pk, pl]) => h('button', {
-        type: 'button', class: `chip sm${pickedPack === pk ? ' on' : ''}`,
-        onclick: () => {
-          pickedPack = pk;
-          const first = allPresets.find((p) => p.pack === pk);
-          if (first) pickedAvatar = first.key;
-          customImg = '';
-          renderAvPicker();
+    avDrawer.replaceChildren(
+      h('div', { class: 'picker bot-av-packs' },
+        [['joseon', 'K-Heritage Pixel (21)'], ['k-crew', 'K-Guardian 3D']].map(([pk, pl]) => h('button', {
+          type: 'button', class: `chip sm${pickedPack === pk ? ' on' : ''}`,
+          onclick: () => {
+            pickedPack = pk;
+            const first = allPresets.find((p) => p.pack === pk);
+            if (first) pickedAvatar = first.key;
+            customImg = '';
+            renderAvDrawer();
+          },
+        }, pl))),
+      h('div', { class: 'add-av-strip' },
+        ...presets.map((p) => h('button', {
+          type: 'button', class: `add-av-btn${!customImg && pickedAvatar === p.key ? ' on' : ''}`, title: `${p.name} — ${p.hint}`,
+          onclick: () => {
+            pickedAvatar = p.key;
+            if (p.team && teams.some((t) => t.key === p.team)) { pickedTeam = p.team; teamSel.value = p.team; }
+            customImg = '';
+            renderAvDrawer();
+          },
         },
-      }, pl)));
-    avStrip.replaceChildren(
-      ...presets.map((p) => h('button', {
-        type: 'button', class: `add-av-btn${!customImg && pickedAvatar === p.key ? ' on' : ''}`, title: `${p.name} — ${p.hint}`,
-        onclick: () => {
-          pickedAvatar = p.key;
-          if (p.team && teams.some((t) => t.key === p.team)) { pickedTeam = p.team; teamSel.value = p.team; }
-          customImg = '';
-          renderAvPicker();
-        },
-      },
-      isJ ? C.avatarSvg(p.key, { size: 32, state: 'working', style: 'pixel' }) : h('img', { src: `/mascots/${p.key}.jpg`, alt: p.name, width: 32, height: 32 }),
-      h('span', null, p.name.split(' ')[0]))),
-      ...savedCustom.slice(0, 4).map((c) => h('button', {
-        type: 'button', class: `add-av-btn${customImg === c.image ? ' on' : ''}`, title: c.name,
-        onclick: () => { customImg = c.image; if (!avatarName.value.trim()) avatarName.value = c.name; renderAvPicker(); },
-      }, h('img', { src: c.image, alt: c.name, width: 32, height: 32 }), h('span', null, c.name))),
-      h('button', { type: 'button', class: `add-av-btn add-up${customImg && !savedCustom.some((c) => c.image === customImg) ? ' on' : ''}`, onclick: () => fileIn.click() },
-        h('b', { style: 'font-size:15px;line-height:32px' }, '+'), h('span', null, '내 이미지')));
+        isJ ? C.avatarSvg(p.key, { size: 32, state: 'working', style: 'pixel' }) : h('img', { src: `/mascots/${p.key}.jpg`, alt: p.name, width: 32, height: 32 }),
+        h('span', null, p.name.split(' ')[0]))),
+        ...savedCustom.slice(0, 4).map((c) => h('button', {
+          type: 'button', class: `add-av-btn${customImg === c.image ? ' on' : ''}`, title: c.name,
+          onclick: () => { customImg = c.image; renderAvDrawer(); },
+        }, h('img', { src: c.image, alt: c.name, width: 32, height: 32 }), h('span', null, c.name))),
+        h('button', { type: 'button', class: 'add-av-btn add-up', onclick: () => fileIn.click() },
+          h('b', { class: 'bot-up-plus' }, '+'), h('span', null, '내 이미지'))));
   };
+
   fileIn.addEventListener('change', async () => {
     const f = fileIn.files?.[0];
     fileIn.value = '';
     if (!f) return;
     try {
       customImg = await resizeImageToDataUrl(f, false);
-      renderAvPicker();
+      renderAvDrawer();
       toast('내 캐릭터 이미지를 올렸어요');
     } catch (err) { toast(err.message || '이미지 처리 오류'); }
   });
-  renderAvPicker();
 
-  const quick = h('div', { class: 'picker' }, S.options.catalog.filter((c) => !have.has(c.key)).map((c) => h('button', {
-    type: 'button', class: 'chip', onclick: (ev) => {
-      picked = c.key; name.value = c.name; role.value = c.role;
-      if (group && c.group) group.value = c.group;
-      for (const b of quick.children) b.classList.toggle('on', b === ev.currentTarget);
-    },
-  }, c.engine === 'local' ? `${c.name} (로컬)` : c.name)));
+  let modelQuery = '';
+  const renderAgentTrigger = () => {
+    const meta = BOT_AGENT_OPTIONS.find((o) => o.engine === pickedEngine) || BOT_AGENT_OPTIONS[0];
+    const installed = CLI_ENGINES.includes(meta.engine) ? Boolean(S.runners?.[meta.engine]) : true;
+    const efLbl = pickedEffort ? ({ low: 'Low', medium: 'Med', high: 'High' }[pickedEffort] || pickedEffort) : '';
+    const subParts = [pickedModel ? pickedModel.replace(/^(ollama|lmstudio):/, '') : '기본 모델', efLbl, !installed ? '미설치→복사' : ''].filter(Boolean);
+    agentTrigger.replaceChildren(
+      h('span', { class: `orca-ic bot-mini-ic ${meta.tone}`, 'aria-hidden': 'true' }, meta.badge),
+      h('span', { class: 'bot-agent-val' },
+        h('b', null, meta.label),
+        h('span', { class: 'bot-agent-meta' }, subParts.join(' · '))),
+      h('span', { class: 'bot-caret', 'aria-hidden': 'true' }, agentOpen ? '▴' : '▾'));
+  };
+
+  const renderAgentPanel = () => {
+    renderAgentTrigger();
+    agentPanel.classList.toggle('hidden', !agentOpen);
+    if (!agentOpen) { agentPanel.replaceChildren(); return; }
+    const meta = BOT_AGENT_OPTIONS.find((o) => o.engine === pickedEngine) || BOT_AGENT_OPTIONS[0];
+    const searchIn = h('input', {
+      class: 'in sm bot-model-search', value: modelQuery,
+      placeholder: `${meta.label} 모델 검색 또는 직접 입력 (예: sonnet, gpt-5.4)...`,
+      'aria-label': '모델 검색',
+      oninput: (ev) => { modelQuery = ev.target.value; renderModelList(); },
+    });
+    const modelListEl = h('div', { class: 'bot-model-list' });
+    const renderModelList = () => {
+      const q = modelQuery.trim().toLowerCase();
+      let list = meta.engine === 'local'
+        ? (ui.models || []).map((m) => [m.id, `${m.label}${m.size ? ` · ${m.size}` : ''}`])
+        : meta.models;
+      if (q) list = list.filter(([id, lbl]) => id.toLowerCase().includes(q) || lbl.toLowerCase().includes(q));
+      const items = list.map(([id, lbl]) => h('button', {
+        type: 'button',
+        class: `bot-model-opt${pickedModel === id ? ' on' : ''}`,
+        onclick: () => { pickedModel = id; renderAgentTrigger(); renderModelList(); },
+      }, h('span', null, lbl), pickedModel === id ? h('span', { class: 'bot-m-chk' }, '✓') : null));
+      if (q && meta.engine !== 'web' && meta.engine !== 'local' && !list.some(([id]) => id.toLowerCase() === q)) {
+        items.push(h('button', {
+          type: 'button', class: `bot-model-opt${pickedModel === modelQuery.trim() ? ' on' : ''}`,
+          onclick: () => { pickedModel = modelQuery.trim(); renderAgentTrigger(); renderModelList(); },
+        }, h('span', null, `직접 모델 ID 사용: ${modelQuery.trim()}`)));
+      }
+      if (!items.length) {
+        items.push(h('div', { class: 'bot-model-empty' }, meta.engine === 'local' ? '실행 중인 Ollama / LM Studio 모델이 없습니다' : meta.engine === 'web' ? '웹 복사 모드는 별도 모델 지정 없이 바로 복사해 맡깁니다' : '일치하는 모델이 없습니다'));
+      }
+      modelListEl.replaceChildren(...items);
+    };
+    renderModelList();
+
+    const kids = [
+      h('div', { class: 'bot-eng-tabs', role: 'tablist' }, BOT_AGENT_OPTIONS.map((o) => {
+        const installed = CLI_ENGINES.includes(o.engine) && Boolean(S.runners?.[o.engine]);
+        return h('button', {
+          type: 'button',
+          class: `bot-eng-tab${pickedEngine === o.engine ? ' on' : ''}`,
+          title: `${o.label}${CLI_ENGINES.includes(o.engine) ? (installed ? ' (설치됨)' : ' (미설치)') : ''}`,
+          onclick: () => {
+            pickedEngine = o.engine;
+            pickedModel = '';
+            pickedEffort = '';
+            modelQuery = '';
+            if (o.engine === 'local') ensureModels();
+            renderAgentPanel();
+          },
+        },
+        h('span', { class: `orca-ic bot-mini-ic ${o.tone}` }, o.badge),
+        h('span', { class: 'bot-eng-lbl' }, o.label),
+        installed ? h('i', { class: 'bot-eng-dot', title: '이 맥에 설치됨' }) : null);
+      })),
+    ];
+    if (meta.engine !== 'web') kids.push(searchIn);
+    kids.push(modelListEl);
+    if (meta.hasEffort) {
+      kids.push(h('div', { class: 'bot-effort-bar' },
+        h('span', { class: 'small muted' }, '사고 강도'),
+        h('div', { class: 'bot-effort-pills' }, [['', 'Default'], ['low', 'Low'], ['medium', 'Med'], ['high', 'High']].map(([ek, el]) => h('button', {
+          type: 'button', class: `bot-effort-btn${pickedEffort === ek ? ' on' : ''}`,
+          onclick: () => { pickedEffort = ek; renderAgentPanel(); },
+        }, el)))));
+    }
+    agentPanel.replaceChildren(...kids);
+  };
+
+  const renderSkillChips = () => {
+    skillChipsWrap.replaceChildren(...ossCatalog.map((c) => {
+      const on = pickedSkills.has(c.key);
+      return h('button', {
+        type: 'button', class: `chip sm${on ? ' on' : ''}`,
+        onclick: () => { if (on) pickedSkills.delete(c.key); else pickedSkills.add(c.key); renderSkillChips(); },
+      }, `${on ? '✓ ' : '+ '}${c.name}`);
+    }));
+  };
+
+  renderAvButton();
+  renderAgentTrigger();
+  renderSkillChips();
 
   const closeAdd = () => { dlg.className = ''; dlg.close(); render(); };
-  setDlg(dlg, h('h3', null, 'AI 직원 추가'),
-    h('p', { class: 'small muted', style: 'margin:-6px 0 12px' }, '쓰는 AI를 고르고, 원하는 캐릭터를 선택하거나 내 이름·이미지를 바로 넣으세요.'),
-    quick,
+  const submitBot = () => once('add-emp', async () => {
+    const nm = nameIn.value.trim();
+    if (!nm) { nameIn.focus(); toast('AI 직원 이름을 적어 주세요'); return; }
+    const bio = bioIn.value.trim();
+    const roleLine = bio ? bio.split('\n')[0].slice(0, 120) : '';
+    const skillsPayload = [...pickedSkills].map((k) => {
+      const p = (S.options?.ossCatalog || []).find((c) => c.key === k);
+      return p ? { preset: p.key, name: p.name, repo: p.repo, command: p.command, when: p.when, note: p.hint } : null;
+    }).filter(Boolean);
+    const rawGh = ghSkillIn.value.trim();
+    if (rawGh) skillsPayload.push({ sourceInput: rawGh, repo: /^(https?:\/\/|github:|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$)/i.test(rawGh) ? rawGh : '' });
+
+    dlg.className = '';
+    dlg.close();
+    const r = await act('POST', '/api/ui/employees', {
+      name: nm,
+      role: roleLine,
+      manual: bio,
+      engine: pickedEngine,
+      model: pickedModel || undefined,
+      effort: pickedEffort || undefined,
+      machineId: pickedMac || undefined,
+      team: pickedTeam,
+      avatar: pickedAvatar,
+      avatarStyle: pickedPack === 'joseon' ? 'pixel' : 'studio',
+      avatarName: nm,
+      avatarImage: customImg,
+      skills: skillsPayload,
+    }, `${nm} 직원을 채용했어요`);
+    if (r && r.reassigned?.task?.length) toast(`${nm} 채용 완료 · 담당 없던 일 ${r.reassigned.task.length}개 자동 배분`);
+  });
+
+  const onKey = (ev) => { if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); submitBot(); } };
+  nameIn.addEventListener('keydown', onKey);
+  bioIn.addEventListener('keydown', onKey);
+
+  setDlg(dlg,
+    h('div', { class: 'row codex-top' },
+      h('div', null,
+        h('div', { class: 'swarm-kicker' }, 'CONNECT AI · NEW TEAMMATE'),
+        h('h3', { class: 'coord-dlg-h' }, '새 AI 직원 만들기')),
+      h('button', { type: 'button', class: 'x', 'aria-label': '닫기', onclick: closeAdd }, '×')),
     fileIn,
-    h('div', { class: 'grid2', style: 'margin-top:12px' },
-      h('label', { class: 'field' }, 'AI 이름 (필수)', name),
-      h('label', { class: 'field' }, '캐릭터 이름 · 호칭 (선택)', avatarName)),
-    h('div', { class: 'grid2', style: 'margin-top:10px' },
-      h('label', { class: 'field' }, '역할', role),
-      h('label', { class: 'field' }, '소속 팀 (부서)', teamSel)),
-    multi ? h('label', { class: 'field', style: 'margin-top:10px' }, '근무 형태', group) : null,
-    h('div', { class: 'add-av-box', style: 'margin-top:12px' },
-      h('div', { class: 'row', style: 'gap:10px;align-items:center;margin-bottom:8px' },
-        avPreview,
-        h('div', null,
-          h('div', { style: 'font-size:13px;font-weight:600' }, '캐릭터 에디션 또는 내 이미지'),
-          h('div', { class: 'small muted' }, 'K-Heritage 16비트 픽셀(장영실·선비·신사임당·솜이 등) 또는 3D 피규어를 골라 보세요'))),
-      avPackRow,
-      avStrip),
-    h('div', { class: 'bar' }, h('button', { class: 'btn', onclick: closeAdd }, '취소'),
-      h('button', { class: 'btn dark', onclick: () => once('add-emp', async () => {
-        if (!name.value.trim()) { name.focus(); return; }
-        dlg.className = '';
-        dlg.close();
-        const r = await act('POST', '/api/ui/employees', {
-          name: name.value, role: role.value,
-          catalog: picked && name.value === S.options.catalog.find((c) => c.key === picked)?.name ? picked : undefined,
-          group: group?.value,
-          team: pickedTeam,
-          avatar: pickedAvatar,
-          avatarStyle: pickedPack === 'joseon' ? 'pixel' : 'studio',
-          avatarName: avatarName.value.trim(),
-          avatarImage: customImg,
-        }, '추가했어요');
-        if (r && r.reassigned?.task?.length) toast(`추가했어요. 담당이 없던 일 ${r.reassigned.task.length}개를 다시 나눴어요`);
-      }) }, '추가')));
+    h('div', { class: 'bot-head-row' }, avBtnWrap, nameIn, teamSel),
+    avDrawer,
+    bioIn,
+    h('div', { class: 'grid2 bot-ca-grid' },
+      h('label', { class: 'field' }, 'Computer (실행 컴퓨터)', macSel),
+      h('div', { class: 'field' }, h('span', null, 'Agent (두뇌 · 모델)'), agentTrigger)),
+    agentPanel,
+    h('div', { class: 'bot-skill-box' },
+      h('div', { class: 'bot-skill-lbl' }, '스킬 · GitHub 오픈소스 바로 장착 (선택)'),
+      skillChipsWrap,
+      ghSkillIn),
+    h('div', { class: 'bar' },
+      h('button', { type: 'button', class: 'btn', onclick: closeAdd }, '취소'),
+      h('button', { type: 'button', class: 'btn dark', onclick: submitBot }, '만들기 ⌘↵')));
   dlg.showModal();
-  name.focus();
+  nameIn.focus();
 }
 
 // 자는 시간: 이 시간에는 AI 가 대표를 부르지 않는다 (직원들이 whoami 로 본다)

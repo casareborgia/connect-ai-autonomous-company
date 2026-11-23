@@ -1186,6 +1186,87 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .auto-log-ts { font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; flex: none; }
 .auto-log-who { font-size: 11.5px; font-weight: 600; color: var(--ink); flex: none; }
 .auto-log-res { flex: 1; min-width: 0; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Orca 스타일 새 AI 직원(Bot) 생성 모달: 아바타+이름 · 역할 · Computer+Agent(모델·사고강도) · 스킬 */
+.bot-head-row { display: flex; align-items: center; gap: 12px; margin: 12px 0 10px; }
+.bot-av-btn {
+  position: relative; padding: 0; border: 1.5px solid var(--line-2); border-radius: 15px;
+  background: var(--fill); cursor: pointer; flex: none; transition: border-color .14s ease, transform .14s ease;
+}
+.bot-av-btn:hover { border-color: var(--ink); transform: translateY(-1px); }
+.bot-av-edit {
+  position: absolute; right: -5px; bottom: -5px; width: 21px; height: 21px; border-radius: 50%;
+  background: #fff; border: 1px solid var(--line-2); color: var(--ink); font-size: 11px;
+  display: grid; place-items: center; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+.bot-name-in {
+  flex: 1; min-width: 0; border: 0; border-bottom: 1.5px solid transparent; padding: 6px 2px;
+  font: inherit; font-size: 19px; font-weight: 700; color: var(--ink); background: transparent; outline: none;
+}
+.bot-name-in:focus { border-bottom-color: var(--ink); }
+.bot-name-in::placeholder { color: var(--ink-3); font-weight: 500; }
+.bot-team-sel { width: 128px; flex: none; }
+.bot-av-drawer { padding: 11px 12px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--fill); }
+.bot-av-packs { margin-bottom: 8px; }
+.bot-up-plus { font-size: 15px; line-height: 32px; }
+.bot-bio-in { width: 100%; resize: vertical; min-height: 82px; line-height: 1.5; }
+.bot-ca-grid { margin-top: 12px; }
+.bot-agent-trigger {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  cursor: pointer; background: #fff; padding: 0 10px;
+}
+.bot-agent-trigger:hover { border-color: var(--ink); }
+.bot-mini-ic { width: 22px; height: 22px; font-size: 11px; border-radius: 6px; }
+.bot-agent-val { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; overflow: hidden; }
+.bot-agent-val b { font-size: 13px; color: var(--ink); flex: none; }
+.bot-agent-meta { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bot-caret { font-size: 11px; color: var(--ink-3); flex: none; }
+
+.bot-agent-panel {
+  margin-top: 10px; border: 1px solid var(--line-2); border-radius: 13px; background: #fff;
+  box-shadow: 0 12px 30px rgba(10, 10, 12, 0.08); overflow: hidden;
+}
+.bot-eng-tabs {
+  display: flex; align-items: center; gap: 4px; overflow-x: auto; padding: 8px 10px;
+  border-bottom: 1px solid var(--line); background: var(--fill);
+}
+.bot-eng-tab {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; flex: none;
+  padding: 5px 9px; border-radius: 8px; border: 1px solid transparent; background: transparent;
+  font: inherit; font-size: 12px; font-weight: 500; color: var(--ink-2); cursor: pointer;
+}
+.bot-eng-tab:hover { background: #fff; color: var(--ink); }
+.bot-eng-tab.on { background: #fff; color: var(--ink); border-color: var(--ink); font-weight: 600; }
+.bot-eng-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
+.bot-model-search { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; width: 100%; padding: 0 12px; height: 36px; }
+.bot-model-search:focus { outline: none; background: var(--fill); }
+.bot-model-list { max-height: 170px; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.bot-model-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left;
+  padding: 7px 10px; border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--ink);
+}
+.bot-model-opt:hover { background: var(--fill); }
+.bot-model-opt.on { background: #f2f3f6; font-weight: 600; }
+.bot-m-chk { font-size: 12px; font-weight: 700; color: var(--ink); }
+.bot-model-empty { padding: 10px 12px; font-size: 12px; color: var(--ink-3); }
+.bot-effort-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 12px; border-top: 1px solid var(--line); background: var(--fill);
+}
+.bot-effort-pills { display: flex; align-items: center; gap: 4px; }
+.bot-effort-btn {
+  padding: 4px 10px; border-radius: 7px; border: 1px solid transparent; background: transparent;
+  font: inherit; font-size: 12px; font-weight: 500; color: var(--ink-2); cursor: pointer;
+}
+.bot-effort-btn:hover { color: var(--ink); background: #fff; }
+.bot-effort-btn.on { background: var(--ink); color: #fff; font-weight: 600; }
+
+.bot-skill-box {
+  margin-top: 12px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--fill); display: flex; flex-direction: column; gap: 8px;
+}
+.bot-skill-lbl { font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
 .swarm-hero-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }
 
 .swarm-strip { display: flex; align-items: flex-start; gap: 10px; overflow-x: auto; padding: 4px 2px 2px; scrollbar-width: thin; }

@@ -394,6 +394,27 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(runAuto.body.notified, true);
     assert.ok(runAuto.body.task?.id);
 
+    // Orca 스타일 새 AI 직원(Bot) 생성: Computer + Agent + Model + Effort + Skill 한 번에 생성 검증
+    const botRes = await ui('POST', '/api/ui/employees', {
+      name: '영상편집 문어봇',
+      role: '유튜브 모션그래픽 제작',
+      manual: 'Remotion으로 9:16 세로 쇼츠 인트로를 제작합니다.',
+      engine: 'claude',
+      model: 'sonnet',
+      effort: 'high',
+      machineId: firstMac.id,
+      team: 'design',
+      avatar: 'hwawon',
+      skills: [{ preset: 'remotion' }],
+    });
+    assert.equal(botRes.status, 200);
+    assert.equal(botRes.body.model, 'sonnet');
+    assert.equal(botRes.body.effort, 'high');
+    assert.ok(botRes.body.resources.includes(firstMac.id));
+    assert.equal(botRes.body.skills.length, 1);
+    assert.equal(botRes.body.skills[0].repo, 'https://github.com/remotion-dev/remotion');
+    await ui('DELETE', `/api/ui/employees/${botRes.body.id}`);
+
     const mascotRes = await fetch(`${origin}/mascots/haetae.jpg`);
     assert.equal(mascotRes.status, 200);
     assert.match(mascotRes.headers.get('content-type') || '', /image\/jpeg/);
