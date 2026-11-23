@@ -385,6 +385,15 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(defSwitch.status, 200);
     assert.equal(defSwitch.body.mainAi, 'codex');
 
+    // 오토메이션 1클릭 즉시 실행 검증
+    const newAuto = await ui('POST', '/api/ui/routines', { title: '매일 아침 브리핑 오토메이션', time: '23:55', assignee: 'jay' });
+    assert.equal(newAuto.status, 200);
+    const runAuto = await ui('POST', `/api/ui/routines/${newAuto.body.id}/run-now`, {});
+    assert.equal(runAuto.status, 200);
+    assert.equal(runAuto.body.ok, true);
+    assert.equal(runAuto.body.notified, true);
+    assert.ok(runAuto.body.task?.id);
+
     const mascotRes = await fetch(`${origin}/mascots/haetae.jpg`);
     assert.equal(mascotRes.status, 200);
     assert.match(mascotRes.headers.get('content-type') || '', /image\/jpeg/);

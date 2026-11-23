@@ -2342,6 +2342,77 @@ route('DELETE', '/api/ui/routines/:id', async ({ params }) => store.mutate((d) =
   return { ok: true };
 }), UI);
 
+// 오토메이션 1클릭 즉시 실행 (오늘 할 일 생성/재가동 후 바로 착수)
+route('POST', '/api/ui/routines/:id/run-now', async ({ params }) => {
+  const now = new Date();
+  const today = ymd(now);
+  const taskObj = await store.mutate((d) => {
+    const r = d.routines.find((x) => x.id === params.id);
+    if (!r) throw new HttpError(404, '오토메이션이 없습니다.');
+    let t = d.tasks.find((x) => x.routineId === r.id && x.date === today);
+    const steps = cloneRoutineSteps(r.steps);
+    const stepMode = r.stepMode === 'parallel' ? 'parallel' : 'serial';
+    const first = steps.length && stepMode === 'serial' ? steps[0] : null;
+    const initAssignee = first ? first.assignee : r.assignee;
+    if (!t) {
+      t = {
+        id: nextId(d, 't'), order: 0, title: r.title, kind: initAssignee === 'jay' ? 'human' : 'ai', assignee: initAssignee,
+        date: today, time: hm(now), status: '대기', note: r.instruction || r.where || '',
+        resource: (first && first.resource) || r.resource || null,
+        account: r.account || null,
+        browser: (first && first.browser) || r.browser || null,
+        design: (first && first.design) || r.design || null,
+        tools: first && first.tools?.length ? [...first.tools] : [...(r.tools || [])],
+        estCost: r.estCost ?? null,
+        intervalMin: r.intervalMin || null,
+        stepMode, sharedFolder: r.sharedFolder || '', steps,
+        gate: r.gate || null, gateApprovedAt: null,
+        reason: '오토메이션 즉시 실행',
+        assignSource: 'routine', routineId: r.id, jobId: null,
+        createdAt: nowIso(), createdBy: 'jay', history: [], runStartedAt: null,
+      };
+      t.order = orderFor(d, t);
+      d.tasks.push(t);
+    } else if (t.status === '완료' || t.status === '막힘') {
+      t.status = '대기';
+      t.runStartedAt = null;
+      t.handedAt = null;
+      t.relayedAt = null;
+      t.time = hm(now);
+      if (steps.length) t.steps = steps;
+      t.reason = '오토메이션 다시 실행';
+    }
+    r.lastIntervalAt = nowIso();
+    pushHistory(t, 'jay', '즉시 실행', '오토메이션에서 지금 실행');
+    return t;
+  });
+
+  if (taskObj.assignee === 'jay') {
+    if (process.env.AIHQ_NO_NOTIFY !== '1') {
+      notify('CONNECT AI HQ · 오토메이션 알람', taskObj.title).catch(() => {});
+    }
+    return { ok: true, task: taskObj, started: false, notified: true };
+  }
+  const dNow = store.data;
+  const emp = dNow.employees.find((e) => e.id === taskObj.assignee);
+  if (!emp || !canRun(emp)) {
+    return { ok: true, task: taskObj, started: false, runnable: false, gate: taskObj.gate || null };
+  }
+  if (taskObj.gate && !taskObj.gateApprovedAt) {
+    return { ok: true, task: taskObj, started: false, runnable: true, gate: taskObj.gate };
+  }
+  let started = false;
+  let queued = false;
+  try {
+    const sr = await startRun(taskObj.id, 'jay');
+    started = Boolean(sr?.started);
+    queued = Boolean(sr?.queued);
+  } catch (e) {
+    console.log(`[오토메이션 즉시 실행 건너뜀] ${taskObj.id} ${e.message}`);
+  }
+  return { ok: true, task: taskObj, started, queued, runnable: true, gate: null };
+}, UI);
+
 // ── 내 직원 ──
 
 route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate((d) => {
