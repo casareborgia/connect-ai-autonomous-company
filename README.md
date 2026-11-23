@@ -22,7 +22,7 @@
   <a href="#-1분-시작하기">1분 시작하기</a> &nbsp;·&nbsp;
   <a href="#-제품-화면-미리보기">화면 미리보기</a> &nbsp;·&nbsp;
   <a href="#-핵심-기능-하이라이트">핵심 기능</a> &nbsp;·&nbsp;
-  <a href="#-connect-ai-lab-k-heritage-크루">K-Heritage 크루</a> &nbsp;·&nbsp;
+  <a href="#-connect-ai-lab--16-bit-k-heritage-픽셀-크루-21종">16-bit 픽셀 크루</a> &nbsp;·&nbsp;
   <a href="#-안전-규칙--보안">안전 규칙</a> &nbsp;·&nbsp;
   <a href="#-connect-ai-lab--ai-mentor-jay">브랜드</a> &nbsp;·&nbsp;
   <a href="CHANGELOG.md">Changelog</a>
@@ -160,21 +160,21 @@ flowchart LR
 
 ---
 
-## 🎨 CONNECT AI LAB · K-Heritage 크루
+## 🎨 CONNECT AI LAB · 16-bit K-Heritage 픽셀 크루 (21종)
 
-전통 한국 수호신 모티브의 **K-수호 크루 8종** + **모던 랩 크루 8종** + **16-bit K-Heritage 픽셀 에디션 21종 (마스코트 사모예드 `솜이` 포함)** 을 기본 제공합니다. 직원마다 호칭(이름) 지정과 `⌘V` 이미지/GIF 직접 업로드도 지원합니다.
+한국 전통 인물 20인과 공식 마스코트 사모예드 **솜이**로 구성된 **20×20 16-bit K-Heritage 픽셀 에디션 (21종)** 이 기본 탑재됩니다. 일할 땐 초록불 + 작업 애니메이션, 쉴 땐 `Z` 수면 모션으로 살아 움직이며, 직원별 호칭(이름) 지정과 `⌘V` 이미지/GIF 직접 업로드도 지원합니다.
 
 <div align="center">
 <table>
   <tr>
-    <td align="center" width="12.5%"><img src="public/mascots/haetae.jpg" width="76" alt="해태" /><br /><sub><b>해태</b><br />수호·자동화</sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/dokkaebi.jpg" width="76" alt="도깨비" /><br /><sub><b>도깨비</b><br />기획·전략</sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/kkachi.jpg" width="76" alt="까치" /><br /><sub><b>까치</b><br />리서치·브리핑</sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/horangi.jpg" width="76" alt="호랑이" /><br /><sub><b>민화 호랑이</b><br />마케팅·훅</sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/cheongnyong.jpg" width="76" alt="청룡" /><br /><sub><b>청룡</b><br />영상·3D</sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/dalto.jpg" width="76" alt="달토끼" /><br /><sub><b>달토끼</b><br />운영·모바일</sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/jangseung.jpg" width="76" alt="장승" /><br /><sub><b>꼬마 장승</b><br />보안·게이트</sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/bonghwang.jpg" width="76" alt="봉황" /><br /><sub><b>아기 봉황</b><br />비전·디자인</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/som.svg" width="76" alt="솜이 (공식 마스코트)" /><br /><sub><b>솜이</b><br />공식 마스코트</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/sejong.svg" width="76" alt="세종대왕" /><br /><sub><b>세종대왕</b><br />본사 총괄</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/jangyeongsil.svg" width="76" alt="장영실" /><br /><sub><b>장영실</b><br />개발·자동화</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/seonbi.svg" width="76" alt="집현전 선비" /><br /><sub><b>집현전 선비</b><br />기획·글쓰기</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/saimdang.svg" width="76" alt="신사임당" /><br /><sub><b>신사임당</b><br />브랜드·디자인</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/bobusang.svg" width="76" alt="보부상" /><br /><sub><b>보부상</b><br />마케팅·SNS</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/damo.svg" width="76" alt="다모 수사관" /><br /><sub><b>다모 수사관</b><br />리서치·QA</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/heojun.svg" width="76" alt="어의 허준" /><br /><sub><b>어의 허준</b><br />대표 헬스</sub></td>
   </tr>
 </table>
 </div>

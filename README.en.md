@@ -107,19 +107,19 @@ Press Enter to auto-delegate (`✦ 자동 배분`) to connected runnable AI empl
 - **Per-Employee GitHub Skills**: Attach any GitHub repo or catalog tool (`Remotion`, `Hyperframes`, `Blender`, `Playwright`, `Firecrawl`, `Reverse Business`) to specific AI employees for automatic task routing, prompt injection, and MCP discovery.
 - **Live 5-Hour Quota Bar & Auto-Failover**: Bounded-tail local JSONL usage scans for Claude & Codex, live sidebar quota pills, automatic 429 cooldowns, backup AI handoff, 180s `hang-watchdog`, macOS `caffeinate`, and 85% RAM backpressure protection.
 - **Founder Condition (Local-Only Health)**: Private ingestion (`POST /api/health/ingest` + token auth) from Apple Health / Android Health Connect with zero external transmission and strict exclusion from prompts, reports, and blueprints.
-- **K-Heritage & Modern Crew Studio**: 8 Korean Traditional K-Suho Crew + 8 Modern Lab Crew + 21 16-bit K-Heritage Pixel Crew (including Jay's Samoyed mascot `Somi`), plus custom nicknames and `Cmd+V` image/GIF uploads.
+- **16-bit K-Heritage Pixel Crew (21 Characters)**: Ships by default with 20 Korean historical pixel teammates + Jay's Samoyed mascot **Somi** (`20×20` animated pixel SVGs with live working/idle states), plus custom nicknames and `Cmd+V` image/GIF uploads.
 
 <div align="center">
 <table>
   <tr>
-    <td align="center" width="12.5%"><img src="public/mascots/haetae.jpg" width="76" alt="Haetae" /><br /><sub><b>Haetae</b></sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/dokkaebi.jpg" width="76" alt="Dokkaebi" /><br /><sub><b>Dokkaebi</b></sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/kkachi.jpg" width="76" alt="Kkachi" /><br /><sub><b>Kkachi</b></sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/horangi.jpg" width="76" alt="Horangi" /><br /><sub><b>Horangi</b></sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/cheongnyong.jpg" width="76" alt="Cheongnyong" /><br /><sub><b>Cheongnyong</b></sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/dalto.jpg" width="76" alt="Dalto" /><br /><sub><b>Dalto</b></sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/jangseung.jpg" width="76" alt="Jangseung" /><br /><sub><b>Jangseung</b></sub></td>
-    <td align="center" width="12.5%"><img src="public/mascots/bonghwang.jpg" width="76" alt="Bonghwang" /><br /><sub><b>Bonghwang</b></sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/som.svg" width="76" alt="Somi" /><br /><sub><b>Somi</b><br />Mascot</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/sejong.svg" width="76" alt="King Sejong" /><br /><sub><b>Sejong</b><br />Executive</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/jangyeongsil.svg" width="76" alt="Jang Yeong-sil" /><br /><sub><b>Yeong-sil</b><br />Engineering</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/seonbi.svg" width="76" alt="Seonbi" /><br /><sub><b>Seonbi</b><br />Planning</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/saimdang.svg" width="76" alt="Shin Saimdang" /><br /><sub><b>Saimdang</b><br />Design</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/bobusang.svg" width="76" alt="Bobusang" /><br /><sub><b>Bobusang</b><br />Marketing</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/damo.svg" width="76" alt="Damo" /><br /><sub><b>Damo</b><br />Research · QA</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/heojun.svg" width="76" alt="Heo Jun" /><br /><sub><b>Heo Jun</b><br />Health</sub></td>
   </tr>
 </table>
 </div>

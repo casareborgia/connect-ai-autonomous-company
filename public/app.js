@@ -4627,8 +4627,8 @@ function openAddEmployee(opts = {}) {
   let pickedModel = '';
   let pickedEffort = '';
   let pickedMac = d.settings?.mainMachine || machines.find((m) => m.isThisMac)?.id || machines[0]?.id || '';
-  let pickedPack = cfg.pack || (d.employees.some((e) => window.PixelCrew?.isJoseonKey(e.avatar)) ? 'joseon' : 'k-crew');
-  let pickedAvatar = cfg.avatar || (pickedPack === 'joseon' ? 'jangyeongsil' : 'haetae');
+  let pickedPack = cfg.pack || 'joseon';
+  let pickedAvatar = cfg.avatar || 'jangyeongsil';
   let pickedTeam = cfg.team || 'dev';
   let customImg = '';
   let avOpen = false;

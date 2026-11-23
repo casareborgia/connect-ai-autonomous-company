@@ -79,7 +79,9 @@ function migrate(d) {
   if (d.settings.companyName === undefined) d.settings.companyName = '';
   if (d.settings.lanEnabled === undefined) d.settings.lanEnabled = false;
   if (!d.groups || !d.groups.length) d.groups = [{ id: 'staff', title: 'AI 직원', subtitle: '', detail: '' }];
+  let empIdx = 0;
   for (const e of d.employees) {
+    const idxNow = empIdx++;
     e.engine = e.engine || 'none';
     e.model = e.model || '';
     e.runMode = e.runMode || (e.runEnabled ? 'manual' : 'off');
@@ -101,8 +103,8 @@ function migrate(d) {
     if (e.fallbackTo === undefined) e.fallbackTo = null;
     if (e.cooldownUntil === undefined) e.cooldownUntil = null;
     if (e.cooldownReason === undefined) e.cooldownReason = '';
-    if (!e.avatar || !AVATAR_PRESETS.some((a) => a.key === e.avatar)) e.avatar = defaultAvatarFor(e);
-    if (!e.avatarStyle || !AVATAR_STYLES.some((s) => s.key === e.avatarStyle)) e.avatarStyle = 'studio';
+    if (!e.avatar || !AVATAR_PRESETS.some((a) => a.key === e.avatar)) e.avatar = defaultAvatarFor(e, 'joseon', idxNow);
+    if (!e.avatarStyle || !AVATAR_STYLES.some((s) => s.key === e.avatarStyle)) e.avatarStyle = 'pixel';
     if (!e.team || !TEAMS.some((t) => t.key === e.team)) e.team = defaultTeamFor(e);
     if (e.avatarName === undefined) e.avatarName = '';
     if (e.avatarImage === undefined) e.avatarImage = '';
@@ -2606,9 +2608,8 @@ function makeEmployee(d, { name, role, manual, engine, webUrl, model, effort, ge
   if (!id || id === 'jay' || id === 'system' || d.employees.some((e) => e.id === id)) id = nextId(d, 'e');
   const eng = ENGINES.includes(engine) ? engine : 'web';
   const empTeam = team && TEAMS.some((t) => t.key === team) ? team : defaultTeamFor({ name, role, catalog });
-  const avKey = avatar && AVATAR_PRESETS.some((a) => a.key === avatar) ? avatar : defaultAvatarFor({ name, role, team: empTeam });
-  const avPreset = AVATAR_PRESETS.find((a) => a.key === avKey);
-  const avStyle = avatarStyle && AVATAR_STYLES.some((s) => s.key === avatarStyle) ? avatarStyle : (avPreset?.pack === 'joseon' ? 'pixel' : 'studio');
+  const avKey = avatar && AVATAR_PRESETS.some((a) => a.key === avatar) ? avatar : defaultAvatarFor({ name, role, team: empTeam }, 'joseon', d.employees.length);
+  const avStyle = avatarStyle && AVATAR_STYLES.some((s) => s.key === avatarStyle) ? avatarStyle : 'pixel';
   const cleanMdl = model && !String(model).startsWith('-') && /^[A-Za-z0-9_.:/@#\-]{1,120}$/.test(String(model)) ? String(model) : '';
   const cleanEf = ['low', 'medium', 'high'].includes(String(effort || '').toLowerCase()) ? String(effort).toLowerCase() : '';
   const defaultRun = (CLI_ENGINES.includes(eng) && Boolean(runnerInfo(eng)?.bin)) || (eng === 'local' && Boolean(cleanMdl)) ? 'auto' : 'off';
