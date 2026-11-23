@@ -1200,12 +1200,12 @@ body.onboarding .shell { grid-template-columns: 1fr; }
   display: grid; place-items: center; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 .bot-name-in {
-  flex: 1; min-width: 0; border: 0; border-bottom: 1.5px solid transparent; padding: 6px 2px;
+  flex: 1 1 220px; min-width: 160px; width: auto; border: 0; border-bottom: 1.5px solid var(--line); padding: 6px 2px;
   font: inherit; font-size: 19px; font-weight: 700; color: var(--ink); background: transparent; outline: none;
 }
 .bot-name-in:focus { border-bottom-color: var(--ink); }
 .bot-name-in::placeholder { color: var(--ink-3); font-weight: 500; }
-.bot-team-sel { width: 128px; flex: none; }
+.bot-head-row select.in.bot-team-sel { width: 136px; flex: 0 0 136px; }
 .bot-av-drawer { padding: 11px 12px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--fill); }
 .bot-av-packs { margin-bottom: 8px; }
 .bot-up-plus { font-size: 15px; line-height: 32px; }
