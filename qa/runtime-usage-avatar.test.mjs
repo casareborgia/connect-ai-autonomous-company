@@ -380,6 +380,11 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(delAlarm.body.time, '23:30');
     assert.equal(delAlarm.body.assignee, 'jay');
 
+    // Orca 스타일 기본 에이전트(defaultEngine) 1클릭 전환 검증
+    const defSwitch = await ui('PATCH', '/api/ui/settings', { defaultEngine: 'codex' });
+    assert.equal(defSwitch.status, 200);
+    assert.equal(defSwitch.body.mainAi, 'codex');
+
     const mascotRes = await fetch(`${origin}/mascots/haetae.jpg`);
     assert.equal(mascotRes.status, 200);
     assert.match(mascotRes.headers.get('content-type') || '', /image\/jpeg/);

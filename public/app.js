@@ -2371,36 +2371,166 @@ function openJoseonCodexModal() {
   dlg.showModal();
 }
 
+const DEFAULT_AGENT_META = [
+  { engine: 'claude', label: 'Claude', sub: 'Claude Code CLI', badge: '✦', tone: 'ag-claude' },
+  { engine: 'codex', label: 'Codex', sub: 'OpenAI Codex CLI', badge: '◎', tone: 'ag-codex' },
+  { engine: 'opencode', label: 'OpenCode', sub: '오픈소스 CLI', badge: '⌘', tone: 'ag-opencode' },
+  { engine: 'agy', label: 'Antigravity', sub: 'Google AGY CLI', badge: '▲', tone: 'ag-agy' },
+  { engine: 'gemini', label: 'Gemini CLI', sub: 'Google Gemini CLI', badge: '◆', tone: 'ag-gemini' },
+];
+
 function openCoordinatorConfigModal() {
   const dlg = document.getElementById('dlg');
-  dlg.className = '';
+  dlg.className = 'wide';
   const d = S.data;
   const machines = d.resources.filter((r) => r.kind === '기계');
-  const curAi = d.settings?.mainAi || '';
-  const curMac = d.settings?.mainMachine || '';
-  const aiSel = h('select', { class: 'in', 'aria-label': '메인 두뇌 AI 선택' },
-    h('option', { value: '' }, '자동 선택 (실행 가능한 최우선 AI)'),
-    ...d.employees.map((e) => h('option', { value: e.id, selected: e.id === curAi }, `${shortName(e.id)} · ${empTeamInfo(e).short}${e.runMode === 'auto' ? ' (자동 실행)' : ''}`)));
-  const macSel = h('select', { class: 'in', 'aria-label': '메인 본사 컴퓨터 선택' },
-    h('option', { value: '' }, '자동 선택 (이 컴퓨터 우선)'),
-    ...machines.map((m) => {
-      const mh = S.machineHealth?.[m.id];
-      const ram = typeof mh?.ramPct === 'number' ? ` · RAM ${mh.ramPct}%` : '';
-      return h('option', { value: m.id, selected: m.id === curMac }, `${m.name}${m.isThisMac ? ' (이 컴퓨터)' : ''}${ram}`);
-    }));
-  const save = () => once('coord-cfg', async () => {
-    const r = await act('PATCH', '/api/ui/settings', { mainAi: aiSel.value || null, mainMachine: macSel.value || null }, '메인 AI와 메인 컴퓨터를 저장했어요');
-    if (r) closeDlg();
+  const curMainEmp = d.employees.find((e) => e.id === d.settings?.mainAi) || null;
+  let pickedType = curMainEmp && CLI_ENGINES.includes(curMainEmp.engine) && S.runners?.[curMainEmp.engine] ? 'engine' : 'emp';
+  let pickedVal = pickedType === 'engine' ? curMainEmp.engine : (d.settings?.mainAi || '');
+  let pickedMac = d.settings?.mainMachine || (machines.find((m) => m.isThisMac)?.id || machines[0]?.id || '');
+  let autoStart = d.settings?.autoStartAdded !== false;
+  let showMore = false;
+
+  const installedCli = DEFAULT_AGENT_META.filter((m) => Boolean(S.runners?.[m.engine]));
+  const localReadyEmps = d.employees.filter((e) => e.engine === 'local' && Boolean(e.model));
+  const otherEmps = d.employees.filter((e) => {
+    if (CLI_ENGINES.includes(e.engine) && S.runners?.[e.engine]) return false;
+    if (e.engine === 'local' && Boolean(e.model)) return false;
+    return true;
   });
+  const uninstalledCli = DEFAULT_AGENT_META.filter((m) => !S.runners?.[m.engine]);
+
+  if (!pickedVal) {
+    if (installedCli.length) { pickedType = 'engine'; pickedVal = installedCli[0].engine; }
+    else if (d.employees.length) { pickedType = 'emp'; pickedVal = d.employees[0].id; }
+  }
+
+  const agentsWrap = h('div');
+  const moreWrap = h('div');
+  const macWrap = h('div');
+
+  const renderPicker = () => {
+    const primaryCards = [
+      ...installedCli.map((m) => {
+        const linkedEmp = d.employees.find((e) => e.engine === m.engine);
+        const on = pickedType === 'engine' && pickedVal === m.engine;
+        return h('button', {
+          type: 'button',
+          class: `orca-agent-card${on ? ' on' : ''}`,
+          'aria-pressed': on ? 'true' : 'false',
+          onclick: () => { pickedType = 'engine'; pickedVal = m.engine; renderPicker(); },
+        },
+        h('span', { class: `orca-ic ${m.tone}`, 'aria-hidden': 'true' }, m.badge),
+        h('span', { class: 'orca-agent-txt' },
+          h('b', null, m.label),
+          h('span', { class: 'orca-agent-sub' }, linkedEmp ? '연결됨 · 자동 실행' : '설치됨 · 클릭 시 바로 연결')),
+        on ? h('span', { class: 'orca-chk', 'aria-hidden': 'true' }, '✓') : null);
+      }),
+      ...localReadyEmps.map((e) => {
+        const on = pickedType === 'emp' && pickedVal === e.id;
+        return h('button', {
+          type: 'button',
+          class: `orca-agent-card${on ? ' on' : ''}`,
+          'aria-pressed': on ? 'true' : 'false',
+          onclick: () => { pickedType = 'emp'; pickedVal = e.id; renderPicker(); },
+        },
+        h('span', { class: 'orca-ic ag-local', 'aria-hidden': 'true' }, '◈'),
+        h('span', { class: 'orca-agent-txt' },
+          h('b', null, shortName(e.id)),
+          h('span', { class: 'orca-agent-sub' }, `로컬 모델 · ${e.model.replace(/^(ollama|lmstudio):/, '')}`)),
+        on ? h('span', { class: 'orca-chk', 'aria-hidden': 'true' }, '✓') : null);
+      }),
+    ];
+
+    agentsWrap.replaceChildren(
+      h('div', { class: 'orca-sec-meta' },
+        h('span', null, '이 맥에서 바로 실행 가능한 에이전트'),
+        h('span', { class: 'orca-count' }, String(primaryCards.length))),
+      primaryCards.length
+        ? h('div', { class: 'orca-grid' }, primaryCards)
+        : h('div', { class: 'skill-empty' }, '설치된 CLI 에이전트를 찾지 못했어요. 아래 "다른 AI 더 보기"에서 웹 AI를 선택하거나 Claude/Codex를 설치해 주세요.'));
+
+    const moreTotal = otherEmps.length + uninstalledCli.length;
+    moreWrap.replaceChildren(
+      moreTotal ? h('button', {
+        type: 'button', class: 'orca-more-btn',
+        onclick: () => { showMore = !showMore; renderPicker(); },
+      }, showMore ? '다른 AI 접기 ↑' : `다른 AI ${moreTotal}개 더 보기 →`) : null,
+      showMore ? h('div', { class: 'orca-grid orca-more-grid' },
+        ...otherEmps.map((e) => {
+          const on = pickedType === 'emp' && pickedVal === e.id;
+          return h('button', {
+            type: 'button',
+            class: `orca-agent-card muted-card${on ? ' on' : ''}`,
+            'aria-pressed': on ? 'true' : 'false',
+            onclick: () => { pickedType = 'emp'; pickedVal = e.id; renderPicker(); },
+          },
+          h('span', { class: 'orca-ic ag-other', 'aria-hidden': 'true' }, '·'),
+          h('span', { class: 'orca-agent-txt' },
+            h('b', null, shortName(e.id)),
+            h('span', { class: 'orca-agent-sub' }, `${empTeamInfo(e).short} · 미연결(수동)`)),
+          on ? h('span', { class: 'orca-chk', 'aria-hidden': 'true' }, '✓') : null);
+        }),
+        ...uninstalledCli.map((m) => h('div', { class: 'orca-agent-card disabled-card' },
+          h('span', { class: `orca-ic ${m.tone}`, 'aria-hidden': 'true' }, m.badge),
+          h('span', { class: 'orca-agent-txt' },
+            h('b', null, m.label),
+            h('span', { class: 'orca-agent-sub' }, '이 맥에 미설치'))))) : null);
+
+    macWrap.replaceChildren(
+      h('div', { class: 'orca-sec-meta coord-dlg-gap' },
+        h('span', null, '메인 본사 컴퓨터 (RAM 85% 초과 시 자동 우회)'),
+        h('span', { class: 'orca-count' }, String(machines.length))),
+      h('div', { class: 'orca-grid' }, machines.map((m) => {
+        const mh = S.machineHealth?.[m.id];
+        const ram = typeof mh?.ramPct === 'number' ? `RAM ${mh.ramPct}%` : (m.isThisMac ? '이 컴퓨터' : '사무실');
+        const on = pickedMac === m.id;
+        return h('button', {
+          type: 'button',
+          class: `orca-agent-card${on ? ' on' : ''}`,
+          'aria-pressed': on ? 'true' : 'false',
+          onclick: () => { pickedMac = m.id; renderPicker(); },
+        },
+        h('span', { class: 'orca-ic ag-mac', 'aria-hidden': 'true' }, '⌘'),
+        h('span', { class: 'orca-agent-txt' },
+          h('b', null, m.name),
+          h('span', { class: 'orca-agent-sub' }, `${m.isThisMac ? '이 컴퓨터 · ' : ''}${ram}`)),
+        on ? h('span', { class: 'orca-chk', 'aria-hidden': 'true' }, '✓') : null);
+      })));
+  };
+
+  renderPicker();
+
+  const autoChk = h('input', {
+    type: 'checkbox', checked: autoStart, 'aria-label': '즉시 자동 실행',
+    onchange: (ev) => { autoStart = ev.target.checked; },
+  });
+  const save = () => once('coord-cfg', async () => {
+    const payload = {
+      mainMachine: pickedMac || null,
+      autoStartAdded: autoStart,
+    };
+    if (pickedType === 'engine' && pickedVal) payload.defaultEngine = pickedVal;
+    else payload.mainAi = pickedVal || null;
+    const r = await act('PATCH', '/api/ui/settings', payload, '기본 에이전트와 메인 컴퓨터를 저장했어요');
+    if (r) { closeDlg(); render(); }
+  });
+
   setDlg(dlg,
-    h('div', { class: 'swarm-kicker' }, 'CONNECT AI · COORDINATOR SETUP'),
-    h('h3', { class: 'coord-dlg-h' }, '메인 AI · 메인 컴퓨터 설정'),
-    h('p', { class: 'small muted coord-dlg-sub' }, '「✦ 자동 배분」을 누르면 설정한 메인 AI가 목표를 부서별 팀원에게 자동 분할·배분하고, 메인 컴퓨터(RAM 85% 초과 시 자동 우회)에서 실행합니다.'),
-    h('label', { class: 'field' }, '메인 두뇌 AI (Coordinator)', aiSel),
-    h('label', { class: 'field coord-dlg-gap' }, '메인 본사 컴퓨터 (기본 실행 머신)', macSel),
+    h('div', { class: 'swarm-kicker' }, 'CONNECT AI · DEFAULT AGENT'),
+    h('h3', { class: 'coord-dlg-h' }, '기본 에이전트 (메인 AI) 선택'),
+    h('p', { class: 'small muted coord-dlg-sub' }, '할 일을 적고 Enter만 누르면 선택한 기본 에이전트를 중심으로 자동 배분·실행합니다. 언제든 상단 바에서 바꿀 수 있어요.'),
+    agentsWrap,
+    moreWrap,
+    macWrap,
+    h('div', { class: 'orca-toggle-row' },
+      h('div', { class: 'orca-toggle-txt' },
+        h('b', null, '즉시 자동 실행'),
+        h('div', { class: 'small muted' }, '할 일을 입력하고 Enter를 누르면 기본 에이전트가 바로 착수합니다. 결제·업로드·게시·삭제·메시지 발송은 대표 승인 전 항상 정지됩니다.')),
+      h('label', { class: 'switch' }, autoChk, h('span', { class: 'tr' }))),
     h('div', { class: 'bar' },
       h('button', { type: 'button', class: 'btn', onclick: closeDlg }, '취소'),
-      h('button', { type: 'button', class: 'btn dark', onclick: save }, '저장')));
+      h('button', { type: 'button', class: 'btn dark', onclick: save }, '기본 에이전트 적용')));
   dlg.showModal();
 }
 
@@ -5035,20 +5165,46 @@ function pageStart() {
       || (c.key === 'cursor' && det.cursor)
       || (c.local && det[c.local]);
     const missingLocal = (c) => c.local && ob.det && !det[c.local];
+    const cat = S.options.catalog;
+    const foundList = ob.det ? cat.filter(found) : [];
+    const restList = ob.det ? cat.filter((c) => !found(c)) : [];
+    if (!ob.defaultAi && foundList.length) ob.defaultAi = foundList[0].key;
+    if (ob.defaultAi && !ob.ais.has(ob.defaultAi)) ob.ais.add(ob.defaultAi);
+
+    const defCard = (c) => {
+      const isDef = ob.defaultAi === c.key;
+      return h('button', {
+        type: 'button',
+        class: `orca-agent-card${isDef ? ' on' : ''}`,
+        'aria-pressed': isDef ? 'true' : 'false',
+        onclick: () => { ob.defaultAi = c.key; ob.ais.add(c.key); render(); },
+      },
+      h('span', { class: 'orca-ic ag-claude', 'aria-hidden': 'true' }, '✦'),
+      h('span', { class: 'orca-agent-txt' },
+        h('b', null, c.name),
+        h('span', { class: 'orca-agent-sub' }, c.hint)),
+      isDef ? h('span', { class: 'orca-chk', 'aria-hidden': 'true' }, '✓') : null);
+    };
+
     const card = (c) => {
       const on = ob.ais.has(c.key);
       return h('button', { type: 'button', class: `ai-card${on ? ' on' : ''}`, 'aria-pressed': on ? 'true' : 'false', 'data-ai': c.key, disabled: missingLocal(c),
-        onclick: () => { if (on) ob.ais.delete(c.key); else ob.ais.add(c.key); render(); } },
+        onclick: () => { if (on) { ob.ais.delete(c.key); if (ob.defaultAi === c.key) ob.defaultAi = [...ob.ais][0] || ''; } else ob.ais.add(c.key); render(); } },
       h('span', { class: 'box', 'aria-hidden': 'true' }, on ? '✓' : ''),
       h('b', null, c.name), h('span', { class: 'small muted' }, c.hint),
-      found(c) ? h('span', { class: 'tag' }, '이 컴퓨터에서 찾았어요') : missingLocal(c) ? h('span', { class: 'small muted' }, '이 컴퓨터에 없어요') : null);
+      ob.defaultAi === c.key ? h('span', { class: 'tag solid' }, '기본 에이전트') : found(c) ? h('span', { class: 'tag' }, '이 컴퓨터에서 찾았어요') : missingLocal(c) ? h('span', { class: 'small muted' }, '이 컴퓨터에 없어요') : null);
     };
-    const cat = S.options.catalog;
-    const sorted = ob.det ? [...cat.filter(found), ...cat.filter((c) => !found(c))] : [];
-    return obShell(2, 'AI 직원을 골라 주세요.', '이 컴퓨터에서 찾은 AI는 미리 체크해 두었어요. 웹에서 쓰는 AI는 지시문을 복사해서 맡기고 답을 붙여 넣는 방식이라 설치가 필요 없어요.',
-      h('div', { class: 'ai-grid' }, ob.det ? sorted.map(card) : h('div', { class: 'small muted' }, '이 컴퓨터를 살펴보는 중')),
+    const sorted = ob.det ? [...foundList, ...restList] : [];
+    return obShell(2, '첫 번째 기본 에이전트를 고르세요.', '이 컴퓨터에 설치된 실행 가능 AI를 먼저 찾았어요. 기본 에이전트를 1개 고르고, 함께 일할 AI 직원도 체크해 두세요.',
+      ob.det ? h('div', null,
+        foundList.length ? h('div', { class: 'orca-ob-box' },
+          h('div', { class: 'orca-sec-meta' }, h('span', null, '기본 에이전트 (메인 AI)'), h('span', { class: 'orca-count' }, String(foundList.length))),
+          h('div', { class: 'orca-grid' }, foundList.map(defCard))) : null,
+        h('div', { class: 'orca-sec-meta coord-dlg-gap' }, h('span', null, '함께 일할 AI 직원 전체'), h('span', { class: 'orca-count' }, `${ob.ais.size}명 선택`)),
+        h('div', { class: 'ai-grid' }, sorted.map(card)))
+        : h('div', { class: 'small muted' }, '이 컴퓨터를 살펴보는 중'),
       [h('button', { class: 'btn', onclick: () => next(1) }, '이전'), h('button', { class: 'btn dark big', 'data-act': 'ob-next', disabled: !ob.ais.size,
-        onclick: async () => { const r = await obSend({ name: ob.name, company: ob.company, ais: [...ob.ais] }); if (r) next(3); } }, ob.ais.size ? `${ob.ais.size}명 채용하고 다음` : 'AI를 골라 주세요')]);
+        onclick: async () => { const r = await obSend({ name: ob.name, company: ob.company, ais: [...ob.ais], defaultAi: ob.defaultAi || undefined }); if (r) next(3); } }, ob.ais.size ? `${ob.ais.size}명 채용하고 다음` : 'AI를 골라 주세요')]);
   }
 
   if (ob.step === 3) {

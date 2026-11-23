@@ -2027,6 +2027,10 @@ route('POST', '/api/ui/onboard', async ({ body }) => {
       e.catalog = c.key;
       made.push(e.id);
     }
+    if (body.defaultAi) {
+      const defEmp = d.employees.find((e) => e.catalog === body.defaultAi || e.id === body.defaultAi || e.engine === body.defaultAi);
+      if (defEmp) d.settings.mainAi = defEmp.id;
+    }
     // 기계: 이 컴퓨터는 늘, 나머지는 고른 것만 (RAM 85% 상한 · 대체 컴퓨터 자동 연결)
     if (!d.resources.some((r) => r.kind === '기계' && r.isThisMac)) {
       d.resources.push({ id: nextId(d, 'res'), kind: '기계', name: text(body.thisMac, 60) || '이 컴퓨터', hostname: '', port: 22, isThisMac: true, computerUse: true, maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '사용 가능', note: '' });
@@ -3208,6 +3212,31 @@ route('PATCH', '/api/ui/settings', async ({ body }) => store.mutate((d) => {
   if (body.ownerName !== undefined) { const s = text(body.ownerName, 40); if (s) d.owner.name = s; }
   if (body.ownerAvatar !== undefined && ['sejong', 'queen', 'som'].includes(body.ownerAvatar)) d.settings.ownerAvatar = body.ownerAvatar;
   if (body.healthDoctor !== undefined && ['heojun', 'daejanggeum'].includes(body.healthDoctor)) d.settings.healthDoctor = body.healthDoctor;
+  if (body.defaultEngine !== undefined) {
+    const eng = String(body.defaultEngine || '').trim();
+    if (!CLI_ENGINES.includes(eng)) throw new HttpError(400, '지원하지 않는 CLI 에이전트입니다.');
+    if (!runnerInfo(eng)?.bin) throw new HttpError(400, `${eng} CLI가 이 컴퓨터에 설치되어 있지 않아요.`);
+    let emp = d.employees.find((e) => e.engine === eng);
+    if (!emp) {
+      const cat = AI_CATALOG.find((c) => c.engine === eng);
+      emp = makeEmployee(d, {
+        name: cat?.name || eng,
+        role: cat?.role || '코딩, 리서치, 자동화',
+        engine: eng,
+        webUrl: cat?.url || '',
+        general: cat?.general,
+        runMode: 'auto',
+        group: cat?.group || 'office-bigco',
+        catalog: cat?.key,
+      });
+      if (cat) emp.catalog = cat.key;
+      autoWireEmployeeFallbacks(d);
+    } else {
+      emp.runMode = 'auto';
+      emp.userPaused = false;
+    }
+    d.settings.mainAi = emp.id;
+  }
   if (body.mainAi !== undefined) {
     if (!body.mainAi) d.settings.mainAi = null;
     else if (d.employees.some((e) => e.id === body.mainAi)) d.settings.mainAi = body.mainAi;
