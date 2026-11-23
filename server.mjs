@@ -2687,32 +2687,66 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
   const parsedTime = timeOrNull(body.time) || extractKoreanTime(goal);
   const targetDate = dateOrNull(body.date) || ymd();
 
+  const LOCAL_CU_RE = /(ego\s*lite|egolite|에고\s*라이트|ego-browser|aside|어사이드|컴퓨터\s*유즈|화면\s*조작|아이폰\s*미러링)/i;
+  const isRunnable = (e) => Boolean(e && e.runMode !== 'off' && canRun(e));
   const pickBestEmp = (d, clause, teamKey, usedIds) => {
+    const needsLocalCu = LOCAL_CU_RE.test(clause);
     const score = (e) => {
+      const liveBonus = isRunnable(e) ? 10 : -8;
       const autoBonus = e.runMode === 'auto' && canRun(e) ? 4 : canRun(e) ? 2 : 0;
       const freshBonus = usedIds.has(e.id) ? 0 : 3;
       const coolPenalty = isCoolingDown(e) ? -5 : 0;
-      return autoBonus + freshBonus + coolPenalty;
+      const cuBonus = needsLocalCu
+        ? ((canRun(e) ? 6 : -6) + (/(컴퓨터\s*유즈|브라우저|자동화)/.test(e.role || '') ? 4 : 0))
+        : 0;
+      return liveBonus + autoBonus + freshBonus + coolPenalty + cuBonus;
     };
+    const low = String(clause || '').toLowerCase();
+    // 0순위: 사용자가 프롬프트에 특정 AI 이름을 직접 언급한 경우 (미연결이라도 의도 존중)
+    const mentioned = d.employees.find((e) => {
+      const names = [e.name, e.avatarName, e.id].filter(Boolean).map((x) => String(x).toLowerCase().split(/\s/)[0]).filter((x) => x.length >= 2 && x !== '내가' && x !== '로컬');
+      return names.some((nm) => (/^[a-z0-9]+$/.test(nm) ? new RegExp(`(?<![a-z0-9])${nm}(?![a-z0-9])`, 'i').test(low) : low.includes(nm)));
+    });
+    if (mentioned) return mentioned;
+
     // 1순위: 해당 작업에 딱 맞는 스킬(GitHub 오픈소스 포함)을 장착한 직원 우선 배정
     const skillPool = d.employees
       .map((e) => ({ e, hits: matchEmployeeSkills(clause, e, tokens) }))
       .filter((x) => x.hits.length > 0);
     if (skillPool.length) {
-      skillPool.sort((a, b) => (b.hits.length * 5 + score(b.e)) - (a.hits.length * 5 + score(a.e)));
+      skillPool.sort((a, b) => (b.hits.length * 6 + score(b.e)) - (a.hits.length * 6 + score(a.e)));
       return skillPool[0].e;
     }
+    // 2순위: Ego Lite · 컴퓨터 유즈 등 로컬 실행이 필수인 일은 이 컴퓨터에 실제 연결된 실행 가능 AI 우선
+    if (needsLocalCu) {
+      const liveCu = d.employees.filter((e) => isRunnable(e));
+      if (liveCu.length) return [...liveCu].sort((a, b) => score(b) - score(a))[0];
+    }
+    // 3순위: 해당 부서(팀)에 실제 연결·실행 가능한 직원이 있으면 그 팀에서 선택 (미연결 더미 직원 강제 배정 방지)
+    if (teamKey) {
+      const teamLive = d.employees.filter((e) => (e.team || defaultTeamFor(e)) === teamKey && isRunnable(e));
+      if (teamLive.length) return [...teamLive].sort((a, b) => score(b) - score(a))[0];
+    }
+    // 4순위: 규칙 매칭 직원이 실제 연결·실행 가능하면 선택
+    const ruled = ruleAssign(clause, '', d.employees, d.resources, d.settings?.assignMemory);
+    if (ruled?.assignee && ruled.assignee !== 'jay') {
+      const hit = d.employees.find((e) => e.id === ruled.assignee);
+      if (hit && isRunnable(hit)) return hit;
+    }
+    // 5순위: 실제 연결·실행 가능한 AI 직원 풀에서 선택 (메인 AI 우선, 멀티 단계 분산)
+    const allLive = d.employees.filter(isRunnable);
+    if (allLive.length) {
+      const freshLive = allLive.filter((e) => !usedIds.has(e.id));
+      const pool = freshLive.length ? freshLive : allLive;
+      const mainLive = d.settings?.mainAi ? pool.find((e) => e.id === d.settings.mainAi) : null;
+      if (mainLive && !needsLocalCu) return mainLive;
+      return [...pool].sort((a, b) => score(b) - score(a))[0];
+    }
+    // 최후 폴백: 회사에 실행 가능한 연결 AI가 아직 0명일 때만 팀/전체 직원 중 선택
     if (teamKey) {
       const pool = d.employees.filter((e) => (e.team || defaultTeamFor(e)) === teamKey);
       if (pool.length) return [...pool].sort((a, b) => score(b) - score(a))[0];
     }
-    const ruled = ruleAssign(clause, '', d.employees, d.resources, d.settings?.assignMemory);
-    if (ruled?.assignee && ruled.assignee !== 'jay') {
-      const hit = d.employees.find((e) => e.id === ruled.assignee);
-      if (hit) return hit;
-    }
-    const main = d.settings?.mainAi ? d.employees.find((e) => e.id === d.settings.mainAi) : null;
-    if (main && !usedIds.has(main.id)) return main;
     return [...d.employees].sort((a, b) => score(b) - score(a))[0] || null;
   };
 
@@ -2772,16 +2806,18 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       return taskObj;
     }
 
-    // 단일 작업: 최적 팀 AI + 메인 컴퓨터(RAM 85% 보호) 자동 배정
+    // 단일 작업: 몸·현장이 필요한 대표 직접 일이면 대표에게, 아니면 최적 팀 AI + 메인 컴퓨터 자동 배정
+    const ruledSingle = ruleAssign(goal, '', d.employees, d.resources, d.settings?.assignMemory);
+    const isHumanOnly = !body.forceAi && ruledSingle?.assignee === 'jay' && !ruledSingle.noMatch && !ruledSingle.gate && !LOCAL_CU_RE.test(goal);
     const tKey = inferClauseTeam(goal);
-    const chosen = pickBestEmp(d, goal, tKey, usedIds);
+    const chosen = isHumanOnly ? null : pickBestEmp(d, goal, tKey, usedIds);
     const opt = chosen ? pickOptimalMachine(d, { title: goal, note: '' }, chosen, { localStat, offices, workingList, preferredResId: mainRes?.id || null }) : null;
     const accId = pickAccount(goal, d.resources)?.id || null;
     const accObj = accId ? d.resources.find((x) => x.id === accId) : null;
     const prefBr = accObj ? resolveAccountBrowser(accObj, d.resources)?.id || null : null;
     const desId = pickDesigns(goal, d.resources, tokens)[0]?.id || null;
-    const brId = pickBrowser(goal, d.resources, prefBr)?.id || null;
-    const tIds = pickTools(goal, d.resources, tokens).map((x) => x.id);
+    const brId = chosen ? (pickBrowser(goal, d.resources, prefBr)?.id || null) : null;
+    const tIds = chosen ? pickTools(goal, d.resources, tokens).map((x) => x.id) : [];
     let g = detectGate(goal);
     const pol = accObj ? evaluateAccountPolicy(accObj, goal) : null;
     if (pol && pol.level === 'allow' && pol.action && pol.action.key !== 'read' && g !== '결제' && g !== '삭제') g = null;
@@ -2789,6 +2825,7 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
 
     const tMeta = tKey ? TEAMS.find((x) => x.key === tKey) : null;
     const matchedSk = chosen ? matchEmployeeSkills(goal, chosen, tokens) : [];
+    const brObj = brId ? d.resources.find((x) => x.id === brId) : null;
     const hostLabel = opt?.resource?.name || mainMachineName;
     const taskObj = {
       id: nextId(d, 't'), order: 0, title: goal, kind: chosen ? 'ai' : 'human', assignee: chosen ? chosen.id : 'jay',
@@ -2796,7 +2833,9 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       resource: opt?.resource?.id || null, account: accId, browser: brId, design: desId, tools: tIds, manualLinks: {}, estCost: null, intervalMin: null,
       stepMode: 'serial', sharedFolder: '', steps: [],
       gate: g, gateApprovedAt: null,
-      reason: `메인 AI(${mainAiName}) 자동 배분${matchedSk.length ? ` · 스킬(${matchedSk[0].name})` : tMeta ? ` · ${tMeta.short}팀` : ''}${hostLabel ? ` · ${hostLabel}` : ''}${opt?.rerouted ? ' (과부하 우회)' : ''}`,
+      reason: isHumanOnly
+        ? (ruledSingle.reason || '몸이나 현장이 필요한 일 → 대표')
+        : `메인 AI(${mainAiName}) 자동 배분${matchedSk.length ? ` · 스킬(${matchedSk[0].name})` : brObj ? ` · ${brObj.name}` : tMeta ? ` · ${tMeta.short}팀` : ''}${hostLabel ? ` · ${hostLabel}` : ''}${opt?.rerouted ? ' (과부하 우회)' : ''}`,
       assignSource: 'auto',
       queued: false, queueReason: '', retryAfter: null, localOnly: false,
       routineId: null, jobId: null, createdAt: nowIso(), createdBy: 'jay', history: [], runStartedAt: null, lastRunAt: null,
@@ -2831,7 +2870,8 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       console.log(`[자동 배분 즉시 착수 건너뜀] ${t.id} ${e.message}`);
     }
   }
-  return { ...t, delegated: true, ...meta, autoStarted, autoQueued };
+  const assigneeRunnable = Boolean(targetEmp && targetEmp.runMode !== 'off' && canRun(targetEmp));
+  return { ...t, delegated: true, ...meta, assigneeRunnable, autoStarted, autoQueued };
 }, UI);
 
 route('POST', '/api/ui/employees', async ({ body }) => {

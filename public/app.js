@@ -7,7 +7,7 @@ const C = window.Charts;
 let S = null;
 const ui = {
   route: 'home', param: '', open: null, picking: null, rtPicking: null, editingEmp: null, openAccount: null, resTab: 'all',
-  taskPick: 'jay', rtPick: 'jay', rtSched: 'time', homeFilter: 'all', doneOpen: false, insertOpen: {}, empDraftEngine: {},
+  taskPick: 'auto', rtPick: 'auto', rtSched: 'time', homeFilter: 'all', doneOpen: false, insertOpen: {}, empDraftEngine: {},
   swarmTeam: 'all', swarmSelected: 'all',
   drag: false, office: null, tools: null, briefOpen: false, models: null, listening: false, lastThread: null, handout: {}, ob: null, lan: null,
   composing: false, pendingRender: false, lastSig: '',
@@ -1608,7 +1608,7 @@ function greeting() {
 
 // 담당 직접 선택(기본) + 컴퓨터 자동 최적화 실시간 미리보기 바
 function createWhoBar(titleInput, pickKey) {
-  const cur = () => ui[pickKey] || 'jay';
+  const cur = () => ui[pickKey] || 'auto';
   const sugBox = h('div', { class: 'add-suggest', 'aria-live': 'polite' });
   let lastSug = null;
   let timer = null;
@@ -1622,9 +1622,9 @@ function createWhoBar(titleInput, pickKey) {
   };
   const autoBtn = h('button', { type: 'button', class: `chip sm gold-auto${cur() === 'auto' ? ' on' : ''}`, 'aria-pressed': cur() === 'auto' ? 'true' : 'false' }, '✦ 자동 배분');
   const picker = h('div', { class: 'picker', role: 'group', 'aria-label': '담당 선택' },
+    autoBtn,
     addChip('jay', '나'),
-    S.data.employees.map((e) => addChip(e.id, isEmpCooling(e) ? `${shortName(e.id)} (휴식)` : shortName(e.id), isEmpCooling(e) ? ' cool' : '')),
-    autoBtn);
+    S.data.employees.map((e) => addChip(e.id, isEmpCooling(e) ? `${shortName(e.id)} (휴식)` : shortName(e.id), isEmpCooling(e.id) ? ' cool' : '')));
   btns.push(['auto', autoBtn]);
 
   const updateView = () => {
@@ -1910,16 +1910,26 @@ function addBar() {
     if (r) {
       whoBar.resetSuggest();
       const multi = Array.isArray(r.steps) && r.steps.length >= 2;
-      const host = r.mainMachineName ? ` · ${r.mainMachineName}` : '';
+      const isHuman = r.assignee === 'jay';
+      const unlinked = !isHuman && r.assigneeRunnable === false && !r.gate;
+      const host = !isHuman && r.mainMachineName ? ` · ${r.mainMachineName}` : '';
       const aiLabel = r.mainAiId ? shortName(r.mainAiId) : (r.mainAiName || '메인 AI');
       pushLiveCard({
-        kind: r.gate ? 'approve' : 'connect',
-        kicker: `CONNECT AI · ${multi ? '멀티 팀 자동 배분' : '자동 배분'}`,
-        title: multi ? `${koSubject(aiLabel)} ${r.steps.length}단계로 팀에 배분했어요` : `${aiLabel} → ${shortName(r.assignee)} 배정 완료`,
-        body: `${r.stepSummary || shortName(r.assignee)}${host}${r.autoStarted ? ' · 즉시 착수' : r.gate ? ` · ${r.gate} 승인 대기` : ''}`,
+        kind: r.gate ? 'approve' : unlinked ? 'handoff' : 'connect',
+        kicker: `CONNECT AI · ${multi ? '멀티 팀 자동 배분' : isHuman ? '대표 일정 분류' : unlinked ? '미연결 AI 배정' : '자동 배분'}`,
+        title: multi
+          ? `${koSubject(aiLabel)} ${r.steps.length}단계로 팀에 배분했어요`
+          : isHuman
+            ? '대표님이 직접 할 일로 분류했어요'
+            : unlinked
+              ? `${shortName(r.assignee)} 배정 (미연결 · 수동 확인 필요)`
+              : `${aiLabel} → ${shortName(r.assignee)} 배정 완료`,
+        body: isHuman
+          ? (r.reason || '몸이나 현장이 필요한 일')
+          : `${r.stepSummary || shortName(r.assignee)}${host}${r.autoStarted ? ' · 즉시 실행 시작' : r.gate ? ` · ${r.gate} 승인 대기` : unlinked ? ' · AI 직원에서 연결하거나 복사 실행해 주세요' : ''}`,
         empId: r.assignee !== 'jay' ? r.assignee : null,
         taskId: r.id,
-        actionLabel: '배분 내역 보기 →',
+        actionLabel: isHuman ? '일정 보기 →' : '배분 내역 보기 →',
       });
       if (multi) { ui.open = r.id; render(); }
       document.querySelector('[data-k="add-title"]')?.focus();
@@ -1928,7 +1938,7 @@ function addBar() {
   const add = async () => {
     closePop();
     const tm = timeVal.value;
-    const picked = ui.taskPick || 'jay';
+    const picked = ui.taskPick || 'auto';
     if (picked === 'auto') { await runDelegate(); return; }
     const r = await submitInput(title, 'add-task', (v) => {
       setTime('', false);
@@ -2427,14 +2437,22 @@ function joseonSwarmPanel() {
         onclick: () => once('dress-k3d', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'k-crew', avatarStyle: 'studio' }, 'K-Guardian 3D로 전환했어요')),
       }, '3D 스튜디오'));
 
+  const isEmpLinked = (e) => {
+    if (!e || e.runMode === 'off') return false;
+    if (CLI_ENGINES.includes(e.engine)) return Boolean(S.runners?.[e.engine]);
+    if (e.engine === 'local') return Boolean(e.model);
+    return false;
+  };
+  const linkedEmps = d.employees.filter(isEmpLinked);
+
   // 2. 중앙 스포트라이트 (Coordinator OR 선택한 AI 직원)
   let heroNode;
   if (!selEmp) {
     const ownerName = d.owner?.name ? `${d.owner.name} · Coordinator` : 'THE FOUNDER · Coordinator';
     const anyWork = workingCount > 0;
-    const teamPick = activeTeamMeta ? (visible.find((e) => e.runMode === 'auto') || visible[0]) : null;
+    const teamPick = activeTeamMeta ? (visible.find(isEmpLinked) || visible[0]) : null;
     const heroSprite = activeTeamMeta ? teamSampleSprite(activeTeamMeta.key) : ownerAv;
-    const mainAiEmp = (d.settings?.mainAi && d.employees.find((e) => e.id === d.settings.mainAi)) || d.employees.find((e) => e.runMode === 'auto') || d.employees[0];
+    const mainAiEmp = (d.settings?.mainAi && d.employees.find((e) => e.id === d.settings.mainAi)) || linkedEmps[0] || d.employees[0];
     const mainMacObj = (d.settings?.mainMachine && d.resources.find((r) => r.id === d.settings.mainMachine && r.kind === '기계')) || d.resources.find((r) => r.kind === '기계' && r.isThisMac) || d.resources.find((r) => r.kind === '기계');
     const mainRam = mainMacObj && S.machineHealth?.[mainMacObj.id]?.ramPct != null ? ` · RAM ${S.machineHealth[mainMacObj.id].ramPct}%` : '';
     heroNode = h('div', { class: 'swarm-hero' },
@@ -2447,14 +2465,19 @@ function joseonSwarmPanel() {
         h('div', { class: 'swarm-kicker' }, activeTeamMeta ? `CONNECT AI · ${activeTeamMeta.code || activeTeamMeta.short}` : 'CONNECT AI · LIVE CREW'),
         h('div', { class: 'swarm-hero-title' },
           activeTeamMeta ? activeTeamMeta.name : ownerName,
-          h('span', { class: `swarm-pill${anyWork ? ' live' : ' gold'}` }, anyWork ? `ACTIVE · ${workingCount} / ${d.employees.length}` : `STANDBY · ${d.employees.length}`)),
+          h('span', { class: `swarm-pill${anyWork ? ' live' : ' gold'}` }, anyWork ? `ACTIVE · ${workingCount} / ${d.employees.length}` : `실행 연결 ${linkedEmps.length} / ${d.employees.length}`)),
         activeTeamMeta
           ? h('div', { class: 'swarm-hero-sub' }, activeTeamMeta.hint)
-          : h('div', { class: 'swarm-brain-bar' },
-            h('button', { type: 'button', class: 'swarm-brain-pill', title: '클릭해 메인 AI 및 메인 컴퓨터 변경', onclick: openCoordinatorConfigModal },
-              '메인 AI ', h('b', null, mainAiEmp ? shortName(mainAiEmp.id) : '미지정'), ' ▾'),
-            mainMacObj ? h('button', { type: 'button', class: 'swarm-brain-pill', title: '클릭해 메인 컴퓨터 변경 (RAM 85% 초과 시 자동 우회)', onclick: openCoordinatorConfigModal },
-              '메인 컴퓨터 ', h('b', null, mainMacObj.name), mainRam, ' ▾') : null)),
+          : [
+            h('div', { class: 'swarm-brain-bar' },
+              h('button', { type: 'button', class: 'swarm-brain-pill', title: '클릭해 메인 AI 및 메인 컴퓨터 변경', onclick: openCoordinatorConfigModal },
+                '메인 AI ', h('b', null, mainAiEmp ? shortName(mainAiEmp.id) : '미지정'), ' ▾'),
+              mainMacObj ? h('button', { type: 'button', class: 'swarm-brain-pill', title: '클릭해 메인 컴퓨터 변경 (RAM 85% 초과 시 자동 우회)', onclick: openCoordinatorConfigModal },
+                '메인 컴퓨터 ', h('b', null, mainMacObj.name), mainRam, ' ▾') : null),
+            h('div', { class: 'swarm-hero-sub' }, linkedEmps.length
+              ? `자동 배분 가동 가능: ${linkedEmps.map((e) => shortName(e.id)).join(' · ')} (미연결 AI는 자동 배분에서 제외)`
+              : '아직 자동 실행 연결된 AI가 없어요 · AI 직원 탭에서 연결해 주세요'),
+          ]),
       h('div', { class: 'swarm-hero-acts' },
         activeTeamMeta && !visible.length
           ? h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => openAddEmployee({ pack: 'joseon', team: activeTeamMeta.key, avatar: teamSampleSprite(activeTeamMeta.key) }) }, `+ ${activeTeamMeta.short}팀 추가`)
@@ -2463,6 +2486,7 @@ function joseonSwarmPanel() {
             : null));
   } else {
     const working = isWorking(selEmp.id);
+    const linked = isEmpLinked(selEmp);
     const cooling = isEmpCooling(selEmp);
     const wJob = S.working.find((w) => w.emp === selEmp.id);
     const wTask = wJob ? d.tasks.find((t) => t.id === wJob.taskId) : null;
@@ -2478,7 +2502,8 @@ function joseonSwarmPanel() {
         h('div', { class: 'swarm-hero-title' },
           `@${shortName(selEmp.id)}`,
           h('span', { class: `swarm-pill team-tag tm-${tInfo.key}` }, tInfo.name),
-          h('span', { class: `swarm-pill${working ? ' live' : ''}` }, working ? 'ACTIVE' : cooling ? `COOLDOWN ${empCooldownMin(selEmp)}m` : 'IDLE · Z')),
+          h('span', { class: `swarm-pill${working ? ' live' : linked ? ' ready' : ' unlinked'}` },
+            working ? 'ACTIVE' : cooling ? `COOLDOWN ${empCooldownMin(selEmp)}m` : linked ? '연결됨 · 자동 실행' : '미연결 · 수동')),
         h('div', { class: 'swarm-hero-sub' }, working && wTask
           ? `진행 중: ${wTask.title}`
           : [preset?.name, selEmp.role].filter(Boolean).join(' · ') || '클릭해서 바로 일을 맡겨 보세요'),
@@ -2493,8 +2518,8 @@ function joseonSwarmPanel() {
   const clusterKeys = (visible.length ? visible : d.employees).slice(0, 3).map((e) => (px?.SPRITES[e.avatar] ? e.avatar : 'seonbi'));
   const allItem = h('div', { class: `swarm-item${!selEmp ? ' on' : ''}` },
     h('button', {
-      type: 'button', class: `swarm-tile${!selEmp ? ' on' : ''}`, title: '전체 보기 (Coordinator)',
-      onclick: () => { ui.swarmSelected = 'all'; render(); },
+      type: 'button', class: `swarm-tile${!selEmp ? ' on' : ''}`, title: '전체 보기 (Coordinator · 자동 배분)',
+      onclick: () => { ui.swarmSelected = 'all'; if (ui.route === 'home') ui.taskPick = 'auto'; render(); },
     }, C.swarmAllSvg(clusterKeys, { size: 48 })),
     h('span', { class: 'swarm-lbl' }, 'All'));
 

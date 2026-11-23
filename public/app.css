@@ -1015,6 +1015,8 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .swarm-hero-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; font-weight: 700; color: #fff; letter-spacing: -0.015em; }
 .swarm-pill { font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: #b8c0d4; }
 .swarm-pill.live { background: rgba(52, 211, 153, 0.16); color: #6ee7b7; }
+.swarm-pill.ready { background: rgba(52, 211, 153, 0.12); color: #86efac; border: 1px solid rgba(52, 211, 153, 0.28); }
+.swarm-pill.unlinked { background: rgba(255, 255, 255, 0.05); color: #8c94a8; border: 1px dashed rgba(255, 255, 255, 0.2); }
 .swarm-pill.gold { background: rgba(212, 163, 89, 0.16); color: #e8c78b; border: 1px solid rgba(212, 163, 89, 0.32); }
 .swarm-hero-sub { font-size: 12px; color: #8c94a8; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .swarm-brain-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }

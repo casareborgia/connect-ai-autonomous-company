@@ -354,6 +354,18 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(bpImp.status, 200);
     assert.ok(bpImp.body.added.skills >= 2, '청사진 가져오기 시 직원 스킬이 자동 장착되어야 함');
 
+    // Ego Lite 검색 요청은 미연결 직원(피클 등)이나 대표(jay)가 아닌 실제 연결된 실행 가능 AI에게, 운동 일정은 대표(jay)로 정확히 자동 분류
+    const delEgo = await ui('POST', '/api/ui/coordinator/delegate', { title: 'ego lite 연결해서 구글에 호놀룰루 검색', time: '23:59' });
+    assert.equal(delEgo.status, 200);
+    assert.notEqual(delEgo.body.assignee, 'jay', 'Ego Lite 브라우저 검색은 AI 직원에게 자동 배분되어야 함');
+    assert.equal(delEgo.body.assigneeRunnable, true, '실제 연결·실행 가능한 AI 직원에게 배분되어야 함');
+    const delOps = await ui('POST', '/api/ui/coordinator/delegate', { title: '이메일 정리 및 점검해줘', time: '23:59' });
+    assert.equal(delOps.status, 200);
+    assert.equal(delOps.body.assigneeRunnable, true, 'ops 팀에 미연결 직원만 있어도 실제 연결된 AI 직원에게 배분되어야 함');
+    const delGym = await ui('POST', '/api/ui/coordinator/delegate', { title: '오늘 오후 7시 운동' });
+    assert.equal(delGym.status, 200);
+    assert.equal(delGym.body.assignee, 'jay', '몸/현장이 필요한 운동 일정은 대표(jay)로 분류되어야 함');
+
     const mascotRes = await fetch(`${origin}/mascots/haetae.jpg`);
     assert.equal(mascotRes.status, 200);
     assert.match(mascotRes.headers.get('content-type') || '', /image\/jpeg/);
