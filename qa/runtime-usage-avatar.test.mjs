@@ -264,6 +264,43 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(dispatchPar.body.stepMode, 'parallel');
     assert.equal(dispatchPar.body.steps.length, 3);
 
+    // 메인 AI · 메인 컴퓨터 설정 + Coordinator 자동 배분(단일 / 복합 릴레이 / 병렬+위험게이트) 검증
+    const badCoord = await ui('PATCH', '/api/ui/settings', { mainAi: 'nonexistent_ai' });
+    assert.equal(badCoord.status, 400);
+    const badMac = await ui('PATCH', '/api/ui/settings', { mainMachine: 'nonexistent_mac' });
+    assert.equal(badMac.status, 400);
+    const st0 = await (await fetch(`${origin}/api/state`)).json();
+    const firstMac = st0.data.resources.find((r) => r.kind === '기계');
+    assert.ok(firstMac, '테스트 환경에 기계 리소스가 있어야 함');
+    const coordSet = await ui('PATCH', '/api/ui/settings', { mainAi: 'claude', mainMachine: firstMac.id });
+    assert.equal(coordSet.status, 200);
+    assert.equal(coordSet.body.mainAi, 'claude');
+    assert.equal(coordSet.body.mainMachine, firstMac.id);
+
+    const delSingle = await ui('POST', '/api/ui/coordinator/delegate', { title: '로고 시안 만들어줘' });
+    assert.equal(delSingle.status, 200);
+    assert.equal(delSingle.body.delegated, true);
+    assert.equal(delSingle.body.steps.length, 0, '명사 끝 "로고" 는 잘못 분할되면 안 됨');
+    assert.equal(delSingle.body.resource, firstMac.id);
+    assert.ok(delSingle.body.reason.includes('자동 배분'));
+
+    const delMulti = await ui('POST', '/api/ui/coordinator/delegate', {
+      title: '유튜브 대본 쓰고 썸네일 기획하고 인스타 홍보글 초안 만들어줘',
+    });
+    assert.equal(delMulti.status, 200);
+    assert.equal(delMulti.body.delegated, true);
+    assert.equal(delMulti.body.stepMode, 'serial');
+    assert.equal(delMulti.body.steps.length, 3, '복합 목표는 3단계로 정확히 분할되어야 함');
+    assert.equal(delMulti.body.steps[0].resource, firstMac.id);
+
+    const delRisky = await ui('POST', '/api/ui/coordinator/delegate', {
+      title: '경쟁사 트렌드 조사하고 결제 내역 바로 삭제해줘 동시에',
+    });
+    assert.equal(delRisky.status, 200);
+    assert.equal(delRisky.body.stepMode, 'parallel');
+    assert.ok(delRisky.body.gate, '결제/삭제 키워드가 포함된 복합 자동 배분도 승인 게이트가 걸려야 함');
+    assert.equal(delRisky.body.autoStarted, false);
+
     const mascotRes = await fetch(`${origin}/mascots/haetae.jpg`);
     assert.equal(mascotRes.status, 200);
     assert.match(mascotRes.headers.get('content-type') || '', /image\/jpeg/);

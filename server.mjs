@@ -107,6 +107,17 @@ function migrate(d) {
     if (e.webUrl === undefined) e.webUrl = webUrlFor(e.name);
     if (!d.groups.some((g) => g.id === e.group)) e.group = d.groups[0].id;
   }
+  // 메인 두뇌 AI (Coordinator) · 메인 본사 컴퓨터 기본값 보정
+  if (d.settings.mainAi && !d.employees.some((e) => e.id === d.settings.mainAi)) d.settings.mainAi = null;
+  if (!d.settings.mainAi && d.employees.length) {
+    const best = d.employees.find((e) => e.runMode === 'auto') || d.employees.find((e) => CLI_ENGINES.includes(e.engine)) || d.employees[0];
+    d.settings.mainAi = best?.id || null;
+  }
+  const activeMachines = d.resources.filter((r) => r.kind === '기계' && r.status !== '꺼짐');
+  if (d.settings.mainMachine && !d.resources.some((r) => r.id === d.settings.mainMachine && r.kind === '기계')) d.settings.mainMachine = null;
+  if (!d.settings.mainMachine && activeMachines.length) {
+    d.settings.mainMachine = (activeMachines.find((r) => r.isThisMac) || activeMachines[0]).id;
+  }
   d.tasks.forEach((t, i) => {
     if (typeof t.order !== 'number') t.order = i + 1;
     for (const [k, v] of Object.entries({ resource: null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: null, intervalMin: null, stepMode: 'serial', sharedFolder: '', steps: [], gate: null, gateApprovedAt: null, reason: '', reasonBy: '', noMatch: false, handedAt: null, assignSource: 'jay', routineId: null, jobId: null, runStartedAt: null, lastRunAt: null, completedAt: null, completedBy: null, resultSummary: '', failoverTrail: [], queued: false, queueReason: '', retryAfter: null, localOnly: false, history: [], officeRun: false, officeJob: null, remote: null, relayedAt: null })) if (t[k] === undefined) t[k] = v;
@@ -2548,6 +2559,181 @@ route('POST', '/api/ui/swarm/dispatch', async ({ body }) => {
   return { ...t, autoStarted, autoQueued };
 }, UI);
 
+// 메인 두뇌 AI + 메인 컴퓨터 자동 배분 (단일 할 일 자동 배치 또는 복합 목표 다부서 릴레이/동시 자동 분할)
+function splitGoalClauses(raw) {
+  const cleaned = String(raw || '').trim();
+  if (!cleaned) return [];
+  // 화살표 / 플러스 / 줄바꿈 / 한국어 연결어("하고", "쓰고", "만들고", "한 뒤", "그리고", 쉼표) 기준 분할
+  // 명사 끝 "고"(로고·광고·참고·경고 등)의 오분할을 막기 위해 동사 연결어미만 분리한다
+  let parts = cleaned
+    .split(/\s*(?:->|→|\n|\+)\s*/)
+    .flatMap((seg) => seg.split(/(?:한\s*(?:뒤|다음|후)에?\s+|그리고\s+|다음으로\s+|,\s*(?=.{3,}))/))
+    .flatMap((seg) => seg.split(/(?<=(?:하고|쓰고|잡고|짜고|만들고|올리고|보내고|찾고|찍고|고치고|바꾸고|뽑고|넣고|돌리고|붙이고|줄이고|늘리고|지우고|읽고|받고|주고))\s+(?=.{3,})/))
+    .map((s) => s.trim().replace(/^[\-•\d.)]+\s*/, '').replace(/[.,]+$/, '').trim())
+    .filter((s) => s.length >= 3);
+  if (parts.length <= 1) return [cleaned];
+  // 너무 잘게 쪼개지지 않게 최대 5단계로 묶는다
+  return parts.slice(0, 5);
+}
+
+function inferClauseTeam(clause) {
+  const s = String(clause || '').toLowerCase();
+  if (/마케팅|홍보|sns|인스타|유튜브\s*(제목|설명|태그|업로드)|스레드|트위터|\bx\b|바이럴|광고|댓글/.test(s)) return 'marketing';
+  if (/썸네일|디자인|배너|카드뉴스|로고|타이포|색감|시안|블렌더|3d|이미지|영상\s*편집|포스터/.test(s)) return 'design';
+  if (/코딩|코드|버그|구현|개발|리팩터링|테스트|스크립트|api|서버|배포|빌드|오류|수정/.test(s)) return 'dev';
+  if (/조사|리서치|검색|트렌드|경쟁사|벤치마크|뉴스|소식|검증|qa|보안|출처|비교/.test(s)) return 'research';
+  if (/이메일|메일|문의|일정|캘린더|정리|체크|점검|백업|감시|ram|알림|운영/.test(s)) return 'ops';
+  if (/기획|대본|글쓰기|카피|초안|요약|번역|보고서|릴리즈|문서|전략|우선순위/.test(s)) return 'plan';
+  return null;
+}
+
+route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
+  const goal = text(body.title || body.goal, 400);
+  if (!goal) throw new HttpError(400, '배분할 할 일이나 목표를 적어 주세요.');
+  const localStat = await currentLocalStat();
+  const offices = dispatcher ? dispatcher.view() : [];
+  const workingList = [...working.values(), ...officeWorking()];
+  const parsedTime = timeOrNull(body.time) || extractKoreanTime(goal);
+  const targetDate = dateOrNull(body.date) || ymd();
+
+  const pickBestEmp = (d, clause, teamKey, usedIds) => {
+    const score = (e) => {
+      const autoBonus = e.runMode === 'auto' && canRun(e) ? 4 : canRun(e) ? 2 : 0;
+      const freshBonus = usedIds.has(e.id) ? 0 : 3;
+      const coolPenalty = isCoolingDown(e) ? -5 : 0;
+      return autoBonus + freshBonus + coolPenalty;
+    };
+    if (teamKey) {
+      const pool = d.employees.filter((e) => (e.team || defaultTeamFor(e)) === teamKey);
+      if (pool.length) return [...pool].sort((a, b) => score(b) - score(a))[0];
+    }
+    const ruled = ruleAssign(clause, '', d.employees, d.resources, d.settings?.assignMemory);
+    if (ruled?.assignee && ruled.assignee !== 'jay') {
+      const hit = d.employees.find((e) => e.id === ruled.assignee);
+      if (hit) return hit;
+    }
+    const main = d.settings?.mainAi ? d.employees.find((e) => e.id === d.settings.mainAi) : null;
+    if (main && !usedIds.has(main.id)) return main;
+    return [...d.employees].sort((a, b) => score(b) - score(a))[0] || null;
+  };
+
+  let meta = { mainAiName: '메인 AI', mainMachineName: '', stepSummary: '' };
+  const t = await store.mutate((d) => {
+    if (!d.employees.length) throw new HttpError(400, '먼저 배분할 AI 직원을 1명 이상 추가해 주세요.');
+    const mainEmp = (d.settings?.mainAi && d.employees.find((e) => e.id === d.settings.mainAi))
+      || d.employees.find((e) => e.runMode === 'auto')
+      || d.employees[0];
+    const mainRes = (d.settings?.mainMachine && d.resources.find((r) => r.id === d.settings.mainMachine && r.kind === '기계'))
+      || d.resources.find((r) => r.kind === '기계' && r.isThisMac)
+      || d.resources.find((r) => r.kind === '기계')
+      || null;
+    const mainAiName = mainEmp ? (mainEmp.avatarName || mainEmp.name) : '메인 AI';
+    const mainMachineName = mainRes?.name || '';
+    meta = { mainAiName, mainMachineName, stepSummary: '' };
+
+    const clauses = splitGoalClauses(goal);
+    const isParallel = /(동시에|한꺼번에|병렬로|같이\s*돌려)/.test(goal);
+    const usedIds = new Set();
+
+    if (clauses.length >= 2) {
+      const builtSteps = clauses.map((cl, idx) => {
+        const tKey = inferClauseTeam(cl);
+        const chosen = pickBestEmp(d, cl, tKey, usedIds);
+        if (chosen) usedIds.add(chosen.id);
+        const opt = chosen ? pickOptimalMachine(d, { title: cl, note: '' }, chosen, { localStat, offices, workingList, preferredResId: mainRes?.id || null }) : null;
+        return {
+          id: `st_${idx + 1}`,
+          title: cl,
+          assignee: chosen ? chosen.id : 'jay',
+          resource: opt?.resource?.id || mainRes?.id || null,
+          note: `[메인 AI(${mainAiName}) 자동 배분] 전체 목표: ${goal}`,
+          status: '대기',
+        };
+      });
+      const stepMode = isParallel ? 'parallel' : 'serial';
+      const taskObj = {
+        id: nextId(d, 't'), order: 0, title: goal, kind: 'ai', assignee: builtSteps[0].assignee || 'jay',
+        date: targetDate, time: parsedTime, status: '대기',
+        note: `메인 AI(${mainAiName})가 ${builtSteps.length}단계로 자동 배분했습니다.${mainMachineName ? ` · 메인 컴퓨터: ${mainMachineName}` : ''}`,
+        resource: builtSteps[0].resource || null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: null, intervalMin: null,
+        stepMode, sharedFolder: '', steps: normalizeSteps(builtSteps, d, { asTemplate: false }),
+        gate: detectGate(goal), gateApprovedAt: null, reason: '', assignSource: 'auto',
+        queued: false, queueReason: '', retryAfter: null, localOnly: false,
+        routineId: null, jobId: null, createdAt: nowIso(), createdBy: 'jay', history: [], runStartedAt: null, lastRunAt: null,
+        completedAt: null, completedBy: null, resultSummary: '', failoverTrail: [],
+      };
+      taskObj.order = orderFor(d, taskObj);
+      syncTaskFromSteps(d, taskObj);
+      const summary = builtSteps.map((st) => nameOf(d, st.assignee)).join(stepMode === 'parallel' ? ' + ' : ' → ');
+      taskObj.reason = `메인 AI(${mainAiName}) 자동 배분 · ${summary}${mainMachineName ? ` · ${mainMachineName}` : ''}`;
+      meta.stepSummary = summary;
+      d.tasks.push(taskObj);
+      pushHistory(taskObj, 'jay', '자동 배분', taskObj.reason);
+      sys(d, `task:${taskObj.id}`, `메인 AI(${mainAiName}) 자동 배분 (${stepMode === 'parallel' ? '동시' : '릴레이'}): ${summary}`);
+      return taskObj;
+    }
+
+    // 단일 작업: 최적 팀 AI + 메인 컴퓨터(RAM 85% 보호) 자동 배정
+    const tKey = inferClauseTeam(goal);
+    const chosen = pickBestEmp(d, goal, tKey, usedIds);
+    const opt = chosen ? pickOptimalMachine(d, { title: goal, note: '' }, chosen, { localStat, offices, workingList, preferredResId: mainRes?.id || null }) : null;
+    const accId = pickAccount(goal, d.resources)?.id || null;
+    const accObj = accId ? d.resources.find((x) => x.id === accId) : null;
+    const prefBr = accObj ? resolveAccountBrowser(accObj, d.resources)?.id || null : null;
+    const desId = pickDesigns(goal, d.resources, tokens)[0]?.id || null;
+    const brId = pickBrowser(goal, d.resources, prefBr)?.id || null;
+    const tIds = pickTools(goal, d.resources, tokens).map((x) => x.id);
+    let g = detectGate(goal);
+    const pol = accObj ? evaluateAccountPolicy(accObj, goal) : null;
+    if (pol && pol.level === 'allow' && pol.action && pol.action.key !== 'read' && g !== '결제' && g !== '삭제') g = null;
+    if (pol?.level === 'approval' && !g) g = pol.gate || '게시';
+
+    const tMeta = tKey ? TEAMS.find((x) => x.key === tKey) : null;
+    const hostLabel = opt?.resource?.name || mainMachineName;
+    const taskObj = {
+      id: nextId(d, 't'), order: 0, title: goal, kind: chosen ? 'ai' : 'human', assignee: chosen ? chosen.id : 'jay',
+      date: targetDate, time: parsedTime, status: '대기', note: '',
+      resource: opt?.resource?.id || null, account: accId, browser: brId, design: desId, tools: tIds, manualLinks: {}, estCost: null, intervalMin: null,
+      stepMode: 'serial', sharedFolder: '', steps: [],
+      gate: g, gateApprovedAt: null,
+      reason: `메인 AI(${mainAiName}) 자동 배분${tMeta ? ` · ${tMeta.short}팀` : ''}${hostLabel ? ` · ${hostLabel}` : ''}${opt?.rerouted ? ' (과부하 우회)' : ''}`,
+      assignSource: 'auto',
+      queued: false, queueReason: '', retryAfter: null, localOnly: false,
+      routineId: null, jobId: null, createdAt: nowIso(), createdBy: 'jay', history: [], runStartedAt: null, lastRunAt: null,
+      completedAt: null, completedBy: null, resultSummary: '', failoverTrail: [],
+    };
+    taskObj.order = orderFor(d, taskObj);
+    meta.stepSummary = chosen ? nameOf(d, chosen.id) : '대표';
+    d.tasks.push(taskObj);
+    pushHistory(taskObj, 'jay', '자동 배분', taskObj.reason);
+    sys(d, `task:${taskObj.id}`, `메인 AI(${mainAiName}) 자동 배분 → ${meta.stepSummary}${hostLabel ? ` (${hostLabel})` : ''}`);
+    return taskObj;
+  });
+
+  let autoStarted = false;
+  let autoQueued = false;
+  const dNow = store.data;
+  const targetEmp = t.assignee && t.assignee !== 'jay' ? dNow.employees.find((e) => e.id === t.assignee) : null;
+  const targetRes = t.resource ? dNow.resources.find((r) => r.id === t.resource) : null;
+  const nowDate = new Date();
+  const dueNow = t.date === ymd(nowDate) && (!t.time || minutes(t.time) <= minutes(hm(nowDate)));
+  if (
+    dNow.settings?.autoStartAdded !== false
+    && targetEmp && targetEmp.runMode === 'auto'
+    && dueNow && !t.gate && !t.officeRun && !isOffice(targetRes)
+    && (canRun(targetEmp) || isCoolingDown(targetEmp))
+  ) {
+    try {
+      const sr = await startRun(t.id, 'auto');
+      autoStarted = Boolean(sr?.started);
+      autoQueued = Boolean(sr?.queued);
+    } catch (e) {
+      console.log(`[자동 배분 즉시 착수 건너뜀] ${t.id} ${e.message}`);
+    }
+  }
+  return { ...t, delegated: true, ...meta, autoStarted, autoQueued };
+}, UI);
+
 route('POST', '/api/ui/employees', async ({ body }) => {
   const cat = AI_CATALOG.find((c) => c.key === body.catalog);
   // 목록에서 고른 코딩 AI 인데 이 맥에 실행 파일이 없으면 복사해서 맡기기로 시작한다
@@ -2573,6 +2759,7 @@ route('DELETE', '/api/ui/employees/:id', async ({ params }) => store.mutate((d) 
   const e = d.employees.find((x) => x.id === params.id);
   if (!e) throw new HttpError(404, '직원이 없습니다.');
   d.employees = d.employees.filter((x) => x.id !== e.id);
+  if (d.settings?.mainAi === e.id) d.settings.mainAi = d.employees.find((x) => x.runMode === 'auto')?.id || d.employees[0]?.id || null;
   for (const other of d.employees) if (other.fallbackTo === e.id) other.fallbackTo = null;
   for (const r of d.resources) if (r.kind === '계정' && r.assignee === e.id) r.assignee = null;
   for (const t of d.tasks) {
@@ -2731,6 +2918,11 @@ route('DELETE', '/api/ui/resources/:id', async ({ params }) => store.mutate((d) 
     throw new HttpError(409, '이 사무실에서 일이 도는 중이에요. 끝난 뒤 지워 주세요.');
   }
   d.resources = d.resources.filter((x) => x.id !== params.id);
+  if (d.settings?.mainMachine === params.id) {
+    d.settings.mainMachine = d.resources.find((r) => r.kind === '기계' && r.isThisMac)?.id
+      || d.resources.find((r) => r.kind === '기계')?.id
+      || null;
+  }
   for (const e of d.employees) e.resources = e.resources.filter((x) => x !== params.id);
   for (const r of d.resources) {
     if (r.kind === '계정' && r.browser === params.id) r.browser = null;
@@ -2818,6 +3010,16 @@ route('PATCH', '/api/ui/settings', async ({ body }) => store.mutate((d) => {
   if (body.ownerName !== undefined) { const s = text(body.ownerName, 40); if (s) d.owner.name = s; }
   if (body.ownerAvatar !== undefined && ['sejong', 'queen', 'som'].includes(body.ownerAvatar)) d.settings.ownerAvatar = body.ownerAvatar;
   if (body.healthDoctor !== undefined && ['heojun', 'daejanggeum'].includes(body.healthDoctor)) d.settings.healthDoctor = body.healthDoctor;
+  if (body.mainAi !== undefined) {
+    if (!body.mainAi) d.settings.mainAi = null;
+    else if (d.employees.some((e) => e.id === body.mainAi)) d.settings.mainAi = body.mainAi;
+    else throw new HttpError(400, '선택한 메인 AI 직원을 찾을 수 없어요.');
+  }
+  if (body.mainMachine !== undefined) {
+    if (!body.mainMachine) d.settings.mainMachine = null;
+    else if (d.resources.some((r) => r.id === body.mainMachine && r.kind === '기계')) d.settings.mainMachine = body.mainMachine;
+    else throw new HttpError(400, '선택한 메인 컴퓨터를 찾을 수 없어요.');
+  }
   if (body.companyName !== undefined) d.settings.companyName = text(body.companyName, 60);
   if (body.onboarded !== undefined) d.settings.onboarded = Boolean(body.onboarded);
   if (body.quietHours !== undefined) d.settings.quietHours = quietOf(body.quietHours);
