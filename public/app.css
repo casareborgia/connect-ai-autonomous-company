@@ -1033,6 +1033,14 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .coord-dlg-h { margin-top: 4px; }
 .coord-dlg-sub { margin: -4px 0 12px; }
 .coord-dlg-gap { margin-top: 12px; }
+.ms-head { justify-content: space-between; margin-bottom: 2px; }
+.ms-kicker { font-size: 12px; color: var(--gold); letter-spacing: 0.04em; }
+.ms-hint { font-size: 11px; color: #8c94a8; }
+.ms-body { min-width: 0; flex: 1; }
+.ms-ttl { font-weight: 600; color: #fff; }
+.ms-sub { font-size: 11px; color: #8c94a8; }
+.codex-top { justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.codex-desc { margin: 6px 0 8px; }
 .swarm-hero-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: none; }
 
 .swarm-strip { display: flex; align-items: flex-start; gap: 10px; overflow-x: auto; padding: 4px 2px 2px; scrollbar-width: thin; }

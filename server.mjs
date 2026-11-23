@@ -2617,7 +2617,7 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
     return [...d.employees].sort((a, b) => score(b) - score(a))[0] || null;
   };
 
-  let meta = { mainAiName: '메인 AI', mainMachineName: '', stepSummary: '' };
+  let meta = { mainAiId: null, mainAiName: '메인 AI', mainMachineName: '', stepSummary: '' };
   const t = await store.mutate((d) => {
     if (!d.employees.length) throw new HttpError(400, '먼저 배분할 AI 직원을 1명 이상 추가해 주세요.');
     const mainEmp = (d.settings?.mainAi && d.employees.find((e) => e.id === d.settings.mainAi))
@@ -2629,7 +2629,7 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       || null;
     const mainAiName = mainEmp ? (mainEmp.avatarName || mainEmp.name) : '메인 AI';
     const mainMachineName = mainRes?.name || '';
-    meta = { mainAiName, mainMachineName, stepSummary: '' };
+    meta = { mainAiId: mainEmp?.id || null, mainAiName, mainMachineName, stepSummary: '' };
 
     const clauses = splitGoalClauses(goal);
     const isParallel = /(동시에|한꺼번에|병렬로|같이\s*돌려)/.test(goal);

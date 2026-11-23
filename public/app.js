@@ -108,6 +108,21 @@ function setDlg(dlg, ...kids) {
   dlg.replaceChildren(...kids.flat(3).filter((k) => k !== null && k !== undefined && k !== false));
 }
 
+function closeDlg() {
+  const dlg = document.getElementById('dlg');
+  if (!dlg) return;
+  dlg.className = '';
+  if (dlg.open) dlg.close();
+}
+
+function koSubject(word) {
+  const s = String(word || '').trim();
+  if (!s) return '';
+  const ch = s.charCodeAt(s.length - 1);
+  if (ch >= 0xac00 && ch <= 0xd7a3) return `${s}${(ch - 0xac00) % 28 === 0 ? '가' : '이'}`;
+  return `${s}가`;
+}
+
 const WD = ['일', '월', '화', '수', '목', '금', '토'];
 const pad = (n) => String(n).padStart(2, '0');
 const won = (n) => `${Math.round(n).toLocaleString('ko-KR')}원`;
@@ -1657,10 +1672,11 @@ function addBar() {
       whoBar.resetSuggest();
       const multi = Array.isArray(r.steps) && r.steps.length >= 2;
       const host = r.mainMachineName ? ` · ${r.mainMachineName}` : '';
+      const aiLabel = r.mainAiId ? shortName(r.mainAiId) : (r.mainAiName || '메인 AI');
       pushLiveCard({
         kind: r.gate ? 'approve' : 'connect',
         kicker: `CONNECT AI · ${multi ? '멀티 팀 자동 배분' : '자동 배분'}`,
-        title: multi ? `${r.mainAiName}가 ${r.steps.length}단계로 팀에 배분했어요` : `${r.mainAiName} → ${shortName(r.assignee)} 배정 완료`,
+        title: multi ? `${koSubject(aiLabel)} ${r.steps.length}단계로 팀에 배분했어요` : `${aiLabel} → ${shortName(r.assignee)} 배정 완료`,
         body: `${r.stepSummary || shortName(r.assignee)}${host}${r.autoStarted ? ' · 즉시 착수' : r.gate ? ` · ${r.gate} 승인 대기` : ''}`,
         empId: r.assignee !== 'jay' ? r.assignee : null,
         taskId: r.id,
@@ -1960,9 +1976,9 @@ function openSwarmMissionModal(defaultKey = null) {
 
     previewWrap.replaceChildren(
       h('div', { class: 'mission-step-list' },
-        h('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:2px' },
-          h('b', { style: 'font-size:12px;color:#d4a359;letter-spacing:0.04em' }, `${cur.mode === 'parallel' ? 'PARALLEL · 동시 실행' : 'RELAY · 순차 바통 터치'} · ${cur.steps.length} TEAMS`),
-          h('span', { style: 'font-size:11px;color:#8c94a8' }, '자동 실행 AI는 즉시 가동됩니다')),
+        h('div', { class: 'row ms-head' },
+          h('b', { class: 'ms-kicker' }, `${cur.mode === 'parallel' ? 'PARALLEL · 동시 실행' : 'RELAY · 순차 바통 터치'} · ${cur.steps.length} TEAMS`),
+          h('span', { class: 'ms-hint' }, '자동 실행 AI는 즉시 가동됩니다')),
         ...cur.steps.map((st, idx) => {
           const tMeta = teams.find((t) => t.key === st.team);
           const assigned = guessEmpForTeam(st.team);
@@ -1970,9 +1986,9 @@ function openSwarmMissionModal(defaultKey = null) {
           return h('div', { class: 'mission-step-row' },
             h('span', { class: 'ms-num' }, String(idx + 1)),
             C.avatarSvg(avKey, { size: 30, state: 'working', style: 'pixel' }),
-            h('div', { style: 'min-width:0;flex:1' },
-              h('div', { style: 'font-weight:600;color:#fff' }, st.title),
-              h('div', { style: 'font-size:11px;color:#8c94a8' }, `${tMeta?.name || st.team} · 담당: ${assigned ? shortName(assigned.id) : '대표'}`)));
+            h('div', { class: 'ms-body' },
+              h('div', { class: 'ms-ttl' }, st.title),
+              h('div', { class: 'ms-sub' }, `${tMeta?.name || st.team} · 담당: ${assigned ? shortName(assigned.id) : '대표'}`)));
         })));
   };
 
@@ -1989,9 +2005,9 @@ function openSwarmMissionModal(defaultKey = null) {
   topicIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) launch(); });
 
   setDlg(dlg,
-    h('div', { class: 'swarm-kicker', style: 'margin-bottom:4px' }, 'CONNECT AI · SYSTEMIZATION'),
-    h('h3', { style: 'margin-top:0' }, '멀티 팀 협업 실행'),
-    h('p', { class: 'small muted', style: 'margin:-6px 0 8px' }, '워크플로우를 고르고 주제만 적으면, 각 부서 AI 크루가 순서대로 또는 동시에 바로 가동됩니다.'),
+    h('div', { class: 'swarm-kicker' }, 'CONNECT AI · SYSTEMIZATION'),
+    h('h3', { class: 'coord-dlg-h' }, '멀티 팀 협업 실행'),
+    h('p', { class: 'small muted coord-dlg-sub' }, '워크플로우를 고르고 주제만 적으면, 각 부서 AI 크루가 순서대로 또는 동시에 바로 가동됩니다.'),
     cardsWrap,
     h('label', { class: 'field' }, '실행 주제 (선택 · 각 팀 지시서에 자동 반영)', topicIn),
     previewWrap,
@@ -2060,12 +2076,12 @@ function openJoseonCodexModal() {
 
   renderCodex();
   setDlg(dlg,
-    h('div', { class: 'row', style: 'justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap' },
+    h('div', { class: 'row codex-top' },
       h('div', null,
-        h('div', { class: 'swarm-kicker', style: 'margin-bottom:2px' }, 'CONNECT AI LAB · SIGNATURE DROP'),
-        h('h3', { style: 'margin:0' }, 'K-Heritage Pixel Edition (21)')),
+        h('div', { class: 'swarm-kicker' }, 'CONNECT AI LAB · SIGNATURE DROP'),
+        h('h3', { class: 'coord-dlg-h' }, 'K-Heritage Pixel Edition (21)')),
       stateBar),
-    h('p', { class: 'small muted', style: 'margin:6px 0 8px' }, '캐릭터를 클릭하면 해당 팀으로 새 AI 직원을 추가합니다 (솜이·세종·왕후는 Coordinator, 허준·대장금은 헬스 담당으로 전환).'),
+    h('p', { class: 'small muted codex-desc' }, '캐릭터를 클릭하면 해당 팀으로 새 AI 직원을 추가합니다 (솜이·세종·왕후는 Coordinator, 허준·대장금은 헬스 담당으로 전환).'),
     body,
     h('div', { class: 'bar' },
       h('button', {
@@ -2081,6 +2097,7 @@ function openJoseonCodexModal() {
 
 function openCoordinatorConfigModal() {
   const dlg = document.getElementById('dlg');
+  dlg.className = '';
   const d = S.data;
   const machines = d.resources.filter((r) => r.kind === '기계');
   const curAi = d.settings?.mainAi || '';
