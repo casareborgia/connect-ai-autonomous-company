@@ -289,7 +289,7 @@ function openEmployeeSkillsModal(empOrId) {
     const officeOss = (S.data.resources || []).filter((r) => r.kind === '오픈소스' && r.status !== '꺼짐'
       && !catalog.some((c) => c.key === r.preset || c.name.toLowerCase() === String(r.name || '').toLowerCase()));
 
-    presetWrap.replaceChildren(
+    const presetKids = [
       h('div', { class: 'skill-preset-grid' }, catalog.map((c) => {
         const on = equippedKeys.has(c.key) || (c.repo && equippedRepos.has(c.repo.toLowerCase())) || equippedNames.has(c.name.toLowerCase());
         return h('button', {
@@ -306,7 +306,9 @@ function openEmployeeSkillsModal(empOrId) {
         h('span', { class: 'skill-preset-hint' }, c.hint),
         c.repo ? h('span', { class: 'skill-preset-repo' }, githubShortLabel(c.repo)) : null);
       })),
-      officeOss.length ? h('div', { class: 'skill-sec-sub' },
+    ];
+    if (officeOss.length) {
+      presetKids.push(h('div', { class: 'skill-sec-sub' },
         h('div', { class: 'skill-sec-h' }, '내 사무실에 등록된 오픈소스 연결'),
         h('div', { class: 'picker' }, officeOss.map((r) => {
           const on = (r.repo && equippedRepos.has(r.repo.toLowerCase())) || equippedNames.has(String(r.name || '').toLowerCase());
@@ -318,7 +320,9 @@ function openEmployeeSkillsModal(empOrId) {
               if (out) renderBody();
             }),
           }, `${on ? '✓ ' : '+ '}${r.name}`);
-        }))) : null);
+        }))));
+    }
+    presetWrap.replaceChildren(...presetKids);
   };
 
   const e0 = emp(empId);
@@ -2451,12 +2455,15 @@ function openCoordinatorConfigModal() {
         : h('div', { class: 'skill-empty' }, '설치된 CLI 에이전트를 찾지 못했어요. 아래 "다른 AI 더 보기"에서 웹 AI를 선택하거나 Claude/Codex를 설치해 주세요.'));
 
     const moreTotal = otherEmps.length + uninstalledCli.length;
-    moreWrap.replaceChildren(
-      moreTotal ? h('button', {
+    const moreKids = [];
+    if (moreTotal) {
+      moreKids.push(h('button', {
         type: 'button', class: 'orca-more-btn',
         onclick: () => { showMore = !showMore; renderPicker(); },
-      }, showMore ? '다른 AI 접기 ↑' : `다른 AI ${moreTotal}개 더 보기 →`) : null,
-      showMore ? h('div', { class: 'orca-grid orca-more-grid' },
+      }, showMore ? '다른 AI 접기 ↑' : `다른 AI ${moreTotal}개 더 보기 →`));
+    }
+    if (showMore) {
+      moreKids.push(h('div', { class: 'orca-grid orca-more-grid' },
         ...otherEmps.map((e) => {
           const on = pickedType === 'emp' && pickedVal === e.id;
           return h('button', {
@@ -2475,7 +2482,9 @@ function openCoordinatorConfigModal() {
           h('span', { class: `orca-ic ${m.tone}`, 'aria-hidden': 'true' }, m.badge),
           h('span', { class: 'orca-agent-txt' },
             h('b', null, m.label),
-            h('span', { class: 'orca-agent-sub' }, '이 맥에 미설치'))))) : null);
+            h('span', { class: 'orca-agent-sub' }, '이 맥에 미설치'))))));
+    }
+    moreWrap.replaceChildren(...moreKids);
 
     macWrap.replaceChildren(
       h('div', { class: 'orca-sec-meta coord-dlg-gap' },
