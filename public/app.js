@@ -3221,6 +3221,21 @@ async function openDailyReport() {
   }
 }
 
+function formatApprovalOriginal(orig) {
+  if (!orig) return null;
+  if (typeof orig === 'string') return h('div', { class: 'orig' }, `원본 · ${orig}`);
+  if (typeof orig === 'object') {
+    const author = orig.author || orig.from || orig.user || '';
+    const body = orig.text || orig.comment || orig.body || orig.content || orig.message || '';
+    const safeUrl = typeof orig.url === 'string' && /^https?:\/\//i.test(orig.url) ? orig.url : '';
+    const textLine = [author, body].filter(Boolean).join(' · ') || JSON.stringify(orig);
+    return h('div', { class: 'orig' },
+      h('span', null, `원본 · ${textLine}`),
+      safeUrl ? h('a', { class: 'btn link', href: safeUrl, target: '_blank', rel: 'noopener noreferrer', style: 'margin-left:8px' }, '원본 보기 ↗') : null);
+  }
+  return h('div', { class: 'orig' }, `원본 · ${String(orig)}`);
+}
+
 function approvalInlineCard(a) {
   const hasDraft = a.draft !== null && a.draft !== undefined && a.draft !== '';
   const draftEl = hasDraft ? h('textarea', { class: 'in sm', rows: 3, 'data-k': `appr-draft-${a.id}`, 'aria-label': '보낼 초안 수정' }, a.draft) : null;
@@ -3236,7 +3251,7 @@ function approvalInlineCard(a) {
             a.what),
           h('div', { class: 'small muted', style: 'margin-top:3px' }, ['대표 승인 대기', a.kind, nameOf(a.from), linkedTask ? `할 일: ${linkedTask.title}` : '', stamp(a.requestedAt)].filter(Boolean).join(' · ')))),
       linkedTask ? h('button', { type: 'button', class: 'btn link', onclick: () => openTaskById(linkedTask.id) }, '할 일 열기') : null),
-    a.original ? h('div', { class: 'orig' }, `원본 · ${a.original}`) : null,
+    formatApprovalOriginal(a.original),
     draftEl ? h('label', { class: 'field' }, h('span', { class: 'small muted' }, '보낼 초안 (수정 후 승인 가능)'), draftEl) : null,
     h('div', { class: 'row', style: 'justify-content:flex-end' },
       h('button', { type: 'button', class: 'btn sm', onclick: () => once(`ap-r-${a.id}`, () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '반려' }, '반려했어요')) }, '반려'),
