@@ -1916,6 +1916,20 @@ dialog.auto-dlg { width: min(560px, calc(100vw - 24px)); }
 .slc-ln .lt-txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .slc-ln.muted { color: rgba(255, 255, 255, 0.5); }
 
+.stop-run-btn {
+  background: rgba(200, 40, 32, 0.1); color: #c82820; border: 1px solid rgba(200, 40, 32, 0.45);
+  font-weight: 700; transition: background .14s ease, color .14s ease;
+}
+.stop-run-btn:hover { background: #c82820; color: #fff; border-color: #c82820; }
+.slc-stop-btn {
+  padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(248, 113, 113, 0.55);
+  background: rgba(200, 40, 32, 0.2); color: #fca5a5; font: inherit;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 10.5px; font-weight: 700; cursor: pointer; flex: none;
+  transition: background .14s ease, color .14s ease;
+}
+.slc-stop-btn:hover { background: #c82820; color: #fff; border-color: #c82820; }
+
 /* ───── 조선 비급서 · RPG 스킬 도감 (50+ 스킬 확장 대응 · 픽셀 아이콘 카드) ───── */
 dialog.wide.arsenal-dlg { width: min(740px, calc(100vw - 32px)); max-width: 740px; }
 .codex-card span { word-break: keep-all; }

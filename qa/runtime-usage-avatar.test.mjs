@@ -483,6 +483,22 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
       if (gatedFinal?.status === '완료') break;
     }
     assert.equal(gatedFinal?.status, '완료', '대표 승인 1클릭만으로 추가 클릭 없이 즉시 실행·완료되어야 함');
+
+    // 5) 실행 중인 AI 작업 1클릭 즉시 중단(POST /api/ui/tasks/:id/stop) → 대체 AI 인계 없이 즉시 종료·대기 복귀
+    const slowTask = await ui('POST', '/api/ui/tasks', { title: '중단 테스트용 긴 작업', assignee: 'claude' });
+    assert.equal(slowTask.status, 200);
+    const slowRun = await ui('POST', `/api/ui/tasks/${slowTask.body.id}/run`, {});
+    assert.equal(slowRun.status, 200);
+    await new Promise((r) => setTimeout(r, 150));
+    const stopRes = await ui('POST', `/api/ui/tasks/${slowTask.body.id}/stop`, {});
+    assert.equal(stopRes.status, 200);
+    assert.equal(stopRes.body.stopped, true);
+    await new Promise((r) => setTimeout(r, 350));
+    const stAfterStop = await (await fetch(`${origin}/api/state`)).json();
+    const stoppedTask = stAfterStop.data.tasks.find((t) => t.id === slowTask.body.id);
+    assert.equal(stoppedTask?.status, '대기', '대표가 중단한 작업은 대기 상태로 돌아가야 함');
+    assert.equal(stoppedTask?.assignee, 'claude', '대표가 중단한 작업은 대체 AI로 자동 인계되면 안 됨');
+    assert.equal(stAfterStop.working.some((w) => w.taskId === slowTask.body.id), false, '실행 목록에서 즉시 제거되어야 함');
   } finally {
     child.kill('SIGTERM');
     await new Promise((r) => child.once('exit', r));

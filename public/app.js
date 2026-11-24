@@ -937,17 +937,31 @@ function renderLiveWorker() {
   const eObj = emp(w.emp);
   const tObj = w.taskId ? S.data.tasks.find((x) => x.id === w.taskId) : null;
   const more = list.length > 1 ? ` 외 ${list.length - 1}명` : '';
-  const pill = h('button', {
-    type: 'button', class: 'live-worker-pill',
+  const pill = h('div', {
+    class: 'live-worker-pill', role: 'button', tabindex: '0',
     onclick: () => { if (w.taskId) openTaskById(w.taskId); else location.hash = '#dashboard'; },
+    onkeydown: (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); if (w.taskId) openTaskById(w.taskId); else location.hash = '#dashboard'; } },
   },
   eObj ? avatarEl(eObj, { size: 32, stateOverride: 'working' }) : h('span', { class: 'live-brand-dot' }, h('i'), h('i')),
   h('div', { class: 'live-worker-txt' },
     h('div', { class: 'live-worker-h' }, h('span', { class: 'live-pulse' }), h('b', null, `${shortName(w.emp)} 일하는 중${more}`)),
     h('div', { class: 'small muted clamp' }, w.statusLine || tObj?.title || w.label || '작업 실행 중')),
+  w.taskId
+    ? h('button', {
+      type: 'button', class: 'btn sm stop-run-btn',
+      title: `${shortName(w.emp)} 작업 즉시 중단`,
+      onclick: (ev) => { ev.stopPropagation(); stopRunningTask(w.taskId, w.emp); },
+    }, '■ 중단')
+    : null,
   h('span', { class: 'tag' }, '열기'));
   box.replaceChildren(pill);
   box.classList.add('show');
+}
+
+function stopRunningTask(taskId, empId) {
+  return once(`stop-${taskId}`, async () => {
+    await act('POST', `/api/ui/tasks/${taskId}/stop`, {}, `⏹️ ${shortName(empId)} 작업을 즉시 중단했어요`);
+  });
 }
 
 const recentStartCards = new Map();
@@ -1593,6 +1607,9 @@ function taskRow(t, { draggable = true, overdue = false } = {}) {
     workJob || t.status === '진행' || t.status === '막힘'
       ? h('span', { class: `stat-pill ${workJob ? '진행' : t.status}` }, officeOf(t) && t.status === '진행' ? `${officeOf(t).name}에서 실행 중` : workJob ? '● 일하는 중' : t.status === '막힘' ? '실패 · 막힘' : t.status)
       : null,
+    workJob
+      ? h('button', { type: 'button', class: 'btn sm stop-run-btn', title: '실행 중인 AI를 즉시 멈춥니다', onclick: (ev) => { ev.stopPropagation(); stopRunningTask(t.id, workJob.emp); } }, '■ 중단')
+      : null,
     quickRun,
     msgs ? h('span', { class: 'small muted', title: '스레드 메시지' }, `대화 ${msgs}`) : null,
     who);
@@ -1859,6 +1876,7 @@ function taskDetail(t, e) {
           workJob.machineName ? h('span', { class: 'ops-lj-mach' }, workJob.machineName) : null),
         h('div', { class: 'row' },
           h('span', { class: 'ops-lj-time', 'data-live-since': workJob.since || null, 'data-live-prefix': '⚡ ' }, `⚡ ${fmtElapsedSec(workJob.elapsedSec)}`),
+          h('button', { type: 'button', class: 'btn sm stop-run-btn', onclick: () => stopRunningTask(t.id, workJob.emp) }, '■ 지금 중단'),
           h('span', { class: 'live-stream-ts' }, stamp(workJob.since)))),
       h('div', { class: 'live-stream-sub' },
         h('i', { class: 'ops-dot' }),
@@ -3546,17 +3564,32 @@ function joseonSwarmPanel() {
     ? h('div', { class: 'swarm-live-console', role: 'log', 'aria-live': 'polite' },
       h('div', { class: 'slc-head' },
         h('span', { class: 'slc-title' }, 'LIVE EXECUTION STREAM · 실시간 작업 현황'),
-        h('span', { class: 'slc-hint' }, '클릭하면 전체 로그가 열립니다')),
+        h('div', { class: 'row' },
+          h('span', { class: 'slc-hint' }, '클릭하면 전체 로그가 열립니다'),
+          workingCount > 1
+            ? h('button', {
+              type: 'button', class: 'slc-stop-btn',
+              onclick: () => once('stop-all', () => act('POST', '/api/ui/working/stop-all', {}, '⏹️ 실행 중인 모든 AI를 즉시 중단했어요')),
+            }, '■ 전체 중단')
+            : null)),
       h('div', { class: 'slc-list' }, (S.working || []).slice(0, 3).map((w) => {
         const recent = (w.liveLines || []).slice(-3);
-        return h('button', {
-          type: 'button', class: 'slc-job',
+        return h('div', {
+          class: 'slc-job', role: 'button', tabindex: '0',
           onclick: () => { if (w.taskId) openTaskById(w.taskId); },
+          onkeydown: (ev) => { if ((ev.key === 'Enter' || ev.key === ' ') && w.taskId) { ev.preventDefault(); openTaskById(w.taskId); } },
         },
         h('div', { class: 'slc-job-top' },
           h('span', { class: 'slc-who' }, shortName(w.emp)),
           h('span', { class: 'slc-ttl' }, w.title || '작업 실행 중'),
-          h('span', { class: 'slc-tm', 'data-live-since': w.since || null, 'data-live-prefix': '⚡ ' }, `⚡ ${fmtElapsedSec(w.elapsedSec)}`)),
+          h('span', { class: 'slc-tm', 'data-live-since': w.since || null, 'data-live-prefix': '⚡ ' }, `⚡ ${fmtElapsedSec(w.elapsedSec)}`),
+          w.taskId
+            ? h('button', {
+              type: 'button', class: 'slc-stop-btn',
+              title: `${shortName(w.emp)} 작업 즉시 중단`,
+              onclick: (ev) => { ev.stopPropagation(); stopRunningTask(w.taskId, w.emp); },
+            }, '■ 중단')
+            : null),
         h('div', { class: 'slc-lines' },
           recent.length
             ? recent.map((ln) => h('div', { class: 'slc-ln' },

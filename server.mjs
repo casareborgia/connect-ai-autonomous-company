@@ -201,6 +201,7 @@ const gateK = (g) => `${g}${hasBatchim(g) ? '이' : '가'}`;
 
 // 지금 일하는 중인 AI (메모리에만)
 const working = new Map();
+const workingAborts = new Map();
 // 작업 중 맥 잠자기 방지 (macOS caffeinate)
 const powerGuard = createPowerGuard();
 const syncPower = () => powerGuard.sync(working.size, store.data?.settings?.preventSleep !== false);
@@ -1170,8 +1171,10 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
   const prompt = runPrompt(d, emp, t);
   const label = emp.engine === 'local' ? `로컬 모델 ${emp.model.replace(/^(ollama|lmstudio):/, '')}` : runnerInfo(emp.engine).label;
   const runModel = emp.engine === 'local' ? emp.model.replace(/^(ollama|lmstudio):/, '') : (modelFor(emp)?.name || modelOf(emp) || MODEL_UNKNOWN);
+  const ctrl = new AbortController();
   const job = { emp: emp.id, thread, taskId: t.id, title: t.title, resourceId: t.resource || null, kind: emp.engine === 'local' ? 'local' : 'run', since: nowIso(), label, statusLine: '작업 준비 중', liveLines: [{ at: hm(), text: `${emp.name} (${label}) 실행 시작` }] };
   working.set(emp.id, job);
+  workingAborts.set(emp.id, ctrl);
   syncPower();
   await store.mutate((x) => {
     const tt = getTask(x, t.id);
@@ -1264,6 +1267,20 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
   const INCOMPLETE_RUN_RE = /(?:누르지\s*못|게시하지\s*못|올리지\s*못|보내지\s*못|발송하지\s*못|완료하지\s*못|실행하지\s*못|Ego\s*Lite\s*연결이\s*끊|Failed\s+to\s+start\s+ego\s+lite|게시\s*상태는\s*\*?\*?미게시|접근이\s*거부됐)/i;
 
   const finish = (output, ok, code, meta = {}) => store.mutate((x) => {
+    const wasAborted = Boolean(meta.aborted || ctrl.signal.aborted);
+    if (wasAborted) {
+      const tt = x.tasks.find((y) => y.id === t.id);
+      if (tt) {
+        tt.runStartedAt = null;
+        tt.lastRunAt = nowIso();
+        if (tt.status === '진행') {
+          tt.status = '대기';
+          pushHistory(tt, 'jay', '중단', `대표가 ${emp.name} 실행을 즉시 중단`);
+        }
+      }
+      sys(x, thread, `⏹️ 대표가 ${emp.name} 실행을 즉시 중단했습니다.`);
+      return;
+    }
     const outText = meta.hung
       ? `${output ? `${output}\n\n` : ''}[먹통 감시] ${meta.hangSec || Math.round(DEFAULT_HANG_MS / 1000)}초 동안 응답이 없어 실행을 중단했습니다.`
       : String(output || '(출력 없음)');
@@ -1313,6 +1330,7 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
       model: emp.model || '',
       effort: emp.effort || '',
       hangMs: DEFAULT_HANG_MS,
+      signal: ctrl.signal,
       onProgress: (line) => {
         job.statusLine = line.slice(0, 90);
         if (!Array.isArray(job.liveLines)) job.liveLines = [];
@@ -1325,8 +1343,9 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
         }
       },
       env: { AIHQ_URL: `http://127.0.0.1:${PORT}`, HQ_EMPLOYEE: emp.id },
-    }).then((r) => finish(r.out || r.err, r.code === 0 && !r.hung, r.code, { hung: r.hung, hangSec: r.hangSec }));
+    }).then((r) => finish(r.out || r.err, r.code === 0 && !r.hung && !r.aborted, r.code, { hung: r.hung, hangSec: r.hangSec, aborted: r.aborted }));
   run.catch((e) => store.mutate((x) => {
+    if (ctrl.signal.aborted) return;
     const errText = String(e.message || e);
     const tt = x.tasks.find((y) => y.id === t.id);
     if (tt && tt.status === '진행' && handleFailureQuota(x, tt, errText)) return;
@@ -1339,6 +1358,7 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
     }
   })).finally(() => {
     working.delete(emp.id);
+    workingAborts.delete(emp.id);
     syncPower();
     if (nextFailover) {
       const f = nextFailover;
@@ -2088,6 +2108,54 @@ route('POST', '/api/ui/tasks/:id/run', async ({ params, body }) => {
     });
   }
   return startRun(params.id, 'jay', { force: Boolean(body?.force) });
+}, UI);
+
+// 실행 중인 AI 작업 1클릭 즉시 중단 (자식 프로세스 그룹 안전 종료 · 대체 AI 자동 인계 안 함)
+route('POST', '/api/ui/tasks/:id/stop', async ({ params }) => {
+  const targetId = params.id;
+  let stoppedEmp = null;
+  for (const [empId, job] of working.entries()) {
+    if (job.taskId === targetId) {
+      stoppedEmp = empId;
+      const ctrl = workingAborts.get(empId);
+      if (ctrl) ctrl.abort();
+      break;
+    }
+  }
+  await store.mutate((d) => {
+    const t = getTask(d, targetId);
+    t.runStartedAt = null;
+    if (t.status === '진행') {
+      t.status = '대기';
+      pushHistory(t, 'jay', '중단', stoppedEmp ? `대표가 ${nameOf(d, stoppedEmp)} 실행 중단` : '대표가 실행 중단');
+      sys(d, `task:${t.id}`, `⏹️ 대표가 실행을 중단했습니다.`);
+    }
+  });
+  return { stopped: true, taskId: targetId, emp: stoppedEmp };
+}, UI);
+
+// 현재 실행 중인 모든 AI 즉시 일괄 중단 (긴급 정지)
+route('POST', '/api/ui/working/stop-all', async () => {
+  const stopped = [];
+  for (const [empId, job] of working.entries()) {
+    const ctrl = workingAborts.get(empId);
+    if (ctrl) ctrl.abort();
+    stopped.push({ emp: empId, taskId: job.taskId });
+  }
+  if (stopped.length) {
+    await store.mutate((d) => {
+      for (const s of stopped) {
+        const t = d.tasks.find((x) => x.id === s.taskId);
+        if (t && t.status === '진행') {
+          t.runStartedAt = null;
+          t.status = '대기';
+          pushHistory(t, 'jay', '중단', '대표 긴급 전체 중단');
+          sys(d, `task:${t.id}`, '⏹️ 대표가 전체 AI 실행을 즉시 중단했습니다.');
+        }
+      }
+    });
+  }
+  return { stopped: stopped.length, items: stopped };
 }, UI);
 
 route('POST', '/api/ui/tasks/:id/messages', async ({ params, body }) => {
