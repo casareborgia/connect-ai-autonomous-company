@@ -859,11 +859,17 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .live-card.k-approve .live-kicker, .live-card.k-alert .live-kicker { color: #f87171; }
 .live-card.k-connect .live-kicker, .live-card.k-done .live-kicker { color: #34d399; }
 .live-card.k-handoff .live-kicker { color: #fbbf24; }
-.live-ts { font-size: 10px; color: #8c94a8; font-variant-numeric: tabular-nums; }
-.live-card-title { font-size: 13px; font-weight: 600; color: #ffffff; line-height: 1.4; word-break: keep-all; }
-.live-card-sub { font-size: 12px; color: #a6aec2; line-height: 1.42; margin-top: 1px; }
-.live-card-act { align-self: flex-start; margin-top: 4px; font-weight: 600; color: var(--gold-hi); }
-.live-x { border: 0; background: none; color: #8c94a8; font-size: 16px; line-height: 1; padding: 0 2px; cursor: pointer; flex: none; }
+.live-ts { font-size: 10.5px; color: #b4bdd1; font-variant-numeric: tabular-nums; }
+.live-card-title { font-size: 13px; font-weight: 700; color: #ffffff; line-height: 1.4; word-break: keep-all; }
+.live-card-sub { font-size: 12px; color: #d5dbe8; line-height: 1.45; margin-top: 1px; }
+.live-card .btn.link.live-card-act {
+  align-self: flex-start; margin-top: 5px; font-weight: 700;
+  color: #f6d998; text-decoration-color: rgba(246, 217, 152, 0.55);
+}
+.live-card .btn.link.live-card-act:hover {
+  color: #fff6dc; text-decoration-color: #f6d998;
+}
+.live-x { border: 0; background: none; color: #b4bdd1; font-size: 16px; line-height: 1; padding: 0 2px; cursor: pointer; flex: none; }
 .live-x:hover { color: #ffffff; }
 .live-brand-dot { width: 32px; height: 32px; border-radius: 9px; background: #181a22; border: 1px solid rgba(212, 163, 89, 0.4); display: inline-flex; align-items: flex-end; justify-content: center; gap: 3px; padding: 7px; flex: none; }
 .live-brand-dot i { display: block; width: 6px; background: #fff; border-radius: 1.5px; }
