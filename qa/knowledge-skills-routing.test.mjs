@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { extractRecurringSchedule, extractKoreanTime } from '../lib/util.mjs';
+import { detectGate } from '../lib/gates.mjs';
 import { normalizeEmployeeSkill, matchEmployeeSkills } from '../lib/tools.mjs';
 import { exportBlueprint } from '../lib/blueprint.mjs';
 
@@ -89,6 +90,19 @@ test('반복 명령 자연어 파싱 + 주요/세부 스킬 매칭 단위 검증
   const weekly = extractRecurringSchedule('매주 월요일 9시에 주간 보고');
   assert.deepEqual(weekly?.days, [1]);
   assert.equal(weekly?.time, '09:00');
+  const twoHr = extractRecurringSchedule('2시간마다 물 마시기 알람');
+  assert.equal(twoHr?.intervalMin, 120);
+  const morn = extractRecurringSchedule('아침마다 AI 뉴스 3줄 브리핑해줘');
+  assert.equal(morn?.time, '08:30');
+  const mwf = extractRecurringSchedule('매주 월, 수, 금 오전 9시 쇼츠 훅 아이디어 3개');
+  assert.deepEqual(mwf?.days, [1, 3, 5]);
+  assert.equal(mwf?.time, '09:00');
+  // 초안·사전 벤치마크·금지 안내 문구는 안전 통과, 실제 게시/발송은 반드시 차단
+  assert.equal(detectGate('매일 아침 8시 유튜브 업로드 전 벤치마크 분석해줘'), null);
+  assert.equal(detectGate('새 유튜브 영상 인스타 스레드 X 크로스포스팅 초안 써줘'), null);
+  assert.equal(detectGate('답장 초안만 저장하고 실제 발송이나 삭제는 절대 하지 마'), null);
+  assert.equal(detectGate('매일 밤 9시 인스타에 바로 게시해줘'), '게시');
+  assert.equal(detectGate('매일 오전 10시 고객에게 이메일 바로 보내줘'), '발송');
   assert.equal(extractRecurringSchedule('지금 유튜브 쇼츠 훅 3개 써줘'), null);
   // 화면비("9:16", "16:9", "1:1")는 예약 시각("09:16")으로 오인하면 안 됨
   assert.equal(extractKoreanTime('이 영상에 모션그래픽 넣어줘 9:16 숏츠 편집'), null);

@@ -4494,68 +4494,175 @@ function dots7(r) {
   return h('span', { class: 'dots7', 'aria-label': '최근 7일 기록' }, items);
 }
 
+function fmtIntervalLabel(m) {
+  const n = Number(m) || 0;
+  if (!n) return '';
+  return n >= 60 && n % 60 === 0 ? `${n / 60}시간마다` : `${n}분마다`;
+}
+
+const AUTOMATION_TPL_CATS = [
+  ['all', '전체'],
+  ['youtube', '유튜브'],
+  ['sns', '인스타 · X · 스레드'],
+  ['life', '일상 · 라이프'],
+  ['work', '업무 · 이메일 · 개발'],
+];
+
 const AUTOMATION_TEMPLATES = [
+  // 유튜브 (YouTube)
   {
-    key: 'inbox-triage',
-    kicker: 'INBOX',
-    title: '5분마다 이메일 · 수강생 문의 체크',
-    desc: 'Ego Lite에서 새 메일과 영수증·협업 문의를 확인하고 답장 초안만 안전하게 저장합니다.',
-    intervalMin: 5,
-    time: '',
-    days: [0, 1, 2, 3, 4, 5, 6],
-    assignee: 'auto',
-    instruction: 'Ego Lite 이메일 스페이스에서 새로 들어온 메일과 수강생·협업 문의를 확인하세요. 중요한 건을 요약하고 답장 초안만 저장하세요. 실제 발송이나 삭제는 절대 하지 말고 대표 승인 대기로 남기세요.',
-  },
-  {
-    key: 'morning-brief',
-    kicker: 'MORNING BRIEFING',
-    title: '매일 아침 대표 브리핑',
-    desc: '오늘 일정, 대기 중인 AI 작업, 승인 필요 항목을 3줄 요약 브리핑으로 정리합니다.',
+    key: 'yt-benchmark',
+    cat: 'youtube',
+    kicker: 'YOUTUBE · BENCHMARK',
+    title: '유튜브 업로드 전 벤치마크 & 훅 분석',
+    desc: '경쟁 유튜브 채널 최신 영상의 조회수·썸네일·첫 5초 훅 구조를 분석해 촬영 전 리포트로 정리합니다.',
     intervalMin: null,
-    time: '08:30',
-    days: [1, 2, 3, 4, 5],
+    time: '09:00',
+    days: [2, 5],
     assignee: 'auto',
-    instruction: '오늘 일정과 대기·진행 중인 AI 작업, 대표 확인(승인)이 필요한 항목을 핵심 3줄로 정리해 브리핑을 작성하세요.',
+    instruction: 'connect-ai-marketer와 Ego Lite로 국내외 AI·테크 경쟁 유튜브 채널 최신 급상승 영상 5개의 제목·썸네일·첫 5초 훅 구조를 벤치마크하고, 내 다음 영상용 제목 5안과 훅 3안을 정리하세요.',
   },
   {
     key: 'creator-edit',
-    kicker: 'CREATOR',
-    title: '유튜브 · 쇼츠 영상 편집 파이프라인',
-    desc: '신규 촬영본을 검토하고 Remotion·Hyperframes 모션 그래픽과 썸네일 시안을 준비합니다.',
+    cat: 'youtube',
+    kicker: 'YOUTUBE · VIDEO MOTION',
+    title: '유튜브 · 쇼츠 영상 편집 & 9:16 체크리스트',
+    desc: '신규 촬영본을 connect-ai-video-motion 기준으로 몸 인식 모션그래픽·컷 편집·9:16 크롭 계획을 세웁니다.',
     intervalMin: null,
     time: '08:00',
     days: [1, 2, 3, 4, 5],
     assignee: 'auto',
-    instruction: '신규 영상 기획·촬영본을 확인하고 Remotion 또는 Hyperframes로 미니멀 모션 그래픽과 썸네일 카피 시안을 준비하세요. 최종 업로드는 대표 승인 전 정지하세요.',
+    instruction: '신규 촬영본 폴더를 확인하고 connect-ai-video-motion 기준으로 1) 몸 인식 모션그래픽 배치 포인트, 2) 무음·군더더기 컷 편집 구간, 3) 9:16 쇼츠·1:1 클립 구간과 썸네일 카피 시안을 준비하세요. 최종 업로드는 대표 승인 전 정지하세요.',
+  },
+  {
+    key: 'yt-comment-faq',
+    cat: 'youtube',
+    kicker: 'YOUTUBE · AUDIENCE',
+    title: '유튜브 댓글 질문 모아 FAQ · 다음 영상 주제 추출',
+    desc: '시청자가 반복해서 묻는 질문과 반응 좋은 포인트를 모아 다음 쇼츠·강의 주제를 자동 추천합니다.',
+    intervalMin: null,
+    time: '20:00',
+    days: [0, 1, 2, 3, 4, 5, 6],
+    assignee: 'auto',
+    instruction: 'Ego Lite에서 최근 유튜브 영상 댓글을 읽고 반복 질문 Top 5, 공감 포인트, 다음 쇼츠·롱폼 영상으로 다루면 좋은 주제 3가지를 표로 정리하세요. 답글은 초안만 작성하세요.',
+  },
+  // 인스타 · X · 스레드 (SNS)
+  {
+    key: 'ig-comment-draft',
+    cat: 'sns',
+    kicker: 'INSTAGRAM · REPLY DRAFT',
+    title: '30분마다 인스타 댓글 · DM 문의 답글 초안',
+    desc: 'Ego Lite에서 새 인스타그램 댓글과 협업·강의 문의를 확인해 브랜드 톤에 맞춘 답글 초안만 안전하게 준비합니다.',
+    intervalMin: 30,
+    time: '',
+    days: [0, 1, 2, 3, 4, 5, 6],
+    assignee: 'auto',
+    instruction: 'Ego Lite와 connect-ai-marketer로 새 인스타그램 댓글과 문의를 확인하세요. 내 지식 베이스의 브랜드 톤에 맞춰 자연스러운 답글 초안만 작성하고, 실제 게시나 DM 발송은 절대 하지 말고 대표 승인 대기로 남기세요.',
+  },
+  {
+    key: 'x-threads-listen',
+    cat: 'sns',
+    kicker: 'X · THREADS LISTENING',
+    title: '2시간마다 X · 스레드 AI 트렌드 리스닝 요약',
+    desc: 'X.com과 스레드에서 지금 터지고 있는 AI 자동화·클로드·코덱스 화제 글과 반응 패턴을 3줄 요약합니다.',
+    intervalMin: 120,
+    time: '',
+    days: [0, 1, 2, 3, 4, 5, 6],
+    assignee: 'auto',
+    instruction: 'connect-ai-marketer와 Ego Lite로 X.com 및 Threads에서 AI 에이전트·자동화·클로드·코덱스 관련 급상승 글 5건을 스캔해 핵심 인사이트 3줄과 내가 반응·인용할 글 초안 2개를 작성하세요.',
+  },
+  {
+    key: 'sns-repurpose',
+    cat: 'sns',
+    kicker: 'CROSS-POSTING DRAFT',
+    title: '새 유튜브 → 인스타·스레드·X·블로그 4채널 초안 생성',
+    desc: '새 영상 대본이나 메모 1개를 인스타 릴스 캡션, 스레드 타래, X 스레드, 블로그 요약 초안으로 한 번에 변환합니다.',
+    intervalMin: null,
+    time: '14:00',
+    days: [0, 1, 2, 3, 4, 5, 6],
+    assignee: 'auto',
+    instruction: '최근 완료된 유튜브 기획·대본 또는 브리핑 1건을 골라 1) 인스타그램 캡션+해시태그, 2) 스레드 3연속 타래, 3) X.com 요약 스레드, 4) 네이버 블로그 핵심 정리 초안을 브랜드 톤에 맞춰 작성하세요. 실제 게시는 하지 말고 초안만 보고하세요.',
+  },
+  // 일상 · 라이프 (Daily Life)
+  {
+    key: 'morning-brief',
+    cat: 'life',
+    kicker: 'MORNING BRIEFING',
+    title: '매일 아침 대표 브리핑 (일정 · AI 현황 · AI 뉴스 3줄)',
+    desc: '출근 전 오늘 일정, 밤사이 AI가 처리한 결과, 승인 대기 항목, 최신 AI 핵심 뉴스 3줄을 한눈에 브리핑합니다.',
+    intervalMin: null,
+    time: '08:30',
+    days: [1, 2, 3, 4, 5],
+    assignee: 'auto',
+    instruction: '오늘 일정과 대기·완료된 AI 작업, 대표 확인(승인) 필요 항목, 그리고 오늘 꼭 알아야 할 최신 AI 뉴스 3가지를 군더더기 없는 1분 브리핑으로 정리하세요.',
+  },
+  {
+    key: 'night-review',
+    cat: 'life',
+    kicker: 'DAILY REFLECTION',
+    title: '매일 밤 10시 하루 회고 & 내일 Top 3 정리',
+    desc: '오늘 완료된 작업과 미뤄진 일을 자동 정리하고, 내일 아침 가장 먼저 처리할 핵심 3가지를 제안합니다.',
+    intervalMin: null,
+    time: '22:00',
+    days: [0, 1, 2, 3, 4, 5, 6],
+    assignee: 'auto',
+    instruction: '오늘 완료한 작업, 미완료 항목, AI 직원별 성과를 요약하고 내일 대표가 집중할 Top 3와 AI에게 미리 넘길 작업 2가지를 제안하세요. 재사용할 패턴은 내 지식(AI 학습 메모)에 남기세요.',
+  },
+  {
+    key: 'water-stretch-alarm',
+    cat: 'life',
+    kicker: 'LIFE HABIT ALARM',
+    title: '2시간마다 물 마시기 · 스트레칭 대표 알람',
+    desc: '작업에 몰입하느라 놓치기 쉬운 수분 섭취와 목·어깨 스트레칭을 자는 시간 제외 2시간마다 알려줍니다.',
+    intervalMin: 120,
+    time: '',
+    days: [0, 1, 2, 3, 4, 5, 6],
+    assignee: 'jay',
+    instruction: '',
+  },
+  // 업무 · 이메일 · 개발 (Work & Dev)
+  {
+    key: 'inbox-triage',
+    cat: 'work',
+    kicker: 'INBOX TRIAGE',
+    title: '15분마다 이메일 · 수강생 문의 분류 & 답장 초안',
+    desc: 'Ego Lite에서 새 메일과 영수증·협업·수강생 문의를 우선순위별 분류하고 답장 초안만 안전하게 저장합니다.',
+    intervalMin: 15,
+    time: '',
+    days: [0, 1, 2, 3, 4, 5, 6],
+    assignee: 'auto',
+    instruction: 'Ego Lite 이메일 스페이스에서 새로 들어온 메일과 수강생·협업 문의를 확인해 긴급/일반/영수증으로 분류하고 답장 초안만 저장하세요. 실제 발송이나 삭제는 절대 하지 말고 대표 승인 대기로 남기세요.',
   },
   {
     key: 'growth-rebiz',
-    kicker: 'GROWTH',
-    title: '경쟁사 · 트렌드 리버스 비즈니스 분석',
-    desc: '주요 AI 서비스·경쟁 채널의 최근 변화와 수익화 구조를 요약해 보고합니다.',
+    cat: 'work',
+    kicker: 'REVERSE BUSINESS',
+    title: '경쟁사 · 신규 AI 서비스 자동 해부 (reversebusiness)',
+    desc: '주목할 AI 서비스·경쟁 채널의 수익화 구조와 차별화 포인트를 reversebusiness 방식으로 해부해 보고합니다.',
     intervalMin: null,
     time: '09:00',
     days: [1, 4],
     assignee: 'auto',
-    instruction: '주목할 AI 서비스·크리에이터 사례 3건을 조사해 수익 모델, 훅, 차별화 포인트를 비교 표와 실행 아이디어 3가지로 정리하세요.',
+    instruction: '주목할 신규 AI 서비스·크리에이터 사례 2~3건을 reversebusiness 관점(타깃·유입·가격·수익화·차별화·겹침 검사)으로 해부해 비교 표와 우리 제품 적용 아이디어 3가지를 정리하세요.',
   },
   {
-    key: 'system-health',
-    kicker: 'SYSTEM',
-    title: '매시간 AI 작업 · 막힘 점검',
-    desc: '진행 중 멈춘 작업, 토큰 한도 임박 직원, 승인 대기 건을 자동 점검합니다.',
-    intervalMin: 60,
-    time: '',
-    days: [0, 1, 2, 3, 4, 5, 6],
+    key: 'github-morning-check',
+    cat: 'work',
+    kicker: 'DEV · GITHUB OPS',
+    title: '매일 아침 깃허브 PR · 이슈 · 막힘 자동 점검',
+    desc: '내 GitHub 저장소의 새 이슈·PR·실패한 워크플로와 멈춘 AI 작업을 출근 전 한 번에 점검합니다.',
+    intervalMin: null,
+    time: '07:30',
+    days: [1, 2, 3, 4, 5],
     assignee: 'auto',
-    instruction: '현재 막힘 상태이거나 오래 대기 중인 작업, 토큰 한도가 80% 이상인 AI 직원, 승인 대기 항목을 점검해 즉시 조치할 목록만 간결하게 보고하세요.',
+    instruction: '로컬/GitHub CLI(gh/git)로 내 주요 저장소의 열린 이슈, PR, 최근 커밋·테스트 상태와 HQ 막힘 작업을 점검해 오늘 바로 조치할 항목만 3~5줄로 요약 보고하세요.',
   },
 ];
 
 function openNewAutomationModal(preset = null) {
   const dlg = document.getElementById('dlg');
   const d = S.data;
-  const ivList = S.options.intervalMins || [5, 15, 30, 60];
+  const ivList = S.options.intervalMins || [5, 15, 30, 60, 120, 180, 360];
   let pickedAssignee = preset?.assignee || 'auto';
   const initSched = preset?.intervalMin ? String(preset.intervalMin) : 'time';
   const initTime = preset?.intervalMin ? '' : (preset?.time || '09:00');
@@ -4563,12 +4670,12 @@ function openNewAutomationModal(preset = null) {
   const titleIn = h('input', {
     class: 'in auto-m-title',
     value: preset?.title || '',
-    placeholder: '예: 5분마다 이메일 체크, 매일 9시 아침 브리핑',
+    placeholder: '예: 30분마다 인스타 댓글 답글 초안, 2시간마다 물 마시기 알람',
     'aria-label': '오토메이션 이름',
   });
   const schedSel = h('select', { class: 'in', 'aria-label': '반복 주기' },
     h('option', { value: 'time', selected: initSched === 'time' }, '매일 지정 시각'),
-    ivList.map((m) => h('option', { value: String(m), selected: initSched === String(m) }, m === 60 ? '1시간마다 반복' : `${m}분마다 반복`)));
+    ivList.map((m) => h('option', { value: String(m), selected: initSched === String(m) }, `${fmtIntervalLabel(m)} 반복`)));
   const timeIn = h('input', {
     class: `in${initSched === 'time' ? '' : ' is-hidden'}`,
     type: 'time',
@@ -4712,9 +4819,9 @@ function pageDaily() {
     const runHistory = allRuns.filter((t) => t.routineId === r.id);
     const todayTask = runHistory.find((t) => t.date === S.today) || runHistory[0] || null;
     const latestRun = runHistory[0] || null;
-    const schedText = r.intervalMin ? (r.intervalMin === 60 ? '1시간마다 반복' : `${r.intervalMin}분마다 반복`) : (r.time || '시간 없음');
-    const autoText = human ? '대표 알람 · 정해진 시각에 맥 알림과 사운드가 울립니다' : !e ? '담당을 고르면 스케줄마다 자동 생성됩니다'
-      : e.runMode === 'auto' && canRun(e) ? `자동 실행 · ${r.intervalMin ? `${r.intervalMin}분마다 자동 점검` : '정해진 시각에 자동 실행'}`
+    const schedText = r.intervalMin ? `${fmtIntervalLabel(r.intervalMin)} 반복` : (r.time || '시간 없음');
+    const autoText = human ? `대표 알람 · ${r.intervalMin ? `${fmtIntervalLabel(r.intervalMin)} 맥 알림(자는 시간 제외)` : '정해진 시각에 맥 알림과 사운드가 울립니다'}` : !e ? '담당을 고르면 스케줄마다 자동 생성됩니다'
+      : e.runMode === 'auto' && canRun(e) ? `자동 실행 · ${r.intervalMin ? `${fmtIntervalLabel(r.intervalMin)} 자동 점검` : '정해진 시각에 자동 실행'}`
         : `미연결 · ${e.name} (${RUN_LABEL[e.runMode]})`;
 
     const rTitle = h('input', { class: 'in sm auto-edit-title', value: r.title, 'data-k': `rt-ttl-${r.id}`, 'aria-label': '오토메이션 이름' });
@@ -4725,13 +4832,13 @@ function pageDaily() {
       placeholder: 'AI에게 시킬 내용을 편하게 적어 주세요.\n예: 5분마다 Ego Lite 이메일 스페이스에서 새 메일과 영수증 요청 확인하고 초안만 저장해줘\n예: 8시 영상 편집 — 모션 그래픽은 Hyperframes로 미니멀 스타일, 3D는 Office 1에서 Blender로 해줘',
     }, r.instruction || '');
     const rTime = h('input', { class: `in sm auto-edit-time${r.intervalMin ? ' is-hidden' : ''}`, type: 'time', value: r.time || '', 'data-k': `rt-tm-${r.id}`, 'aria-label': '실행 시각' });
-    const rSched = !human ? h('select', { class: 'in sm auto-edit-sched', 'data-k': `rt-iv-${r.id}`, 'aria-label': '반복 주기', onchange: (ev) => {
+    const rSched = h('select', { class: 'in sm auto-edit-sched', 'data-k': `rt-iv-${r.id}`, 'aria-label': '반복 주기', onchange: (ev) => {
       const v = ev.target.value;
       if (v === 'time') { rTime.classList.remove('is-hidden'); act('PATCH', `/api/ui/routines/${r.id}`, { intervalMin: null }, '매일 시각 방식으로 바꿨어요'); }
-      else { rTime.classList.add('is-hidden'); act('PATCH', `/api/ui/routines/${r.id}`, { intervalMin: Number(v) }, `${v}분마다 반복으로 바꿨어요`); }
+      else { rTime.classList.add('is-hidden'); act('PATCH', `/api/ui/routines/${r.id}`, { intervalMin: Number(v) }, `${fmtIntervalLabel(Number(v))} 반복으로 바꿨어요`); }
     } },
-      h('option', { value: 'time', selected: !r.intervalMin }, '매일 시각'),
-      ivList.map((m) => h('option', { value: String(m), selected: r.intervalMin === m }, m === 60 ? '1시간마다' : `${m}분마다`))) : null;
+    h('option', { value: 'time', selected: !r.intervalMin }, '매일 시각'),
+    ivList.map((m) => h('option', { value: String(m), selected: r.intervalMin === m }, fmtIntervalLabel(m))));
     rTime.addEventListener('change', () => act('PATCH', `/api/ui/routines/${r.id}`, { time: rTime.value || null }, '시간을 바꿨어요'));
 
     const dirtyEl = h('span', { class: 'p-dirty' }, '');
@@ -4904,9 +5011,10 @@ function pageDaily() {
       filteredRuns.length
         ? h('div', { class: 'auto-runs-list' }, filteredRuns.slice(0, 60).map((t) => {
           const rt = routineMap.get(t.routineId);
-          const actorId = t.completedBy || t.assignee;
+          const actorId = (t.completedBy && t.completedBy !== 'system') ? t.completedBy : t.assignee;
           const actorEmp = emp(actorId);
-          const schedTag = rt ? (rt.intervalMin ? `${rt.intervalMin}분마다` : (rt.time || '매일')) : '오토메이션';
+          const actorLabel = actorId === 'jay' ? '대표 알람' : shortName(actorId);
+          const schedTag = rt ? (rt.intervalMin ? fmtIntervalLabel(rt.intervalMin) : (rt.time || '매일')) : '오토메이션';
           return h('div', { class: 'auto-run-card' },
             h('div', { class: 'auto-run-left' },
               h('span', { class: `stat-pill ${t.status}` }, t.status),
@@ -4918,7 +5026,7 @@ function pageDaily() {
             h('div', { class: 'auto-run-right' },
               h('div', { class: 'auto-run-actor' },
                 actorEmp ? avatarEl(actorEmp, { size: 22 }) : null,
-                h('span', null, shortName(actorId))),
+                h('span', null, actorLabel)),
               h('span', { class: 'auto-run-ts' }, fmtRunTs(t)),
               h('button', { type: 'button', class: 'btn sm', onclick: () => openTaskById(t.id) }, '결과 열기 →')));
         }))
@@ -4997,14 +5105,26 @@ function pageDaily() {
   renderList();
 
   const haveTitles = new Set(d.routines.map((r) => r.title));
+  const curTplCat = ui.autoTplCat || 'all';
+  const tplList = curTplCat === 'all' ? AUTOMATION_TEMPLATES : AUTOMATION_TEMPLATES.filter((t) => t.cat === curTplCat);
   const templateSection = h('section', { class: 'auto-tpl-sec' },
     h('div', { class: 'auto-tpl-head' },
-      h('h2', { class: 'auto-tpl-h' }, '템플릿으로 바로 시작'),
-      h('span', { class: 'small muted' }, '카드를 누르면 프롬프트가 채워진 상태로 바로 커스터마이징할 수 있어요')),
-    h('div', { class: 'auto-tpl-stack' },
-      AUTOMATION_TEMPLATES.map((tpl) => {
+      h('h2', { class: 'auto-tpl-h' }, '실전 자동화 템플릿으로 바로 시작 (유튜브 · 인스타 · X · 스레드 · 일상)'),
+      h('span', { class: 'small muted' }, 'X.com·스레드에서 가장 많이 쓰는 AI 자동화 루틴 12선 · 클릭해 바로 추가하거나 프롬프트를 커스터마이징하세요')),
+    h('div', { class: 'auto-tpl-cats', role: 'group', 'aria-label': '템플릿 분야 필터' },
+      AUTOMATION_TPL_CATS.map(([k, lbl]) => {
+        const cnt = k === 'all' ? AUTOMATION_TEMPLATES.length : AUTOMATION_TEMPLATES.filter((t) => t.cat === k).length;
+        return h('button', {
+          type: 'button',
+          class: `chip sm${curTplCat === k ? ' on' : ''}`,
+          onclick: () => { ui.autoTplCat = k; render(); },
+        }, `${lbl} (${cnt})`);
+      })),
+    h('div', { class: 'auto-tpl-grid' },
+      tplList.map((tpl) => {
         const already = haveTitles.has(tpl.title);
-        const schedBadge = tpl.intervalMin ? (tpl.intervalMin === 60 ? '1시간마다' : `${tpl.intervalMin}분마다`) : `매일 ${tpl.time}`;
+        const dayPrefix = tpl.days.length === 7 ? '매일' : daysText(tpl.days);
+        const schedBadge = tpl.intervalMin ? fmtIntervalLabel(tpl.intervalMin) : `${dayPrefix} ${tpl.time}`;
         return h('button', {
           type: 'button',
           class: `auto-tpl-card${already ? ' added' : ''}`,

@@ -1851,9 +1851,12 @@ dialog.auto-dlg { width: min(560px, calc(100vw - 24px)); }
 .skill-sub-ta { min-height: 76px; padding: 8px 10px; line-height: 1.5; resize: vertical; }
 .skill-preset-btn.upcoming { border-style: dashed; opacity: 0.85; }
 .skill-preset-role { font-size: 10.5px; font-weight: 600; color: #9a702e; }
+.auto-tpl-cats { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.auto-tpl-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 
 /* 모바일 보강 (cascade 맨 마지막에 두어 .chip.sm 등의 터치 영역을 보장) */
 @media (max-width: 860px) {
+  .auto-tpl-grid { grid-template-columns: 1fr; }
   .ops-kpis { grid-template-columns: 1fr 1fr; }
   .ops-deck { grid-template-columns: 1fr; }
   .ops-machine-grid, .ops-mb-body { grid-template-columns: 1fr; }
