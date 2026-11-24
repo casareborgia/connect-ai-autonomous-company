@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { extractRecurringSchedule } from '../lib/util.mjs';
+import { extractRecurringSchedule, extractKoreanTime } from '../lib/util.mjs';
 import { normalizeEmployeeSkill, matchEmployeeSkills } from '../lib/tools.mjs';
 import { exportBlueprint } from '../lib/blueprint.mjs';
 
@@ -90,6 +90,10 @@ test('반복 명령 자연어 파싱 + 주요/세부 스킬 매칭 단위 검증
   assert.deepEqual(weekly?.days, [1]);
   assert.equal(weekly?.time, '09:00');
   assert.equal(extractRecurringSchedule('지금 유튜브 쇼츠 훅 3개 써줘'), null);
+  // 화면비("9:16", "16:9", "1:1")는 예약 시각("09:16")으로 오인하면 안 됨
+  assert.equal(extractKoreanTime('이 영상에 모션그래픽 넣어줘 9:16 숏츠 편집'), null);
+  assert.equal(extractKoreanTime('16:9 가로 영상과 1:1 정사각형 크롭'), null);
+  assert.equal(extractKoreanTime('오전 9:16에 회의 알림'), '09:16');
 
   const sk = normalizeEmployeeSkill({
     name: 'Connect AI Motion',
@@ -204,6 +208,16 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     const upDoc = await srv.ui('POST', `/api/ui/employees/${motionOwner.id}/skills/${upSkill.id}/doctor`, {});
     assert.equal(upDoc.status, 200);
     assert.equal(upDoc.body.doctor.status, 'upcoming');
+
+    // 동료 직원의 공개 스킬이 멤버십 한도 우회 시 대체 AI 프롬프트에도 자동 공유되는지 검증
+    const bypassSkillTask = await srv.ui('POST', '/api/ui/coordinator/delegate', {
+      title: '이 사업 해부해 줘 https://example.com',
+    });
+    assert.equal(bypassSkillTask.status, 200);
+    assert.equal(bypassSkillTask.body.time, null);
+    const bypassPrev = await srv.ui('GET', `/api/ui/tasks/${bypassSkillTask.body.id}/prompt-preview`);
+    assert.equal(bypassPrev.status, 200);
+    assert.match(bypassPrev.body.prompt, /reversebusiness/);
 
     // machineHealth에 잔여량·움직임 필드가 포함되는지 검증
     const macIds = Object.keys(stPack.body.machineHealth || {});

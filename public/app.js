@@ -825,6 +825,8 @@ async function api(method, url, body) {
 async function act(method, url, body, okMsg) {
   try {
     const r = await api(method, url, body);
+    // 자동 배분 직후 load()가 중복 "작업 연결 · 시작" 카드를 띄우지 않도록 먼저 기록
+    if (url === '/api/ui/coordinator/delegate' && r?.autoStarted && r?.id) markStartCardShown(r.id);
     if (okMsg) toast(okMsg);
     await load();
     return r;
@@ -2095,7 +2097,9 @@ function parseSmartTime(raw, { allowBareDigits = false } = {}) {
     let h = Number(mBare[1]);
     if (h <= 23) { if (h >= 1 && h <= 6) h += 12; return `${pad(h)}:00`; }
   }
-  const m3 = /(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)/.exec(s);
+  const sNoRatio = s.replace(/(?<!\d)(?:9:16|16:9|16:10|21:9|1:1|4:5|4:3|3:4|2:3|3:2)(?!\d)/g, ' ')
+    .replace(/(?<!\d)\d{1,2}:\d{1,2}\s*(?:비율|화면비|쇼츠|숏츠|릴스|크롭|세로|가로|정사각형)/g, ' ');
+  const m3 = /(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)/.exec(sNoRatio);
   if (m3) return `${pad(Number(m3[1]))}:${m3[2]}`;
   if (allowBareDigits) {
     // 4자리(1830), 3자리(630 → 18:30), 1~2자리(18 → 18:00)
@@ -3061,7 +3065,7 @@ function joseonSwarmPanel() {
       h('span', { class: 'swarm-lbl' }, `@${shortName(e.id)}`),
       h('div', { class: `swarm-fuel lv-${fuelTone}`, title: titleHint },
         h('div', { class: 'swarm-fuel-track' }, h('i', { class: 'swarm-fuel-fill', style: `width:${fuelPct}%` })),
-        h('span', { class: 'swarm-fuel-txt' }, fuelTxt)));
+        h('span', { class: 'swarm-fuel-txt', 'data-live-since': working && q.job?.since ? q.job.since : null, 'data-live-prefix': working ? '⚡ ' : null }, fuelTxt)));
   });
 
   const addTile = h('div', { class: 'swarm-item' },
@@ -3099,7 +3103,7 @@ function joseonSwarmPanel() {
         h('span', { class: 'st-sep' }, '·'),
         h('span', null, w.machineName || '이 컴퓨터'),
         h('span', { class: 'st-sep' }, '·'),
-        h('span', { class: 'st-gold' }, fmtElapsedSec(w.elapsedSec)),
+        h('span', { class: 'st-gold', 'data-live-since': w.since || null }, fmtElapsedSec(w.elapsedSec)),
         w.title ? h('span', { class: 'st-task' }, w.title) : null))),
         ui.route !== 'dashboard'
           ? h('button', { type: 'button', class: 'st-link', onclick: () => { location.hash = '#dashboard'; } }, '라이브 현황 →')
@@ -3659,7 +3663,7 @@ function pageDashboard() {
               h('div', { class: 'ops-lj-meta' },
                 h('b', null, shortName(w.emp)),
                 h('span', { class: 'ops-lj-mach' }, w.machineName || '이 컴퓨터'),
-                h('span', { class: 'ops-lj-time' }, `⚡ ${fmtElapsedSec(w.elapsedSec)}`)),
+                h('span', { class: 'ops-lj-time', 'data-live-since': w.since || null, 'data-live-prefix': '⚡ ' }, `⚡ ${fmtElapsedSec(w.elapsedSec)}`)),
               h('div', { class: 'ops-lj-title' }, w.title || w.label || '작업 실행 중')),
             w.taskId ? h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => openTaskById(w.taskId) }, '보기 →') : null),
           w.statusLine ? h('div', { class: 'ops-lj-line' }, h('i', { class: 'ops-dot' }), w.statusLine) : null);
@@ -6719,6 +6723,18 @@ document.addEventListener('keydown', (e) => {
 });
 readHash();
 load();
+
+// 1초마다 실행 중인 AI 경과 타이머만 가볍게 갱신 (네트워크 요청 없음)
+setInterval(() => {
+  if (!S?.working?.length) return;
+  const now = Date.now();
+  for (const el of document.querySelectorAll('[data-live-since]')) {
+    const since = Date.parse(el.getAttribute('data-live-since') || '');
+    if (!Number.isFinite(since)) continue;
+    const prefix = el.getAttribute('data-live-prefix') || '';
+    el.textContent = `${prefix}${fmtElapsedSec(Math.max(0, Math.floor((now - since) / 1000)))}`;
+  }
+}, 1000);
 
 // 새 소식: 누가 일하거나 배분 중이거나 스레드를 열어 두면 4초, 아니면 30초
 let tick = 0;

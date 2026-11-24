@@ -839,7 +839,20 @@ function taskPromptCommon(d, emp, t) {
   const matchedEmpSkills = matchEmployeeSkills(fullText, { ...emp, skills: empSkills }, tokens);
   const matchedIds = new Set(matchedEmpSkills.map((s) => s.id));
   const otherEmpSkills = empSkills.filter((s) => !matchedIds.has(s.id)).sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
-  const empSkillRepos = new Set(empSkills.map((s) => (s.repo || s.name || '').toLowerCase()).filter(Boolean));
+  // 멤버십 한도 우회 등으로 다른 AI 직원이 대신 맡았을 때도 회사에 등록된 공개 매칭 스킬 지침을 자동 공유한다
+  const ownSkillKeys = new Set(empSkills.map((s) => (s.preset || s.name || '').toLowerCase()).filter(Boolean));
+  const sharedTeamSkills = [];
+  const seenShared = new Set();
+  for (const peer of (d.employees || [])) {
+    if (!peer || peer.id === emp?.id) continue;
+    for (const sk of matchEmployeeSkills(fullText, peer, tokens)) {
+      const k = (sk.preset || sk.name || '').toLowerCase();
+      if (!k || ownSkillKeys.has(k) || seenShared.has(k)) continue;
+      seenShared.add(k);
+      sharedTeamSkills.push(sk);
+    }
+  }
+  const empSkillRepos = new Set([...empSkills, ...sharedTeamSkills].map((s) => (s.repo || s.name || '').toLowerCase()).filter(Boolean));
   const extraOss = oss.filter((x) => !empSkillRepos.has((x.repo || x.name || '').toLowerCase()));
   const fmtSkill = (x) => {
     const subs = Array.isArray(x.subSkills) && x.subSkills.length
@@ -871,6 +884,7 @@ function taskPromptCommon(d, emp, t) {
     designBlock,
     stepsPromptBlock(d, t, emp?.id || null),
     matchedEmpSkills.length ? `이 직원의 핵심 스킬 · GitHub 오픈소스 (우선 활용):\n${matchedEmpSkills.map(fmtSkill).join('\n')}` : '',
+    sharedTeamSkills.length ? `회사 공용 매칭 스킬 (동료 스킬 참고 · 자동 우회/협업 활용):\n${sharedTeamSkills.slice(0, 4).map(fmtSkill).join('\n')}` : '',
     otherEmpSkills.length ? `보유 중인 기타 스킬:\n${otherEmpSkills.slice(0, 8).map(fmtSkill).join('\n')}` : '',
     extraOss.length ? `반드시 사용할 오픈소스 도구:\n${extraOss.map((x) => `- ${x.name}${x.command ? ` · 명령: ${x.command}` : ''}${x.repo ? ` · GitHub: ${x.repo}` : ''}${x.skillPath ? ` · 스킬: ${x.skillPath}` : ''}${x.note ? ` · ${x.note}` : ''}`).join('\n')}` : '',
     kbLines.length ? `회사 공용 지식 (내 지식 베이스 · 참고 자료):\n${kbLines.join('\n')}` : '',
