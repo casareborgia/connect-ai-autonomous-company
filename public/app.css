@@ -3138,3 +3138,36 @@ dialog.stamp-dlg::backdrop { background: rgba(10, 10, 12, 0.56); backdrop-filter
 @media (max-width: 600px) {
   .rag-starter-grid { grid-template-columns: 1fr; }
 }
+
+/* ───────── 심플 · 클린 접힘 & 여백 리듬 ───────── */
+.clean-fold {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 14px;
+}
+.clean-fold > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.clean-fold > summary::before { content: '▸'; font-size: 11px; color: var(--ink-3); }
+.clean-fold[open] > summary::before { content: '▾'; }
+.clean-fold > summary::-webkit-details-marker { display: none; }
+.clean-fold.sm {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: #fafaf8;
+  border-radius: 9px;
+}
+.clean-fold.sm > summary { font-size: 11.5px; font-weight: 500; }
+.clean-fold.sm .opt-row { margin-top: 8px; }
+.auto-tpl-fold-body { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.clean-more-btn { margin-top: 10px; }
+.dash-tabs { margin: 2px 0 4px; gap: 8px; }

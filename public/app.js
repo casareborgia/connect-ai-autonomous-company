@@ -637,7 +637,7 @@ function blueprintPillsRow(item) {
   const ragIds = Array.isArray(item.ragIds) ? item.ragIds : [];
   const acc = item.account ? res(item.account) : null;
   const mac = item.resource ? res(item.resource) : null;
-  const showMac = Boolean(mac && mac.kind === '기계');
+  const showMac = Boolean(mac && mac.kind === '기계' && !mac.isThisMac);
   const kbs = kbIds.map((id) => (S.data?.knowledge || []).find((k) => k.id === id)).filter(Boolean);
   const rags = ragIds.map((id) => (S.data?.ragSources || []).find((r) => r.id === id)).filter(Boolean);
   if (!skillKeys.length && !kbs.length && !rags.length && !acc && !item.autoApprove && !showMac) return null;
@@ -3150,21 +3150,28 @@ function todayDoneSection(today) {
   const humanDone = doneAll.filter((t) => (t.completedBy || t.assignee) === 'jay');
   const df = ui.doneFilter || 'all';
   const shown = df === 'ai' ? aiDone : df === 'me' ? humanDone : doneAll;
+  const visible = ui.showAllDone ? shown : shown.slice(0, 5);
+  const moreCount = shown.length - visible.length;
   const tabs = [
     ['all', `전체 (${doneAll.length})`],
-    ['ai', `AI가 한 일 (${aiDone.length})`],
-    ['me', `내가 한 일 (${humanDone.length})`],
+    ['ai', `AI (${aiDone.length})`],
+    ['me', `나 (${humanDone.length})`],
   ];
   return h('section', { class: 'sec done-sec', 'data-k': 'today-done-sec' },
-    secHead('오늘 한 일 · 완료 & 결과물', doneAll.length ? `AI ${aiDone.length}건 · 나 ${humanDone.length}건` : '완료된 일과 AI 결과물이 여기에 쌓입니다'),
-    h('div', { class: 'filter-bar', role: 'group', 'aria-label': '오늘 한 일 분류' },
+    secHead('오늘 완료', doneAll.length ? `${doneAll.length}건` : ''),
+    doneAll.length ? h('div', { class: 'filter-bar', role: 'group', 'aria-label': '오늘 완료 분류' },
       tabs.map(([k, label]) => h('button', {
         type: 'button', class: `chip sm${df === k ? ' on' : ''}`, 'aria-pressed': df === k ? 'true' : 'false',
         onclick: () => { ui.doneFilter = k; render(); },
-      }, label))),
-    shown.length
-      ? h('ul', { class: 'done-list' }, shown.map(doneCard))
-      : h('div', { class: 'empty' }, doneAll.length ? '이 분류에 완료된 일이 아직 없어요.' : '아직 오늘 완료한 일이 없어요. 내가 체크한 일과 AI가 끝낸 결과물이 여기 자동으로 정리됩니다.'));
+      }, label))) : null,
+    visible.length
+      ? [
+        h('ul', { class: 'done-list' }, visible.map(doneCard)),
+        moreCount > 0
+          ? h('button', { type: 'button', class: 'btn sm clean-more-btn', onclick: () => { ui.showAllDone = true; render(); } }, `+ 완료된 일 ${moreCount}건 더 보기`)
+          : (ui.showAllDone && shown.length > 5 ? h('button', { type: 'button', class: 'btn sm clean-more-btn', onclick: () => { ui.showAllDone = false; render(); } }, '접기') : null),
+      ]
+      : h('div', { class: 'empty' }, '오늘 완료된 일이 아직 없어요.'));
 }
 
 // 아침/오늘 보고 1줄 띠: AI 완료·확인 대기·막힘이 있을 때만 조용히 표시, 확인 누르면 사라짐
@@ -4011,7 +4018,7 @@ function joseonSwarmPanel() {
       type: 'button', class: `swarm-tab${teamFilter === 'all' ? ' on' : ''}`,
       onclick: () => { ui.swarmTeam = 'all'; ui.swarmSelected = 'all'; render(); },
     }, workingCount ? h('span', { class: 'st-live' }) : null, `ALL (${d.employees.length})`),
-    ...teams.filter((t) => t.key !== 'exec').map((t) => {
+    ...teams.filter((t) => t.key !== 'exec' && (teamFilter === t.key || d.employees.some((e) => (e.team || 'ops') === t.key))).map((t) => {
       const members = d.employees.filter((e) => (e.team || 'ops') === t.key);
       const anyWork = members.some((e) => isWorking(e.id));
       return h('button', {
@@ -4099,12 +4106,10 @@ function joseonSwarmPanel() {
                 }),
               }, h('i', { class: `ego-live-dot${S.egoProbe.connected ? ' on' : ''}` }), 'Ego Lite ', h('b', null, S.egoProbe.connected ? '연결됨' : '대기')) : null,
               h('button', {
-                type: 'button', class: 'swarm-brain-pill', title: '회사 공용 지식 베이스 (내 지식) 열기',
+                type: 'button', class: 'swarm-brain-pill', title: '내 지식 · RAG 열기',
                 onclick: () => { ui.resTab = 'knowledge'; location.hash = '#resources'; },
-              }, '내 지식 ', h('b', null, String((d.knowledge || []).length)))),
-            h('div', { class: 'swarm-hero-sub' }, linkedEmps.length
-              ? `자동 배분 가동 가능: ${linkedEmps.map((e) => shortName(e.id)).join(' · ')} (미연결 AI는 자동 배분에서 제외)`
-              : '아직 자동 실행 연결된 AI가 없어요 · AI 직원 탭에서 연결해 주세요'),
+              }, '지식 · RAG ', h('b', null, String((d.knowledge || []).length + (d.ragSources || []).length)))),
+            !linkedEmps.length ? h('div', { class: 'swarm-hero-sub' }, 'AI 직원 탭에서 실행할 AI를 연결해 주세요') : null,
           ]),
       h('div', { class: 'swarm-hero-acts' },
         activeTeamMeta && !visible.length
@@ -4294,8 +4299,7 @@ function joseonSwarmPanel() {
     heroNode,
     stageNode,
     h('div', { class: 'swarm-strip' }, allItem, workerItems, addTile),
-    tickerNode,
-    liveConsoleNode);
+    workingCount ? liveConsoleNode : tickerNode);
 }
 
 function pageHome() {
@@ -4312,26 +4316,28 @@ function pageHome() {
   return h('div', null,
     h('div', { class: 'head' }, h('div', null,
       h('h1', null, `${greeting()}, `, h('b', null, ownerLabel)),
-      h('div', { class: 'sub' }, `${day.getMonth() + 1}월 ${day.getDate()}일 ${WD[day.getDay()]}요일 · 내가 할 일 ${mine.filter((t) => t.status !== '완료').length} · AI 직원이 할 일 ${ai.filter((t) => t.status !== '완료').length}`)),
+      h('div', { class: 'sub' }, `${day.getMonth() + 1}월 ${day.getDate()}일 (${WD[day.getDay()]}) · 내 일 ${mine.filter((t) => t.status !== '완료').length} · AI ${ai.filter((t) => t.status !== '완료').length}`)),
     h('button', { class: 'btn sm', onclick: openDailyReport }, '오늘 리포트')),
     morningBriefing(today),
     S.health?.delegateRecommended ? h('div', { class: 'health-banner' },
       h('div', null, h('span', { class: 'tag solid', style: 'margin-right:8px' }, `${S.health.levelLabel}${S.health.score != null ? ` · ${S.health.score}점` : ''}`), h('span', { class: 'small' }, S.health.advice)),
-      h('button', { type: 'button', class: 'btn link', onclick: () => { location.hash = '#dashboard'; } }, '컨디션 보기 →')) : null,
+      h('button', { type: 'button', class: 'btn link', onclick: () => { location.hash = '#dashboard'; } }, '컨디션 →')) : null,
     joseonSwarmPanel(),
     addBar(),
-    h('p', { class: 'rule' }, '결제, 업로드, 게시, 삭제, 메시지 발송이 들어간 일은 대표가 누를 때까지 AI가 시작하지 못합니다.'),
+    h('p', { class: 'rule' }, '결제 · 삭제는 대표 승인 후 실행'),
     !d.employees.length ? h('div', { class: 'callout' },
-      h('div', null, h('b', null, '먼저 쓰는 AI를 직원으로 추가하세요.'), h('div', { class: 'small muted' }, 'ChatGPT, Claude, Gemini 처럼 이미 쓰는 AI를 고르면, 적은 일을 알맞은 AI에게 나눠 줍니다.')),
+      h('div', null, h('b', null, '먼저 쓰는 AI를 추가하세요'), h('div', { class: 'small muted' }, 'Claude, Codex, Gemini 등을 연결하면 일을 자동으로 나눠 드려요.')),
       h('button', { class: 'btn dark', onclick: openAddEmployee }, '직원 추가')) : null,
-    pendingApprs.length ? h('section', { class: 'sec' }, secHead('대표 확인 대기', `${pendingApprs.length}건 · 승인 전에 내용을 고칠 수 있어요`),
+    pendingApprs.length ? h('section', { class: 'sec' }, secHead('대표 확인 대기', `${pendingApprs.length}건`),
       pendingApprs.map(approvalInlineCard)) : null,
-    overdue.length ? h('section', { class: 'sec' }, secHead('지난 날짜, 아직 안 끝남', `${overdue.length}개`), taskList(overdue, { draggable: false, overdue: true })) : null,
-    h('section', { class: 'sec' }, secHead(`오늘 할 일 · ${dateK(S.today)}`, `남은 일 ${today.filter((t) => t.status !== '완료').length}건`),
+    overdue.length ? h('section', { class: 'sec' }, secHead('밀린 일', `${overdue.length}건`), taskList(overdue, { draggable: false, overdue: true })) : null,
+    h('section', { class: 'sec' }, secHead('오늘 할 일', `${today.filter((t) => t.status !== '완료').length}건 남음`),
       today.length ? todayOpenSection(today) : h('div', { class: 'empty' }, '오늘 할 일이 없습니다. 위에 적어 보세요.')),
     todayDoneSection(today),
-    later.length ? h('section', { class: 'sec' }, secHead('예정', `${later.length}개`), taskList(later, { draggable: false })) : null,
-    h('div', { class: 'cols home-foot' }, timeline(), recentTalk()));
+    later.length ? h('section', { class: 'sec' }, secHead('예정', `${later.length}건`), taskList(later, { draggable: false })) : null,
+    h('details', { class: 'clean-fold', 'data-k': 'home-foot-fold' },
+      h('summary', null, '활동 타임라인 · 최근 대화'),
+      h('div', { class: 'cols home-foot' }, timeline(), recentTalk())));
 }
 
 // ───────── 회사 대시보드 (White & Black SVG 라이브 구조도 · 텔레메트리) ─────────
@@ -5393,33 +5399,41 @@ function pageDashboard() {
         h('span', { class: `tag${H.delegateRecommended ? ' solid' : ''}` }, H.levelLabel),
         h('span', { class: 'small' }, H.advice)));
 
+  const dashTab = ui.dashTab || 'archive';
   return h('div', { class: 'ops-page' },
     h('div', { class: 'head' },
       h('div', null,
-        h('h1', null, h('b', null, '회사 대시보드')),
-        h('div', { class: 'sub' }, `${d.settings.companyName || 'CONNECT AI HQ'} · AI 직원 ${d.employees.length}명 · 컴퓨터 ${machines.length}대${phones.length ? ` · 스마트폰 ${phones.length}대` : ''} · 자동 최적화 ${autoOptOn ? '켜짐' : '꺼짐'}`)),
+        h('h1', null, h('b', null, '대시보드')),
+        h('div', { class: 'sub' }, `${d.settings.companyName || 'CONNECT AI'} · 직원 ${d.employees.length} · 컴퓨터 ${machines.length}`)),
       h('div', { class: 'row' },
         h('button', { class: 'btn sm', onclick: () => { location.hash = '#pocket'; } }, '폰 뷰'),
         h('button', { class: 'btn sm', onclick: openHealthLogModal }, '컨디션 기록'))),
     opsHero,
-    buildWorkArchiveCard(),
-    h('div', { class: 'ops-deck' }, membershipCard, liveActivityCard),
-    machinesCard,
-    h('section', { class: 'dash-card' },
-      h('div', { class: 'dash-card-h' },
-        h('h2', null, 'AI 회사 라이브 구조도'),
-        h('span', { class: 'small muted' }, '대표 · 오토메이션 → AI 직원(대체 순위) → 내 자원(컴퓨터 · 브라우저 · 지식)')),
-      h('div', { class: 'topo-wrap' }, topoSvg)),
-    h('section', { class: 'dash-card' },
-      h('div', { class: 'dash-card-h' },
-        h('h2', null, '오늘 업무 분포 & 24시간 근무 타임라인'),
-        h('div', { class: 'wbar-legend' },
-          h('span', null, h('i', { class: 'wbar-dot-done' }), '완료'),
-          h('span', null, h('i', { class: 'wbar-dot-open' }), '진행 · 대기'))),
-      h('div', { class: 'dash-staff-grid' },
-        h('div', null, barItems.length ? C.workloadBars(barItems) : h('div', { class: 'empty' }, 'AI 직원을 추가하면 업무 분포가 표시됩니다')),
-        h('div', null, timeline()))),
-    healthSection);
+    h('div', { class: 'picker dash-tabs', role: 'tablist', 'aria-label': '대시보드 보기' },
+      [['archive', '성과 아카이브'], ['ops', '실시간 운영 · 구조도']].map(([k, lbl]) => h('button', {
+        type: 'button', role: 'tab', 'aria-selected': dashTab === k ? 'true' : 'false',
+        class: `chip${dashTab === k ? ' on' : ''}`,
+        onclick: () => { ui.dashTab = k; render(); },
+      }, lbl))),
+    dashTab === 'archive'
+      ? buildWorkArchiveCard()
+      : [
+        h('div', { class: 'ops-deck' }, membershipCard, liveActivityCard),
+        machinesCard,
+        h('section', { class: 'dash-card' },
+          h('div', { class: 'dash-card-h' }, h('h2', null, '라이브 구조도')),
+          h('div', { class: 'topo-wrap' }, topoSvg)),
+        h('section', { class: 'dash-card' },
+          h('div', { class: 'dash-card-h' },
+            h('h2', null, '업무 분포 · 타임라인'),
+            h('div', { class: 'wbar-legend' },
+              h('span', null, h('i', { class: 'wbar-dot-done' }), '완료'),
+              h('span', null, h('i', { class: 'wbar-dot-open' }), '진행 · 대기'))),
+          h('div', { class: 'dash-staff-grid' },
+            h('div', null, barItems.length ? C.workloadBars(barItems) : h('div', { class: 'empty' }, 'AI 직원을 추가하면 표시됩니다')),
+            h('div', null, timeline()))),
+        healthSection,
+      ]);
 }
 
 // ───────── AI 직원 캐릭터 · 5시간 토큰 바 · 스마트폰 포켓 라이브 뷰 (#pocket) ─────────
@@ -6814,9 +6828,9 @@ function pageDaily() {
           h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: r.enabled !== false, onchange: (ev) => act('PATCH', `/api/ui/routines/${r.id}`, { enabled: ev.target.checked }) }), h('span', { class: 'tr' }), '켜짐'),
           h('button', { class: 'x', 'aria-label': `${r.title} 지우기`, onclick: () => { if (confirm(`이 오토메이션을 지울까요?\n${r.title}`)) act('DELETE', `/api/ui/routines/${r.id}`, undefined, '지웠어요'); } }, '×'))),
       picking ? h('div', { class: 'r-who' }, assigneePicker(r.assignee, (id) => { ui.rtPicking = null; act('PATCH', `/api/ui/routines/${r.id}`, { assignee: id }, `${shortName(id)}에게 맡겼어요`); })) : null,
-      h('div', { class: 'small muted auto-item-sub' }, [r.reason, autoText].filter(Boolean).join(' · ')),
-      h('details', { class: 'auto-details', 'data-k': `rt-d-${r.id}` }, h('summary', null, `${foldLabel}${runHistory.length ? ` · 실행 기록 ${runHistory.length}` : ''}`),
+      h('details', { class: 'auto-details', 'data-k': `rt-d-${r.id}` }, h('summary', null, `설정${runHistory.length ? ` · 기록 ${runHistory.length}` : ''}`),
         h('div', { class: 'r-fold' },
+          (r.reason || autoText) ? h('div', { class: 'small muted auto-item-sub' }, [r.reason, autoText].filter(Boolean).join(' · ')) : null,
           h('div', { class: 'r-sched-row' }, rTitle, rSched, rTime, rCost),
           h('div', { class: 'r-sched-row' }, h('span', { class: 'small muted' }, '요일'), rDays),
           rBlueprintEditor,
@@ -6958,8 +6972,8 @@ function pageDaily() {
     }
     listWrap.replaceChildren(
       h('div', { class: 'auto-meta-strip' },
-        h('span', null, `활성 ${activeCount}개 · 주기 반복 ${ivCount}개 · 오늘 완료 ${doneToday}건`),
-        h('span', { class: 'muted' }, '결제·업로드·게시·삭제는 대표 승인 전 자동 정지')),
+        h('span', null, `활성 ${activeCount} · 주기 ${ivCount} · 오늘 완료 ${doneToday}`),
+        h('span', { class: 'muted' }, '결제 · 삭제 승인 보호')),
       h('ul', { class: 'routines auto-list' }, filtered.map(row)));
   };
 
@@ -6996,10 +7010,7 @@ function pageDaily() {
   const haveTitles = new Set(d.routines.map((r) => r.title));
   const curTplCat = ui.autoTplCat || 'all';
   const tplList = curTplCat === 'all' ? AUTOMATION_TEMPLATES : AUTOMATION_TEMPLATES.filter((t) => t.cat === curTplCat);
-  const templateSection = h('section', { class: 'auto-tpl-sec' },
-    h('div', { class: 'auto-tpl-head' },
-      h('h2', { class: 'auto-tpl-h' }, '실전 자동화 템플릿으로 바로 시작 (유튜브 · 인스타 · X · 스레드 · 일상)'),
-      h('span', { class: 'small muted' }, 'X.com·스레드에서 가장 많이 쓰는 AI 자동화 루틴 12선 · 클릭해 바로 추가하거나 프롬프트를 커스터마이징하세요')),
+  const templateInner = [
     h('div', { class: 'auto-tpl-cats', role: 'group', 'aria-label': '템플릿 분야 필터' },
       AUTOMATION_TPL_CATS.map(([k, lbl]) => {
         const cnt = k === 'all' ? AUTOMATION_TEMPLATES.length : AUTOMATION_TEMPLATES.filter((t) => t.cat === k).length;
@@ -7021,18 +7032,22 @@ function pageDaily() {
         },
         h('div', { class: 'auto-tpl-top' },
           h('span', { class: 'auto-tpl-kicker' }, tpl.kicker),
-          h('span', { class: 'auto-tpl-sched' }, already ? `${schedBadge} · 등록됨` : `${schedBadge} · 추가 →`)),
+          h('span', { class: 'auto-tpl-sched' }, already ? `${schedBadge} · 등록됨` : `${schedBadge} →`)),
         h('div', { class: 'auto-tpl-title' }, tpl.title),
         h('div', { class: 'auto-tpl-desc' }, tpl.desc));
-      }),
-      h('button', {
-        type: 'button', class: 'auto-tpl-add-row',
-        onclick: () => openNewAutomationModal(),
-      }, '+ 새 오토메이션 직접 만들기')));
+      })),
+  ];
+  const templateSection = visible.length
+    ? h('details', { class: 'clean-fold auto-tpl-fold', 'data-k': 'auto-tpl-fold' },
+      h('summary', null, `자동화 템플릿 (${AUTOMATION_TEMPLATES.length})`),
+      h('div', { class: 'auto-tpl-fold-body' }, templateInner))
+    : h('section', { class: 'auto-tpl-sec' },
+      h('div', { class: 'auto-tpl-head' }, h('h2', { class: 'auto-tpl-h' }, '템플릿으로 시작')),
+      templateInner);
 
   const packs = S.options.routinePacks || [];
   const packBox = h('details', { class: 'pack-box auto-pack-drawer', 'data-k': 'rt-packs' },
-    h('summary', null, '오토메이션 팩 일괄 담기 · 청사진 가져오기 · 알림 시험'),
+    h('summary', null, '오토메이션 팩 · 청사진 · 알림 시험'),
     packs.length ? h('div', { class: 'pack-grid' }, packs.map((p) => {
       const doneAll = p.titles.every((tt) => haveTitles.has(tt));
       return h('div', { class: 'pack-card' },
@@ -7116,30 +7131,28 @@ function empCard(e) {
     const coolBtn = cooling
       ? h('button', { class: 'btn sm dark', onclick: () => once(`cd0-${e.id}`, () => act('POST', `/api/ui/employees/${e.id}/cooldown`, { minutes: 0 }, `${e.name} 휴식을 해제했어요`)) }, '휴식 해제')
       : h('button', { class: 'btn sm', title: '멤버십 토큰이 다 썼을 때 대체 AI로 넘김', onclick: () => openCooldownModal(e) }, '휴식');
-    const channels = accessChannelsOf(e);
     const workJob = S.working.find((w) => w.emp === e.id);
     const tInfo = empTeamInfo(e);
     const kbInfo = empKnowledgeDocs(e);
     const resNames = e.resources.map((id) => res(id)?.name).filter(Boolean);
     const kvRows = [
-      h('dt', null, '역할'), h('dd', null, valOr(e.role, 'role')),
-      h('dt', null, '스킬 · GitHub'), h('dd', null, skillPillsEl(e, { max: 5 })),
-      h('dt', null, '참고 지식 · RAG'), h('dd', null, empKbPillsEl(e, { max: 4 })),
-      h('dt', null, '담당 자원'), h('dd', null, resNames.length ? resNames.join(', ') : h('button', { class: 'input-me', onclick: () => openEdit('res') }, '자동 최적화 (내 자원)')),
-      h('dt', null, '막히면 대체'), h('dd', null, e.fallbackTo && emp(e.fallbackTo) ? `${shortName(e.fallbackTo)} (토큰 소진 시 자동 전환)` : h('button', { class: 'input-me', onclick: () => openEdit('fallbackTo') }, '자동 선택')),
+      h('dt', null, '스킬'), h('dd', null, skillPillsEl(e, { max: 4 })),
+      h('dt', null, '지식 · RAG'), h('dd', null, empKbPillsEl(e, { max: 3 })),
     ];
+    if (resNames.length) {
+      kvRows.push(h('dt', null, '자원'), h('dd', null, resNames.join(', ')));
+    }
+    if (e.fallbackTo && emp(e.fallbackTo)) {
+      kvRows.push(h('dt', null, '대체 AI'), h('dd', null, shortName(e.fallbackTo)));
+    }
     if (e.tools?.length) {
       kvRows.push(h('dt', null, '도구'), h('dd', null, e.tools.join(', ')));
     }
     if (e.manual) {
-      kvRows.push(h('dt', null, '업무 매뉴얼'), h('dd', null, h('span', { class: 'clamp2' }, e.manual)));
+      kvRows.push(h('dt', null, '매뉴얼'), h('dd', null, h('span', { class: 'clamp2' }, e.manual)));
     }
-    if (e.salary !== null && e.salary !== undefined) {
-      kvRows.push(h('dt', null, '월급'), h('dd', null, e.salary === 0 ? '무료' : `월 ${won(e.salary)}`));
-    }
-    const workWhere = [e.runsOn, e.command].filter(Boolean).join(' · ');
-    if (workWhere) {
-      kvRows.push(h('dt', null, '실행 환경'), h('dd', null, workWhere));
+    if (e.salary !== null && e.salary !== undefined && e.salary > 0) {
+      kvRows.push(h('dt', null, '월급'), h('dd', null, `월 ${won(e.salary)}`));
     }
     return h('div', { class: 'card' },
       h('div', { class: 'row', style: 'justify-content:space-between;align-items:flex-start' },
@@ -7149,22 +7162,17 @@ function empCard(e) {
             h('h3', null,
               e.avatarName || e.name,
               e.avatarName && e.avatarName !== e.name ? h('span', { class: 'tag', style: 'margin-left:6px' }, e.name) : null,
-              h('span', { class: `team-pill tm-${tInfo.key}`, title: tInfo.hint }, h('i'), tInfo.short),
-              h('span', { class: 'emp-id', title: 'CLI · MCP 직원 아이디' }, e.id)),
-            e.persona ? h('div', { class: 'small', style: 'color:var(--ink-2);margin-top:2px' }, e.persona) : null,
-            h('div', { class: 'small muted' }, workJob?.statusLine ? `진행 중: ${workJob.statusLine}` : how),
-            modelLine(e))),
-        cooling ? h('span', { class: 'tag solid', title: e.cooldownReason || '토큰 한도 휴식 중' }, `토큰 휴식 · ${coolMin}분`)
+              h('span', { class: `team-pill tm-${tInfo.key}`, title: tInfo.hint }, h('i'), tInfo.short)),
+            h('div', { class: 'small muted', style: 'margin-top:2px' }, workJob?.statusLine ? `진행 중: ${workJob.statusLine}` : (e.role || how)))),
+        cooling ? h('span', { class: 'tag solid', title: e.cooldownReason || '토큰 휴식' }, `휴식 ${coolMin}분`)
           : workJob ? h('span', { class: 'tag solid' }, '일하는 중') : today.length ? h('span', { class: 'tag' }, `오늘 ${today.length}`) : null),
       usageBarEl(e),
-      channels.length ? h('div', { class: 'access-badges' }, channels.map((c) => h('span', { class: 'tag' }, c))) : null,
       h('dl', { class: 'kv' }, kvRows),
       h('div', { class: 'foot' },
-        ['none', 'web'].includes(e.engine) ? h('span', { class: 'small muted' }, e.engine === 'web' ? '할 일에서 복사해서 맡겨요' : 'MCP, CLI 로 스스로 보고') : runSeg,
+        ['none', 'web'].includes(e.engine) ? h('span', { class: 'small muted' }, e.engine === 'web' ? '복사 실행' : 'MCP 보고') : runSeg,
         h('div', { class: 'row' },
           h('button', { class: 'btn sm', onclick: () => openEmployeeSkillsModal(e.id) }, `스킬${e.skills?.length ? ` (${e.skills.length})` : ''}`),
           h('button', { class: 'btn sm', onclick: () => openEmployeeKnowledgeModal(e.id) }, `지식${kbInfo.total ? ` (${kbInfo.total})` : ''}`),
-          h('button', { class: 'btn sm', onclick: () => openAvatarModal(e) }, '캐릭터'),
           coolBtn,
           h('button', { class: 'btn sm', onclick: () => { ui.editingEmp = e.id; ui.empDraftEngine[e.id] = e.engine; render(); } }, '편집'))));
   }
@@ -7636,10 +7644,9 @@ function quietLine() {
 function pageStaff() {
   const d = S.data;
   const total = d.employees.reduce((s, e) => s + (Number(e.salary) || 0), 0);
-  const unknown = d.employees.filter((e) => e.salary === null || e.salary === undefined).length;
   return h('div', null,
     h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, 'AI 직원')),
-      h('div', { class: 'sub' }, `AI 직원 ${d.employees.length}명 · 월급 합계 월 ${won(total)}${unknown ? ` · 미입력 ${unknown}명` : ''} · 토큰 한도 시 대체 직원으로 자동 전환`)),
+      h('div', { class: 'sub' }, `${d.employees.length}명${total ? ` · 월 ${won(total)}` : ''} · 한도 시 자동 전환 · 캐릭터 클릭해 변경`)),
     h('div', { class: 'row' },
       h('button', {
         class: 'btn gold sm',
@@ -7649,28 +7656,26 @@ function pageStaff() {
           if (r) {
             pushLiveCard({
               kind: 'connect',
-              kicker: 'CONNECT AI · 콘텐츠 스킬 7종 등록',
-              title: `주요 스킬 ${r.total}종을 AI 직원에게 연결했어요`,
-              body: `신규 ${r.added} · 업데이트 ${r.updated} (공개 전 스킬은 "준비 중"으로 자동 배분 제외)`,
-              duration: 5500,
+              kicker: 'CONNECT AI · 스킬 7종',
+              title: `주요 스킬 ${r.total}종 연결 완료`,
+              body: `신규 ${r.added} · 업데이트 ${r.updated}`,
+              duration: 5000,
             });
           }
         }),
-      }, '✦ 스킬 팩 7종'),
-      h('button', { class: 'btn sm', onclick: openJoseonCodexModal }, '크루 도감 (29)'),
-      h('button', { class: 'btn sm', onclick: openConnectModal }, 'AI 도구 연결'),
+      }, '✦ 스킬 팩'),
+      h('button', { class: 'btn sm', onclick: openJoseonCodexModal }, '도감'),
+      h('button', { class: 'btn sm', onclick: openConnectModal }, '도구 연결'),
       h('button', { class: 'btn dark sm', onclick: () => openAddEmployee() }, '+ 직원 추가'))),
-    !d.employees.length ? h('div', { class: 'empty' }, '아직 직원이 없어요. 직원 추가를 눌러 지금 쓰는 AI를 고르세요.') : null,
+    !d.employees.length ? h('div', { class: 'empty' }, '아직 직원이 없어요. + 직원 추가를 눌러 시작하세요.') : null,
     d.groups.length <= 1 ? h('div', { class: 'cards' }, d.employees.map(empCard)) : d.groups.filter((g) => d.employees.some((e) => e.group === g.id)).map((g, i) => {
       const list = d.employees.filter((e) => e.group === g.id);
-      const grpTitle = g.title === '내 사무실에서 근무' ? '클라우드 · 메인 AI 직원' : g.title === '내 컴퓨터 상주' ? '이 컴퓨터 로컬 AI' : g.title;
+      const grpTitle = g.title === '내 사무실에서 근무' ? '메인 AI' : g.title === '내 컴퓨터 상주' ? '로컬 AI' : g.title;
       return h('section', { class: 'grp' },
-        h('div', { class: 'grp-h' }, h('span', { class: 'n0' }, String(i + 1)), h('h2', null, grpTitle), h('span', null, g.subtitle), h('span', { class: 'n' }, `${list.length}명`)),
-        g.detail ? h('div', { class: 'small muted', style: 'margin-top:4px' }, g.detail) : null,
+        h('div', { class: 'grp-h' }, h('span', { class: 'n0' }, String(i + 1)), h('h2', null, grpTitle), h('span', { class: 'n' }, `${list.length}명`)),
         h('div', { class: 'cards' }, list.map(empCard)));
     }),
-    quietLine(),
-    h('p', { class: 'small muted', style: 'margin-top:16px' }, '실행: 꺼짐 = 앱이 실행하지 않음 · 누를 때만 = 할 일에서 실행 버튼 · 자동 실행 = 자동 루틴이 시간이 되면 혼자 시작. 복사해서 맡기는 직원은 실행 설정이 필요 없어요.'));
+    quietLine());
 }
 
 // ───────── 내 리소스 ─────────
@@ -7716,48 +7721,41 @@ function resRow(r) {
         },
       }, wt.label);
     }))) : null;
-  const optBar = r.kind === '기계' ? h('div', { class: 'opt-row' },
-    h('span', { class: 'small muted' }, '최적화'),
-    h('label', { class: 'switch', title: '이 컴퓨터에서 AI가 화면을 보며 앱·아이폰 미러링을 클릭·조작할 수 있게 허용' },
-      h('input', { type: 'checkbox', checked: Boolean(r.computerUse), onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { computerUse: ev.target.checked }, ev.target.checked ? `${r.name}: 화면 조작(Computer Use)을 켰어요` : `${r.name}: 화면 조작을 껐어요`) }),
-      h('span', { class: 'tr' }),
-      h('span', { class: 'small' }, '화면 조작(CU)')),
-    r.isThisMac && S.bridges?.orca ? h('span', { class: 'tag', title: 'orca computer CLI 감지됨' }, 'orca computer') : null,
-    h('select', { class: 'in sm', 'aria-label': `${r.name} RAM 상한`, onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { maxRamPct: Number(ev.target.value) }, `RAM 상한을 ${ev.target.value}%로 바꿨어요`) },
-      [75, 80, 85, 90].map((p) => h('option', { value: String(p), selected: (r.maxRamPct || 85) === p }, `RAM 상한 ${p}%${p === 85 ? ' (추천)' : ''}`))),
-    h('select', { class: 'in sm', 'aria-label': `${r.name} 동시 무거운 작업 상한`, onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { maxHeavy: Number(ev.target.value) }, `동시 무거운 작업 상한을 ${ev.target.value}개로 바꿨어요`) },
-      [1, 2].map((n) => h('option', { value: String(n), selected: (r.maxHeavy || 1) === n }, `무거운 작업 최대 ${n}개`))),
-    otherMachines.length ? h('select', { class: 'in sm', 'aria-label': `${r.name} 바쁘면 넘길 컴퓨터`, onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { fallbackTo: ev.target.value || null }, '대체 컴퓨터를 바꿨어요') },
-      h('option', { value: '' }, '바쁘면 → 여유 컴퓨터 자동'),
-      otherMachines.map((m) => h('option', { value: m.id, selected: r.fallbackTo === m.id }, `바쁘면 → ${m.name}`))) : null) : null;
+  const optBar = r.kind === '기계' ? h('details', { class: 'clean-fold sm res-opt-fold', 'data-k': `res-opt-${r.id}` },
+    h('summary', null, `최적화 설정 · RAM 상한 ${r.maxRamPct || 85}%${r.fallbackTo && res(r.fallbackTo) ? ` · 우회 → ${res(r.fallbackTo).name}` : ''}`),
+    h('div', { class: 'opt-row' },
+      h('label', { class: 'switch', title: '화면 조작(Computer Use) 허용' },
+        h('input', { type: 'checkbox', checked: Boolean(r.computerUse), onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { computerUse: ev.target.checked }, ev.target.checked ? '화면 조작을 켰어요' : '화면 조작을 껐어요') }),
+        h('span', { class: 'tr' }),
+        h('span', { class: 'small' }, '화면 조작(CU)')),
+      h('select', { class: 'in sm', 'aria-label': `${r.name} RAM 상한`, onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { maxRamPct: Number(ev.target.value) }, `RAM 상한을 ${ev.target.value}%로 바꿨어요`) },
+        [75, 80, 85, 90].map((p) => h('option', { value: String(p), selected: (r.maxRamPct || 85) === p }, `RAM 상한 ${p}%`))),
+      h('select', { class: 'in sm', 'aria-label': `${r.name} 동시 무거운 작업 상한`, onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { maxHeavy: Number(ev.target.value) }, `동시 작업 상한을 ${ev.target.value}개로 바꿨어요`) },
+        [1, 2].map((n) => h('option', { value: String(n), selected: (r.maxHeavy || 1) === n }, `무거운 작업 ${n}개`))),
+      otherMachines.length ? h('select', { class: 'in sm', 'aria-label': `${r.name} 바쁘면 넘길 컴퓨터`, onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { fallbackTo: ev.target.value || null }, '대체 컴퓨터를 바꿨어요') },
+        h('option', { value: '' }, '바쁘면 → 자동'),
+        otherMachines.map((m) => h('option', { value: m.id, selected: r.fallbackTo === m.id }, `바쁘면 → ${m.name}`))) : null)) : null;
 
   const ramLine = mh && typeof mh.ramPct === 'number' ? h('div', { class: 'ram-line' },
-    h('div', { class: 'ram-bar', title: `RAM ${mh.ramPct}% 사용 (상한 ${mh.maxRamPct}%)` },
+    h('div', { class: 'ram-bar', title: `RAM ${mh.ramPct}% (상한 ${mh.maxRamPct}%)` },
       h('div', { class: `ram-fill${mh.level === 'overload' ? ' over' : ''}`, style: `width:${Math.min(100, mh.ramPct)}%` })),
-    h('span', { class: 'small muted' }, `RAM ${mh.ramPct}%${mh.availGB != null ? ` · 여유 ${mh.availGB}GB` : ''}${mh.diskFreeGB != null ? ` · 디스크 ${mh.diskFreeGB}GB` : ''}`),
+    h('span', { class: 'small muted' }, `${r.isThisMac && ui.office?.local?.chip ? `${ui.office.local.chip} · ` : ''}RAM ${mh.ramPct}%${mh.availGB != null ? ` · 여유 ${mh.availGB}GB` : ''}`),
     h('span', { class: `tag${mh.level === 'overload' ? ' solid' : mh.level === 'busy' ? ' dash' : ''}` }, healthLabel(mh.level))) : null;
 
   if (r.kind === '기계' && r.isThisMac) {
-    const L = ui.office?.local;
-    extra = h('div', null,
-      ramLine,
-      L ? h('div', { class: 'small muted', style: 'margin-top:4px' }, `이 컴퓨터 · ${L.chip} · 켜진 지 ${uptimeK(L.uptimeSec)} · 부하 ${L.load[0]}`) : h('div', { class: 'small muted', style: 'margin-top:4px' }, '이 컴퓨터 · 읽는 중'),
-      workTagBar,
-      optBar);
+    extra = h('div', null, ramLine, workTagBar, optBar);
   } else if (r.kind === '기계') {
-    const host = h('input', { class: 'in sm', value: r.hostname || '', placeholder: '호스트 이름 또는 IP (예: mac-studio.local)', 'data-k': `host-${r.id}`, style: 'max-width:210px', 'aria-label': `${r.name} 호스트` });
+    const host = h('input', { class: 'in sm', value: r.hostname || '', placeholder: '호스트 또는 IP', 'data-k': `host-${r.id}`, style: 'max-width:170px', 'aria-label': `${r.name} 호스트` });
     const lc = r.lastCheck;
-    const alias = h('input', { class: 'in sm', value: r.sshAlias || '', placeholder: 'ssh 별칭 (예: mac-studio)', 'data-k': `alias-${r.id}`, style: 'max-width:160px', 'aria-label': `${r.name} ssh 별칭` });
+    const alias = h('input', { class: 'in sm', value: r.sshAlias || '', placeholder: 'ssh 별칭 (예: mac-studio)', 'data-k': `alias-${r.id}`, style: 'max-width:165px', 'aria-label': `${r.name} ssh 별칭` });
     const o = (S.offices || []).find((x) => x.id === r.id);
-    const oLine = o ? (o.state === 'busy' ? `${o.name}에서 실행 중 · ${o.title || ''}${o.since ? ` · ${stamp(o.since)}부터` : ''}${o.log ? ` · ${o.log}` : ''}`
-      : o.state === 'down' ? `안 닿음 · ${o.reason}${o.retryAt ? ` · ${stamp(o.retryAt)}에 다시` : ''}` : `연결됨 · 쉬는 중${o.checkedAt ? ` · ${stamp(o.checkedAt)} 확인` : ''}`) : null;
+    const oLine = o ? (o.state === 'busy' ? `실행 중 · ${o.title || ''}` : o.state === 'down' ? `미연결 · ${o.reason}` : '연결됨') : null;
     extra = h('div', null, ramLine, oLine ? h('div', { class: 'small office-line' }, oLine) : null,
       workTagBar,
       h('div', { class: 'row', style: 'margin-top:6px;flex-wrap:wrap' }, host, alias,
         h('button', { class: 'btn sm dark', onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { hostname: host.value.trim(), sshAlias: alias.value.trim() }, '연결 정보를 저장했어요') }, '저장'),
-        h('button', { class: 'btn sm', disabled: !r.hostname && !r.sshAlias, onclick: () => act('POST', `/api/ui/resources/${r.id}/check`, {}, '연결을 확인했어요') }, '연결 확인'),
-        h('span', { class: 'small muted' }, lc ? `${lc.ok ? '닿음 ✓' : '안 닿음'} · ${lc.reason} · ${stamp(lc.checkedAt)}` : '같은 와이파이 맥 스튜디오의 원격 로그인(SSH)을 켜고 별칭을 넣으면 자동 배차됩니다'),
-        h('button', { class: 'btn link', onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { isThisMac: true }, `이 컴퓨터로 지정했어요: ${r.name}`) }, '이 컴퓨터로 지정')),
+        h('button', { class: 'btn sm', disabled: !r.hostname && !r.sshAlias, onclick: () => act('POST', `/api/ui/resources/${r.id}/check`, {}, '연결을 확인했어요') }, '확인'),
+        lc ? h('span', { class: 'small muted' }, lc.ok ? '연결됨 ✓' : lc.reason) : null),
       optBar);
   } else if (r.kind === '폴더') {
     extra = h('div', { class: 'small muted mono' }, r.path || '');
@@ -8695,20 +8693,27 @@ function ragPanel() {
           testIn,
           h('button', { type: 'button', class: 'btn sm dark', onclick: runTest }, 'RAG 검색 테스트')),
         testResWrap))
-    : h('div', { class: 'rag-starter-grid' }, types.map((t) => h('button', {
-      type: 'button', class: 'rag-starter-card',
-      onclick: () => openRagModal(null, t.key),
-    },
-    h('div', { class: 'rag-starter-top' },
-      h('span', { class: `rag-type-pill is-${t.key}` }, ragTypeLabel(t.key)),
-      h('span', { class: 'rag-starter-go' }, '+ 연결 →')),
-    h('b', { class: 'rag-starter-title' }, t.label),
-    h('span', { class: 'small muted' }, t.hint))));
+    : h('div', { class: 'rag-starter-grid' }, types.map((t) => {
+      const shortHint = {
+        folder: '옵시디언 · 마크다운 폴더 인덱싱',
+        http: 'FastAPI · Dify · Open WebUI API',
+        mcp: 'QMD · Obsidian · NotebookLM MCP',
+        web: 'Ego Lite 로그인 NotebookLM · Notion',
+      }[t.key] || t.hint;
+      return h('button', {
+        type: 'button', class: 'rag-starter-card',
+        onclick: () => openRagModal(null, t.key),
+      },
+      h('div', { class: 'rag-starter-top' },
+        h('span', { class: `rag-type-pill is-${t.key}` }, ragTypeLabel(t.key)),
+        h('span', { class: 'rag-starter-go' }, '+ 연결')),
+      h('b', { class: 'rag-starter-title' }, t.label),
+      h('span', { class: 'small muted' }, shortHint));
+    }));
 
   return h('section', { class: 'sec rag-sec' },
-    secHead('내 RAG 허브 (하이브리드 자동 주입 + MCP search_rag)',
-      '옵시디언 폴더 · 내 RAG API · MCP 서버 · NotebookLM을 연결하면 작업마다 관련 구절이 자동 주입되고, AI가 search_rag 도구로 추가 검색합니다',
-      h('button', { type: 'button', class: 'btn sm dark', onclick: () => openRagModal() }, '+ 내 RAG 연결')),
+    secHead('내 RAG', '자동 검색 주입 + MCP search_rag',
+      h('button', { type: 'button', class: 'btn sm dark', onclick: () => openRagModal() }, '+ RAG 연결')),
     bodyEl);
 }
 
@@ -8833,10 +8838,10 @@ function knowledgePanel() {
   renderList();
 
   return h('section', { class: 'sec' },
-    secHead('내 지식 (회사 공용 지식 베이스)', '브랜드 · 비즈니스 · 업무 규칙을 적어 두면 모든 AI 직원이 작업할 때 자동으로 참고하고, AI가 배운 노하우도 여기에 쌓입니다',
+    secHead('내 지식', 'AI가 참고하는 브랜드 · 규칙 메모',
       fileIn,
-      h('button', { type: 'button', class: 'btn sm', onclick: () => fileIn.click() }, '.md 파일 불러오기'),
-      h('button', { type: 'button', class: 'btn sm dark', onclick: () => openKnowledgeModal() }, '+ 새 지식 추가')),
+      h('button', { type: 'button', class: 'btn sm', onclick: () => fileIn.click() }, '.md 불러오기'),
+      h('button', { type: 'button', class: 'btn sm dark', onclick: () => openKnowledgeModal() }, '+ 지식 추가')),
     h('div', { class: 'auto-toolbar kb-toolbar' }, searchIn, h('div', { class: 'auto-filters' }, catBtns)),
     gridWrap);
 }
@@ -8886,13 +8891,13 @@ function machinesRoutingPanel() {
   return h('section', { class: 'res-route-card', 'aria-label': '작업별 컴퓨터 자원 배분 규칙' },
     h('div', { class: 'res-route-top' },
       h('div', null,
-        h('div', { class: 'ops-sec-k' }, 'RESOURCE ROUTING · 어떤 일에 어떤 컴퓨터를 쓰나요?'),
-        h('h2', { class: 'res-route-h' }, studio
-          ? `${thisMac?.name || '이 맥'} × ${studio.name} 역할 배분표`
-          : `${thisMac?.name || '이 컴퓨터'} 단독 운영 중 · 맥 스튜디오를 추가해 역할을 나눠보세요`)),
+        h('h2', { class: 'res-route-h', style: 'margin:0' }, studio
+          ? `${thisMac?.name || '이 맥'} × ${studio.name} 배분`
+          : '작업별 컴퓨터 배분'),
+        h('div', { class: 'small muted', style: 'margin-top:3px' }, studio ? '담당 작업 칩으로 변경 · 과부하 시 자동 우회' : '맥 스튜디오를 추가하면 영상·3D를 자동 분리합니다')),
       h('div', { class: 'row', style: 'flex-wrap:wrap' },
-        !studio ? h('button', { type: 'button', class: 'btn sm gold', onclick: quickAddStudio }, '+ 맥 스튜디오 빠르게 추가') : null,
-        h('button', { type: 'button', class: 'btn sm dark', onclick: runOptimize }, '⚡ 컴퓨터 역할 · 백업 자동 최적화'))),
+        !studio ? h('button', { type: 'button', class: 'btn sm gold', onclick: quickAddStudio }, '+ 맥 스튜디오 추가') : null,
+        h('button', { type: 'button', class: 'btn sm dark', onclick: runOptimize }, '⚡ 자동 최적화'))),
     h('div', { class: 'res-route-grid' }, workTags.map((wt) => {
       const owner = ownerFor(wt.key);
       const fb = owner?.fallbackTo ? activeMachines.find((m) => m.id === owner.fallbackTo) : null;
@@ -8902,10 +8907,8 @@ function machinesRoutingPanel() {
         h('div', { class: 'res-rc-owner' },
           h('span', { class: 'res-rc-arrow' }, '→'),
           h('b', null, owner ? owner.name : '미연결')),
-        h('div', { class: 'res-rc-sub' }, fb ? `혼잡·오프라인 시 → ${fb.name}` : (owner?.isThisMac ? '이 맥에서 즉시 실행' : 'SSH 연결 시 원격 배차')));
-    })),
-    h('div', { class: 'res-route-foot' },
-      h('span', null, '아래 각 컴퓨터 카드의 '), h('b', null, '담당 작업 칩'), h('span', null, '을 누르면 어떤 일이 어느 컴퓨터로 갈지 바로 바꿀 수 있어요. RAM 85%를 넘거나 꺼져 있으면 대체 컴퓨터로 자동 우회합니다.')));
+        fb ? h('div', { class: 'res-rc-sub' }, `우회 → ${fb.name}`) : null);
+    })));
 }
 
 function pageResources() {
@@ -8935,8 +8938,8 @@ function pageResources() {
   name.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) add(); });
   return h('div', null,
     h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, '내 자원')),
-      h('div', { class: 'sub' }, '맥북 · 맥 스튜디오 · 브라우저(Ego Lite) · SNS 계정 · 내 지식을 한눈에 관리하고 작업별로 자동 배분합니다.')),
-    h('button', { class: 'btn sm', onclick: () => { loadOffice(); loadTools(); toast('자원 상태를 다시 읽었어요'); } }, '다시 읽기')),
+      h('div', { class: 'sub' }, '컴퓨터 · 브라우저 · 지식 · RAG')),
+    h('button', { class: 'btn sm', onclick: () => { loadOffice(); loadTools(); toast('새로고침했어요'); } }, '새로고침')),
     h('div', { class: 'picker res-main-tabs', role: 'tablist', 'aria-label': '내 자원 탭' }, tabs.map(([k, label]) => h('button', {
       type: 'button', role: 'tab', 'aria-selected': tab === k ? 'true' : 'false',
       class: `chip${tab === k ? ' on' : ''}`, onclick: () => { ui.resTab = k; render(); },
