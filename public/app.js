@@ -181,26 +181,24 @@ function skillPillsEl(empObj, { onDark = false, max = 6 } = {}) {
         sk.computeHint ? `컴퓨터: ${sk.computeHint}` : '',
         subCnt ? `세부 스킬:\n${sk.subSkills.map((s, i) => `${i + 1}) ${s.name}${s.note ? `: ${s.note}` : ''}`).join('\n')}` : '',
       ].filter(Boolean).join('\n');
+      const vis = skillVisualInfo(sk);
+      const koName = (vis.titleKo || sk.roleLabel || sk.name).split('·')[0].trim();
       return h('button', {
         type: 'button',
         class: `skill-pill${sk.primary && !isUpcoming ? ' is-primary' : ''}${isUpcoming ? ' is-upcoming' : ''}${onDark ? ' on-dark' : ''}`,
-        title: tip,
-        onclick: () => openEmployeeSkillsModal(empObj.id),
+        title: `${sk.name}\n${tip}`,
+        onclick: () => openEmployeeSkillsModal(empObj.id, { tab: 'equipped', openId: sk.id }),
       },
-      isUpcoming
-        ? h('span', { class: 'skill-st-dot upcoming', 'aria-hidden': 'true' })
-        : isReady
-          ? h('span', { class: 'skill-st-dot ready', 'aria-hidden': 'true' })
-          : (sk.primary ? h('span', { class: 'skill-star', 'aria-hidden': 'true' }, '★') : null),
-      h('span', { class: 'skill-pill-name' }, sk.name),
+      h('span', { class: 'skill-pill-ic', 'aria-hidden': 'true' }, skillPixelIconSvg(vis.icon, 14)),
+      h('span', { class: 'skill-pill-name' }, koName || sk.name),
       isUpcoming
         ? h('span', { class: 'skill-sub-cnt upcoming' }, '준비 중')
         : isReady
           ? h('span', { class: 'skill-sub-cnt ready' }, subCnt ? `사용 가능 · ${subCnt}` : '사용 가능')
           : (subCnt ? h('span', { class: 'skill-sub-cnt' }, `세부 ${subCnt}`) : null));
     }),
-    more > 0 ? h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id) }, `+${more}`) : null,
-    h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id) }, '+ 스킬'));
+    more > 0 ? h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id, { tab: 'equipped' }) }, `+${more}`) : null,
+    h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id, { tab: 'arsenal' }) }, '+ 스킬 도감'));
 }
 
 // ───── 조선 비급서 · RPG 스킬 도감 (시각적 16비트 픽셀 아이콘 · 카테고리 · 검색 · 장착 슬롯) ─────
@@ -419,12 +417,16 @@ function buildSkillArsenal({ catalog = [], isSelected, onToggle, compact = false
   return { el: root, refresh: renderArsenal };
 }
 
-function openEmployeeSkillsModal(empOrId) {
+function openEmployeeSkillsModal(empOrId, opts = {}) {
   const empId = typeof empOrId === 'string' ? empOrId : empOrId?.id;
   if (!empId) return;
   const dlg = document.getElementById('dlg');
-  dlg.className = 'wide';
+  dlg.className = 'wide arsenal-dlg';
   let editingSkillId = null;
+  const initEmp = emp(empId);
+  let activeTab = opts.tab || ((initEmp?.skills || []).length ? 'equipped' : 'arsenal');
+  const openIds = new Set(opts.openId ? [opts.openId] : []);
+  let equippedQuery = '';
 
   const repoIn = h('input', { class: 'in', placeholder: '예: npx connect-ai-video-motion 또는 https://github.com/wonseokjung/connect-ai-marketer', 'aria-label': 'GitHub 주소 또는 실행 명령' });
   const nameIn = h('input', { class: 'in', placeholder: '예: connect-ai-video-motion', 'aria-label': '주요 스킬 이름' });
@@ -462,10 +464,34 @@ function openEmployeeSkillsModal(empOrId) {
     cancelEditBtn.classList.add('hidden');
   };
 
+  const tabBar = h('div', { class: 'sk-modal-tabs', role: 'tablist' });
+  const equippedSearchIn = h('input', { class: 'in sm', placeholder: '장착된 스킬 검색 (예: 영상, 컷편집, 2강, 마케팅...)', 'aria-label': '장착된 스킬 검색' });
   const listWrap = h('div');
   const presetWrap = h('div');
+  const formWrap = h('div', { class: 'skill-form' });
   const headCount = h('span', { class: 'tag' });
-  const cancelEditBtn = h('button', { type: 'button', class: 'btn sm hidden', onclick: resetForm }, '편집 취소');
+  const cancelEditBtn = h('button', { type: 'button', class: 'btn sm hidden', onclick: () => { resetForm(); activeTab = 'equipped'; syncTabs(); } }, '편집 취소');
+
+  const syncTabs = () => {
+    const e = emp(empId);
+    const skCnt = (e?.skills || []).length;
+    const catCnt = (S.options?.ossCatalog || []).length;
+    tabBar.replaceChildren(
+      ...[
+        ['equipped', `⚡ 장착된 스킬 (${skCnt})`],
+        ['arsenal', `📜 스킬 비급 도감 (${catCnt})`],
+        ['custom', editingSkillId ? '✎ 스킬 편집 중' : '+ 직접 등록'],
+      ].map(([tk, tl]) => h('button', {
+        type: 'button',
+        class: `sk-modal-tab${activeTab === tk ? ' on' : ''}`,
+        onclick: () => { activeTab = tk; syncTabs(); },
+      }, tl)));
+    listWrap.classList.toggle('hidden', activeTab !== 'equipped');
+    presetWrap.classList.toggle('hidden', activeTab !== 'arsenal');
+    formWrap.classList.toggle('hidden', activeTab !== 'custom');
+  };
+
+  equippedSearchIn.addEventListener('input', (ev) => { equippedQuery = ev.target.value; renderBody(); });
 
   const submitSkill = () => once('emp-skill-save', async () => {
     const rawRepo = repoIn.value.trim();
@@ -489,7 +515,7 @@ function openEmployeeSkillsModal(empOrId) {
     };
     if (editingSkillId) {
       const r = await act('PATCH', `/api/ui/employees/${empId}/skills/${editingSkillId}`, { ...payload, repo: rawRepo }, '스킬을 수정했어요');
-      if (r) { resetForm(); renderBody(); }
+      if (r) { resetForm(); activeTab = 'equipped'; renderBody(); }
       return;
     }
     const isRepoLike = /^(https?:\/\/|github:|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$)/i.test(rawRepo);
@@ -498,7 +524,7 @@ function openEmployeeSkillsModal(empOrId) {
       sourceInput: rawRepo,
       repo: isRepoLike ? rawRepo : '',
     }, '스킬을 장착했어요');
-    if (r) { resetForm(); renderBody(); }
+    if (r) { resetForm(); activeTab = 'equipped'; renderBody(); }
   });
 
   const submitBtn = h('button', { type: 'button', class: 'btn gold', onclick: submitSkill }, '+ 스킬 장착');
@@ -515,13 +541,25 @@ function openEmployeeSkillsModal(empOrId) {
     headCount.textContent = `${skills.length}개 장착${readyCnt ? ` · 사용 가능 ${readyCnt}` : ''}${upCnt ? ` · 준비 중 ${upCnt}` : ''}`;
 
     if (!skills.length) {
-      listWrap.replaceChildren(h('div', { class: 'skill-empty' }, '아직 연결된 스킬이 없어요. 아래에서 CONNECT AI 콘텐츠 스킬 또는 GitHub·npx 주요 스킬을 장착해 보세요.'));
+      listWrap.replaceChildren(h('div', { class: 'skill-empty' },
+        '아직 장착된 스킬이 없어요. ',
+        h('button', { type: 'button', class: 'btn sm gold', onclick: () => { activeTab = 'arsenal'; syncTabs(); } }, '📜 스킬 비급 도감에서 1클릭 장착 →')));
     } else {
-      listWrap.replaceChildren(h('div', { class: 'skill-list' }, skills.map((sk) => {
+      const eq = equippedQuery.trim().toLowerCase();
+      const filteredSkills = eq
+        ? skills.filter((sk) => {
+          const subsTxt = (sk.subSkills || []).map((s) => `${s.name} ${s.note || ''}`).join(' ');
+          return `${sk.name} ${sk.roleLabel || ''} ${sk.when || ''} ${sk.note || ''} ${subsTxt}`.toLowerCase().includes(eq);
+        })
+        : skills;
+      const listKids = [];
+      if (skills.length >= 4) listKids.push(h('div', { class: 'sk-eq-search' }, equippedSearchIn));
+      listKids.push(h('div', { class: 'skill-list' }, filteredSkills.map((sk) => {
         const subs = Array.isArray(sk.subSkills) ? sk.subSkills : [];
         const isUpcoming = sk.published === false || sk.doctorStatus === 'upcoming';
         const isReady = !isUpcoming && sk.doctorStatus === 'ready';
         const isMissing = !isUpcoming && sk.doctorStatus === 'missing';
+        const expanded = openIds.has(sk.id);
 
         const addSubName = h('input', { class: 'in sm skill-sub-name-in', placeholder: '새 세부 스킬 이름', 'aria-label': `${sk.name} 세부 스킬 이름` });
         const addSubNote = h('input', { class: 'in sm skill-sub-note-in', placeholder: '설명 (어떻게 쓰는지)', 'aria-label': `${sk.name} 세부 스킬 설명` });
@@ -554,36 +592,50 @@ function openEmployeeSkillsModal(empOrId) {
         ].filter(Boolean);
 
         const vis = skillVisualInfo(sk);
-        return h('div', { class: `skill-row${sk.primary && !isUpcoming ? ' is-primary' : ''}${isUpcoming ? ' is-upcoming' : ''}` },
+        const toggleExpand = () => {
+          if (openIds.has(sk.id)) openIds.delete(sk.id);
+          else openIds.add(sk.id);
+          renderBody();
+        };
+        const compactSummary = !expanded
+          ? h('div', { class: 'sk-compact-meta' },
+            vis.flow ? h('span', { class: 'ars-flow' }, vis.flow) : null,
+            subs.length ? h('div', { class: 'ars-subs' }, subs.slice(0, 4).map((sub) => h('span', { class: 'ars-sub-tag' }, sub.name))) : null)
+          : null;
+        return h('div', { class: `skill-row${sk.primary && !isUpcoming ? ' is-primary' : ''}${isUpcoming ? ' is-upcoming' : ''}${expanded ? '' : ' is-collapsed'}` },
           h('div', { class: 'skill-row-main' },
-            h('div', { class: 'skill-row-top' },
+            h('div', { class: 'skill-row-top is-clickable', onclick: toggleExpand, title: expanded ? '접기' : '클릭해 설치·doctor·세부 스킬 펼치기' },
               h('span', { class: `ars-ic-box sm ic-${vis.icon}` }, skillPixelIconSvg(vis.icon, 18)),
               sk.primary && !isUpcoming ? h('span', { class: 'skill-primary-tag' }, '★ 주요') : null,
               h('b', null, sk.roleLabel || vis.titleKo || sk.name),
               h('span', { class: 'skill-slug-mini' }, sk.name),
               statusBadge,
               sk.addedBy === 'ai' ? h('span', { class: 'skill-ai-tag', title: 'AI 직원이 작업 중 스스로 등록한 도구' }, 'AI 자동 등록') : null,
-              sk.repo ? h('a', { class: 'skill-repo-badge', href: sk.repo, target: '_blank', rel: 'noopener noreferrer', title: sk.repo }, `GitHub ↗`) : null),
-            specRows.length ? h('div', { class: 'sk-spec-box' }, specRows) : null,
-            h('div', { class: 'sk-subs-box' },
-              h('div', { class: 'sk-subs-h' }, `세부 스킬 (${subs.length}개 · 추가·제거 가능)`),
-              subs.length
-                ? h('div', { class: 'sk-sub-list' }, subs.map((sub, idx) => h('div', { class: 'sk-sub-item' },
-                  h('span', { class: 'sk-sub-num' }, `${idx + 1})`),
-                  h('div', { class: 'sk-sub-text' },
-                    h('b', null, sub.name),
-                    sub.note ? h('span', { class: 'sk-sub-desc' }, `: ${sub.note}`) : null),
-                  h('button', {
-                    type: 'button', class: 'skill-sub-x', 'aria-label': `${sub.name} 제거`,
-                    onclick: () => once(`del-sub-${sk.id}-${sub.id}`, async () => {
-                      const nextSubs = subs.filter((x) => x.id !== sub.id && x.name !== sub.name);
-                      const r = await act('PATCH', `/api/ui/employees/${empId}/skills/${sk.id}`, { subSkills: nextSubs }, `세부 스킬 "${sub.name}"을 뺐어요`);
-                      if (r) renderBody();
-                    }),
-                  }, '×'))))
-                : null,
-              h('div', { class: 'skill-sub-add-row' }, addSubName, addSubNote, h('button', { type: 'button', class: 'btn sm', onclick: pushSub }, '+ 추가')))),
+              sk.repo ? h('a', { class: 'skill-repo-badge', href: sk.repo, target: '_blank', rel: 'noopener noreferrer', title: sk.repo, onclick: (ev) => ev.stopPropagation() }, `GitHub ↗`) : null),
+            compactSummary,
+            expanded && specRows.length ? h('div', { class: 'sk-spec-box' }, specRows) : null,
+            expanded
+              ? h('div', { class: 'sk-subs-box' },
+                h('div', { class: 'sk-subs-h' }, `세부 스킬 (${subs.length}개 · 추가·제거 가능)`),
+                subs.length
+                  ? h('div', { class: 'sk-sub-list' }, subs.map((sub, idx) => h('div', { class: 'sk-sub-item' },
+                    h('span', { class: 'sk-sub-num' }, `${idx + 1})`),
+                    h('div', { class: 'sk-sub-text' },
+                      h('b', null, sub.name),
+                      sub.note ? h('span', { class: 'sk-sub-desc' }, `: ${sub.note}`) : null),
+                    h('button', {
+                      type: 'button', class: 'skill-sub-x', 'aria-label': `${sub.name} 제거`,
+                      onclick: () => once(`del-sub-${sk.id}-${sub.id}`, async () => {
+                        const nextSubs = subs.filter((x) => x.id !== sub.id && x.name !== sub.name);
+                        const r = await act('PATCH', `/api/ui/employees/${empId}/skills/${sk.id}`, { subSkills: nextSubs }, `세부 스킬 "${sub.name}"을 뺐어요`);
+                        if (r) renderBody();
+                      }),
+                    }, '×'))))
+                  : null,
+                h('div', { class: 'skill-sub-add-row' }, addSubName, addSubNote, h('button', { type: 'button', class: 'btn sm', onclick: pushSub }, '+ 추가')))
+              : null),
           h('div', { class: 'skill-row-acts' },
+            h('button', { type: 'button', class: 'btn sm', onclick: toggleExpand }, expanded ? '접기 ▴' : '상세 ▾'),
             !isUpcoming
               ? h('button', {
                 type: 'button', class: `btn sm${isReady ? '' : ' dark'}`,
@@ -628,6 +680,8 @@ function openEmployeeSkillsModal(empOrId) {
                 cmdTouched = Boolean(sk.command);
                 submitBtn.textContent = '스킬 수정 저장';
                 cancelEditBtn.classList.remove('hidden');
+                activeTab = 'custom';
+                syncTabs();
                 nameIn.focus();
               },
             }, '편집'),
@@ -639,12 +693,16 @@ function openEmployeeSkillsModal(empOrId) {
               }),
             }, '제거')));
       })));
+      listWrap.replaceChildren(...listKids);
     }
 
     const equippedKeys = new Set(skills.map((s) => (s.preset || '').toLowerCase()).filter(Boolean));
     const equippedRepos = new Set(skills.map((s) => (s.repo || '').toLowerCase()).filter(Boolean));
     const equippedNames = new Set(skills.map((s) => (s.name || '').toLowerCase()).filter(Boolean));
     const catalog = [...(S.options?.ossCatalog || [])].sort((a, b) => {
+      const ap = a.published !== false ? 1 : 0;
+      const bp = b.published !== false ? 1 : 0;
+      if (ap !== bp) return bp - ap;
       const ac = a.connectAiPack ? 1 : 0;
       const bc = b.connectAiPack ? 1 : 0;
       if (ac !== bc) return bc - ac;
@@ -655,12 +713,22 @@ function openEmployeeSkillsModal(empOrId) {
     const officeOss = (S.data.resources || []).filter((r) => r.kind === '오픈소스' && r.status !== '꺼짐'
       && !catalog.some((c) => c.key === r.preset || c.name.toLowerCase() === String(r.name || '').toLowerCase()));
 
+    const findEquipped = (c) => skills.find((s) =>
+      (s.preset && s.preset.toLowerCase() === c.key.toLowerCase())
+      || (c.repo && s.repo && s.repo.toLowerCase() === c.repo.toLowerCase())
+      || (s.name && s.name.toLowerCase() === c.name.toLowerCase()));
+
     const arsenal = buildSkillArsenal({
       catalog,
-      isSelected: (c) => equippedKeys.has(c.key) || (c.repo && equippedRepos.has(c.repo.toLowerCase())) || equippedNames.has(c.name.toLowerCase()),
+      isSelected: (c) => Boolean(findEquipped(c)),
       onToggle: (c) => once(`preset-sk-${c.key}`, async () => {
-        const already = equippedKeys.has(c.key) || (c.repo && equippedRepos.has(c.repo.toLowerCase())) || equippedNames.has(c.name.toLowerCase());
-        const r = await act('POST', `/api/ui/employees/${empId}/skills`, { presetKey: c.key, primary: true }, already ? `${c.name} 스킬을 최신으로 맞췄어요` : `${shortName(empId)}에게 ${c.name} 스킬${c.published === false ? ' (준비 중)' : ''}을 장착했어요`);
+        const existing = findEquipped(c);
+        if (existing) {
+          const r = await act('DELETE', `/api/ui/employees/${empId}/skills/${existing.id}`, undefined, `${shortName(empId)}에서 ${c.name} 스킬을 뺐어요`);
+          if (r) { if (editingSkillId === existing.id) resetForm(); renderBody(); }
+          return;
+        }
+        const r = await act('POST', `/api/ui/employees/${empId}/skills`, { presetKey: c.key, primary: true }, `${shortName(empId)}에게 ${c.name} 스킬${c.published === false ? ' (준비 중)' : ''}을 장착했어요`);
         if (r) renderBody();
       }),
     });
@@ -681,7 +749,33 @@ function openEmployeeSkillsModal(empOrId) {
         }))));
     }
     presetWrap.replaceChildren(...presetKids);
+    syncTabs();
   };
+
+  formWrap.replaceChildren(
+    h('div', { class: 'skill-sec-h' }, '주요 스킬 → 세부 스킬 직접 추가 / 편집'),
+    h('div', { class: 'grid2' },
+      h('label', { class: 'field' }, '주요 스킬 이름', nameIn),
+      h('label', { class: 'field' }, '담당 · 강의 라벨 (예: 영상 편집 직원 · 2강)', roleIn)),
+    h('div', { class: 'grid2 coord-dlg-gap' },
+      h('label', { class: 'field' }, '설치 명령 (최초 1회)', installIn),
+      h('label', { class: 'field' }, '점검 명령 (doctor → Ready)', doctorIn)),
+    h('div', { class: 'grid2 coord-dlg-gap' },
+      h('label', { class: 'field' }, '넣는 것 (입력)', inputSpecIn),
+      h('label', { class: 'field' }, '나오는 것 (결과물)', outputSpecIn)),
+    h('label', { class: 'field coord-dlg-gap' }, '이렇게 말하면 이 스킬 (트리거 문구 · 쉼표 구분)', whenIn),
+    h('label', { class: 'field coord-dlg-gap' }, '세부 스킬 (한 줄에 "이름: 설명" · 나중에 추가 편집 가능)', subIn),
+    h('div', { class: 'grid2 coord-dlg-gap' },
+      h('label', { class: 'field' }, '실행할 컴퓨터', computeIn),
+      h('label', { class: 'field' }, '공개 메모 (npm · GitHub)', publishNoteIn)),
+    h('div', { class: 'grid2 coord-dlg-gap' },
+      h('label', { class: 'field' }, 'GitHub 주소 / 실행 명령', repoIn),
+      h('label', { class: 'field' }, '기본 실행 명령 (선택)', cmdIn)),
+    h('div', { class: 'skill-form-foot' },
+      h('div', { class: 'row' },
+        h('label', { class: 'skill-pri-chk' }, primaryChk, '★ 주요 스킬'),
+        h('label', { class: 'skill-pri-chk' }, publishedChk, '공개 중 (끄면 준비 중 · 자동 배분 제외)')),
+      h('div', { class: 'skill-form-acts' }, cancelEditBtn, submitBtn)));
 
   const e0 = emp(empId);
   const tInfo = e0 ? empTeamInfo(e0) : null;
@@ -691,49 +785,20 @@ function openEmployeeSkillsModal(empOrId) {
   setDlg(dlg,
     h('div', { class: 'row codex-top' },
       h('div', null,
-        h('div', { class: 'swarm-kicker' }, 'CONNECT AI · PRIMARY & SUB-SKILLS'),
-        h('h3', { class: 'coord-dlg-h' }, `${shortName(empId)} · 주요 스킬 → 세부 스킬`,
+        h('div', { class: 'swarm-kicker' }, 'CONNECT AI · SKILL ARSENAL'),
+        h('h3', { class: 'coord-dlg-h' }, `${shortName(empId)} · 스킬 비급서`,
           tInfo ? h('span', { class: `team-pill tm-${tInfo.key}` }, h('i'), tInfo.short) : null)),
       h('div', { class: 'skill-head-right' },
         headCount,
         h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: finish }, '×'))),
-    h('p', { class: 'small muted codex-desc' }, '설치 명령은 최초 1회만 실행하고 doctor로 Ready가 확인되면 "사용 가능"이 됩니다. 공개 전(준비 중) 스킬은 자동 배분에서 자동 제외되며, 세부 스킬은 언제든 추가·편집할 수 있어요.'),
-    h('div', { class: 'skill-sec-h' }, '장착된 스킬 (주요 스킬 → 세부 스킬)'),
+    tabBar,
     listWrap,
-    h('div', { class: 'skill-form' },
-      h('div', { class: 'skill-sec-h' }, '주요 스킬 → 세부 스킬 직접 추가 / 편집'),
-      h('div', { class: 'grid2' },
-        h('label', { class: 'field' }, '주요 스킬 이름', nameIn),
-        h('label', { class: 'field' }, '담당 · 강의 라벨 (예: 영상 편집 직원 · 2강)', roleIn)),
-      h('div', { class: 'grid2 coord-dlg-gap' },
-        h('label', { class: 'field' }, '설치 명령 (최초 1회)', installIn),
-        h('label', { class: 'field' }, '점검 명령 (doctor → Ready)', doctorIn)),
-      h('div', { class: 'grid2 coord-dlg-gap' },
-        h('label', { class: 'field' }, '넣는 것 (입력)', inputSpecIn),
-        h('label', { class: 'field' }, '나오는 것 (결과물)', outputSpecIn)),
-      h('label', { class: 'field coord-dlg-gap' }, '이렇게 말하면 이 스킬 (트리거 문구 · 쉼표 구분)', whenIn),
-      h('label', { class: 'field coord-dlg-gap' }, '세부 스킬 (한 줄에 "이름: 설명" · 나중에 추가 편집 가능)', subIn),
-      h('div', { class: 'grid2 coord-dlg-gap' },
-        h('label', { class: 'field' }, '실행할 컴퓨터', computeIn),
-        h('label', { class: 'field' }, '공개 메모 (npm · GitHub)', publishNoteIn)),
-      h('div', { class: 'grid2 coord-dlg-gap' },
-        h('label', { class: 'field' }, 'GitHub 주소 / 실행 명령', repoIn),
-        h('label', { class: 'field' }, '기본 실행 명령 (선택)', cmdIn)),
-      h('div', { class: 'skill-form-foot' },
-        h('div', { class: 'row' },
-          h('label', { class: 'skill-pri-chk' }, primaryChk, '★ 주요 스킬'),
-          h('label', { class: 'skill-pri-chk' }, publishedChk, '공개 중 (끄면 준비 중 · 자동 배분 제외)')),
-        h('div', { class: 'skill-form-acts' }, cancelEditBtn, submitBtn))),
-    h('div', { class: 'skill-sec-h coord-dlg-gap' }, 'CONNECT AI 콘텐츠 스킬 & 추천 오픈소스 (1클릭 장착)'),
     presetWrap,
+    formWrap,
     h('div', { class: 'bar' },
       h('button', { type: 'button', class: 'btn dark', onclick: finish }, '완료')));
   dlg.showModal();
-  if ((e0?.skills || []).length) {
-    dlg.scrollTop = 0;
-  } else {
-    nameIn.focus();
-  }
+  dlg.scrollTop = 0;
 }
 
 function koSubject(word) {
@@ -5581,7 +5646,7 @@ const BOT_AGENT_OPTIONS = [
 function openAddEmployee(opts = {}) {
   const cfg = opts && !opts.target ? opts : {};
   const dlg = document.getElementById('dlg');
-  dlg.className = 'wide';
+  dlg.className = 'wide arsenal-dlg';
 
   const d = S.data;
   const machines = d.resources.filter((r) => r.kind === '기계');
@@ -7065,7 +7130,12 @@ function readHash() {
   if (next === 'home' && /^t\d+$/.test(ui.param)) ui.open = ui.param;
 }
 
-window.addEventListener('hashchange', () => { readHash(); render(); });
+window.addEventListener('hashchange', () => {
+  const dlg = document.getElementById('dlg');
+  if (dlg?.open) { dlg.className = ''; dlg.close(); }
+  readHash();
+  render();
+});
 document.getElementById('dlg')?.addEventListener('close', (e) => {
   e.currentTarget.className = '';
   if (ui.pendingRender) { ui.pendingRender = false; render(); }
