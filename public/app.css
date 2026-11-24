@@ -1886,6 +1886,36 @@ dialog.auto-dlg { width: min(560px, calc(100vw - 24px)); }
 .lt-txt { flex: 1; min-width: 0; }
 .live-term-cursor { color: #d4a359; font-size: 12px; animation: ops-pulse 1s steps(2) infinite; margin-top: 2px; }
 
+/* #home 크루 커맨드 센터 내 0클릭 인라인 실시간 실행 모니터 */
+.swarm-live-console {
+  margin-top: 10px; border-radius: 11px; overflow: hidden;
+  background: #050507; border: 1px solid rgba(212, 163, 89, 0.35);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.slc-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 12px; background: rgba(212, 163, 89, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.slc-title { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: #d4a359; }
+.slc-hint { font-size: 10px; color: rgba(255, 255, 255, 0.45); font-family: inherit; }
+.slc-list { display: flex; flex-direction: column; }
+.slc-job {
+  text-align: left; width: 100%; border: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent; color: #fff; padding: 8px 12px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 5px; transition: background .14s ease;
+}
+.slc-job:last-child { border-bottom: 0; }
+.slc-job:hover { background: rgba(255, 255, 255, 0.04); }
+.slc-job-top { display: flex; align-items: center; gap: 8px; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+.slc-who { font-size: 11px; font-weight: 700; color: #0a0a0c; background: #d4a359; padding: 1px 7px; border-radius: 999px; flex: none; }
+.slc-ttl { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slc-tm { font-size: 11px; font-weight: 700; color: #f3d092; flex: none; font-variant-numeric: tabular-nums; }
+.slc-lines { display: flex; flex-direction: column; gap: 2px; }
+.slc-ln { display: flex; align-items: baseline; gap: 8px; font-size: 11px; line-height: 1.45; color: rgba(255, 255, 255, 0.85); }
+.slc-ln .lt-txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slc-ln.muted { color: rgba(255, 255, 255, 0.5); }
+
 /* ───── 조선 비급서 · RPG 스킬 도감 (50+ 스킬 확장 대응 · 픽셀 아이콘 카드) ───── */
 dialog.wide.arsenal-dlg { width: min(740px, calc(100vw - 32px)); max-width: 740px; }
 .codex-card span { word-break: keep-all; }

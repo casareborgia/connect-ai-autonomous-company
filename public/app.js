@@ -3421,11 +3421,38 @@ function joseonSwarmPanel() {
           : null,
       ]);
 
+  const liveConsoleNode = workingCount
+    ? h('div', { class: 'swarm-live-console', role: 'log', 'aria-live': 'polite' },
+      h('div', { class: 'slc-head' },
+        h('span', { class: 'slc-title' }, 'LIVE EXECUTION STREAM · 실시간 작업 현황'),
+        h('span', { class: 'slc-hint' }, '클릭하면 전체 로그가 열립니다')),
+      h('div', { class: 'slc-list' }, (S.working || []).slice(0, 3).map((w) => {
+        const recent = (w.liveLines || []).slice(-3);
+        return h('button', {
+          type: 'button', class: 'slc-job',
+          onclick: () => { if (w.taskId) openTaskById(w.taskId); },
+        },
+        h('div', { class: 'slc-job-top' },
+          h('span', { class: 'slc-who' }, shortName(w.emp)),
+          h('span', { class: 'slc-ttl' }, w.title || '작업 실행 중'),
+          h('span', { class: 'slc-tm', 'data-live-since': w.since || null, 'data-live-prefix': '⚡ ' }, `⚡ ${fmtElapsedSec(w.elapsedSec)}`)),
+        h('div', { class: 'slc-lines' },
+          recent.length
+            ? recent.map((ln) => h('div', { class: 'slc-ln' },
+              h('span', { class: 'lt-ts' }, ln.at || ''),
+              h('span', { class: 'lt-txt' }, ln.text || '')))
+            : h('div', { class: 'slc-ln muted' },
+              h('span', { class: 'lt-ts' }, 'LIVE'),
+              h('span', { class: 'lt-txt' }, w.statusLine || '에이전트 작업 출력을 수신하는 중…'))));
+      })))
+    : null;
+
   return h('section', { class: 'swarm-card', 'aria-label': 'CONNECT AI LIVE CREW' },
     h('div', { class: 'swarm-top' }, h('div', { class: 'swarm-tabs' }, teamTabs), topActions),
     heroNode,
     h('div', { class: 'swarm-strip' }, allItem, workerItems, addTile),
-    tickerNode);
+    tickerNode,
+    liveConsoleNode);
 }
 
 function pageHome() {
