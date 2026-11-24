@@ -1097,9 +1097,216 @@
     return svg;
   }
 
+  // ───────── 성과 아카이브 비주얼 차트 3종 (추이 바 · 12주 잔디 히트맵 · 카테고리 도넛) ─────────
+
+  function workTrendChart(buckets = [], { ariaLabel = '기간별 완료 추이' } = {}) {
+    const W = 560;
+    const H = 176;
+    const padL = 28;
+    const padR = 12;
+    const padT = 22;
+    const padB = 28;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+    const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'arch-trend-svg', role: 'img', 'aria-label': ariaLabel });
+
+    if (!buckets.length) {
+      svg.appendChild(s('text', { x: W / 2, y: H / 2, 'text-anchor': 'middle', 'font-size': 12, fill: '#94a3b8' }, '아직 쌓인 완료 기록이 없습니다'));
+      return svg;
+    }
+
+    const maxVal = Math.max(...buckets.map((b) => b.total || 0), 4);
+    const niceMax = maxVal <= 5 ? Math.max(4, maxVal) : Math.ceil(maxVal / 2) * 2;
+    const yFor = (v) => padT + plotH - (Math.min(v, niceMax) / niceMax) * plotH;
+
+    // 수평 가이드선 (0, 중간, 최대)
+    for (const frac of [0, 0.5, 1]) {
+      const val = Math.round(niceMax * frac);
+      const y = yFor(val);
+      svg.appendChild(s('line', {
+        x1: padL, x2: W - padR, y1: y.toFixed(1), y2: y.toFixed(1),
+        stroke: frac === 0 ? '#d8d6cf' : '#eceae4', 'stroke-width': 1,
+        'stroke-dasharray': frac === 0 ? null : '2 3',
+      }));
+      svg.appendChild(s('text', {
+        x: padL - 6, y: (y + 3.5).toFixed(1), 'text-anchor': 'end',
+        'font-size': 9.5, fill: '#8a919e', 'font-family': 'ui-monospace, monospace',
+      }, String(val)));
+    }
+
+    const n = buckets.length;
+    const step = plotW / n;
+    const barW = Math.max(6, Math.min(34, step * (n > 18 ? 0.66 : 0.56)));
+    const labelEvery = n > 20 ? 5 : n > 10 ? 2 : 1;
+
+    // 7일 이상 기간에는 평균선을 은은한 골드 점선으로 표시
+    const nonZeroDays = buckets.filter((b) => b.total > 0);
+    if (n >= 7 && nonZeroDays.length >= 2) {
+      const avg = buckets.reduce((a, b) => a + b.total, 0) / n;
+      if (avg >= 0.4) {
+        const ay = yFor(avg);
+        svg.appendChild(s('line', {
+          x1: padL, x2: W - padR, y1: ay.toFixed(1), y2: ay.toFixed(1),
+          stroke: '#d4a359', 'stroke-width': 1.1, 'stroke-dasharray': '4 3', opacity: 0.72,
+        }));
+      }
+    }
+
+    buckets.forEach((b, i) => {
+      const cx = padL + step * (i + 0.5);
+      const x = cx - barW / 2;
+      const tot = b.total || 0;
+      const ai = b.ai || 0;
+      const hm = b.human || 0;
+      const g = s('g', { class: 'arch-bar-col' });
+      g.appendChild(s('title', {}, b.tip || `${b.label} · 총 ${tot}건 (AI ${ai} · 대표 ${hm})`));
+
+      if (tot > 0) {
+        const yTop = yFor(tot);
+        const hTot = Math.max(3, yFor(0) - yTop);
+        // 배경 골드(전체 높이 = 대표+AI) 위에 하단 매트 블랙(AI)을 그려 깔끔한 라운드 스택
+        if (hm > 0) {
+          g.appendChild(s('rect', {
+            x: x.toFixed(1), y: yTop.toFixed(1), width: barW.toFixed(1), height: hTot.toFixed(1),
+            rx: Math.min(4, barW / 2).toFixed(1), fill: '#d4a359',
+          }));
+        }
+        if (ai > 0) {
+          const yAi = yFor(ai);
+          const hAi = Math.max(3, yFor(0) - yAi);
+          g.appendChild(s('rect', {
+            x: x.toFixed(1), y: yAi.toFixed(1), width: barW.toFixed(1), height: hAi.toFixed(1),
+            rx: hm > 0 ? '1.5' : Math.min(4, barW / 2).toFixed(1), fill: '#0a0a0c',
+          }));
+        }
+        if (n <= 14 || tot >= niceMax * 0.45) {
+          g.appendChild(s('text', {
+            x: cx.toFixed(1), y: Math.max(11, yTop - 5).toFixed(1), 'text-anchor': 'middle',
+            'font-size': 9.5, 'font-weight': 700, fill: '#0a0a0c', 'font-family': 'ui-monospace, monospace',
+          }, String(tot)));
+        }
+      } else {
+        // 0건인 날은 미세한 점 표시
+        g.appendChild(s('rect', {
+          x: x.toFixed(1), y: (yFor(0) - 2).toFixed(1), width: barW.toFixed(1), height: 2,
+          rx: 1, fill: '#e8e6e0',
+        }));
+      }
+
+      if (i % labelEvery === 0 || i === n - 1) {
+        g.appendChild(s('text', {
+          x: cx.toFixed(1), y: H - 9, 'text-anchor': 'middle',
+          'font-size': 9.5, fill: b.isToday ? '#0a0a0c' : '#7b8290',
+          'font-weight': b.isToday ? 700 : 500,
+        }, b.label));
+      }
+      svg.appendChild(g);
+    });
+
+    return svg;
+  }
+
+  function workHeatmap(dayMap = {}, todayStr = '', { weeks = 12, selectedDay = '', onSelectDay = null } = {}) {
+    const cell = 13;
+    const gap = 3;
+    const step = cell + gap;
+    const padL = 24;
+    const padT = 18;
+    const W = padL + weeks * step + 4;
+    const H = padT + 7 * step + 4;
+    const svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'arch-heat-svg', role: 'img', 'aria-label': `최근 ${weeks}주 완료 활동 히트맵` });
+
+    const base = new Date(`${todayStr || new Date().toISOString().slice(0, 10)}T12:00:00`);
+    const dow = base.getDay(); // 0=일..6=토
+    const start = new Date(base);
+    start.setDate(start.getDate() - ((weeks - 1) * 7 + dow));
+
+    const fmtDay = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    const levelFill = (cnt) => {
+      if (cnt <= 0) return '#f1efe9';
+      if (cnt <= 2) return '#f2e2bc';
+      if (cnt <= 5) return '#e4be70';
+      if (cnt <= 10) return '#d4a359';
+      return '#0a0a0c';
+    };
+
+    // 좌측 요일 라벨 (월, 수, 금)
+    [['월', 1], ['수', 3], ['금', 5]].forEach(([lbl, r]) => {
+      svg.appendChild(s('text', {
+        x: padL - 6, y: padT + r * step + 10, 'text-anchor': 'end',
+        'font-size': 9, fill: '#8a919e',
+      }, lbl));
+    });
+
+    let lastMonth = -1;
+    for (let w = 0; w < weeks; w++) {
+      const colDate = new Date(start);
+      colDate.setDate(start.getDate() + w * 7);
+      const m = colDate.getMonth();
+      if (m !== lastMonth) {
+        lastMonth = m;
+        svg.appendChild(s('text', {
+          x: padL + w * step, y: 11, 'font-size': 9.5, 'font-weight': 600, fill: '#6b7280',
+        }, `${m + 1}월`));
+      }
+      for (let r = 0; r < 7; r++) {
+        const dt = new Date(start);
+        dt.setDate(start.getDate() + w * 7 + r);
+        const key = fmtDay(dt);
+        if (key > todayStr) continue;
+        const info = dayMap[key] || { total: 0, ai: 0, human: 0 };
+        const isToday = key === todayStr;
+        const isSel = key === selectedDay;
+        const rect = s('rect', {
+          x: padL + w * step, y: padT + r * step, width: cell, height: cell, rx: 3,
+          fill: levelFill(info.total),
+          stroke: isSel ? '#c82820' : isToday ? '#d4a359' : (info.total > 10 ? '#d4a359' : 'rgba(10,10,12,0.06)'),
+          'stroke-width': isSel ? 1.8 : isToday ? 1.5 : 0.7,
+          class: onSelectDay ? 'arch-heat-cell clickable' : 'arch-heat-cell',
+        }, s('title', {}, `${key} · 총 ${info.total}건 완료${info.total ? ` (AI ${info.ai} · 대표 ${info.human})` : ''} · 클릭해 상세 보기`));
+        if (onSelectDay) {
+          rect.addEventListener('click', () => onSelectDay(isSel ? '' : key));
+        }
+        svg.appendChild(rect);
+      }
+    }
+    return svg;
+  }
+
+  function categoryDonut(items = [], total = 0) {
+    const size = 128;
+    const cx = 64;
+    const cy = 64;
+    const r = 46;
+    const sw = 15;
+    const C = 2 * Math.PI * r;
+    const svg = s('svg', { viewBox: `0 0 ${size} ${size}`, class: 'arch-donut-svg', role: 'img', 'aria-label': `업무 영역 분포 총 ${total}건` });
+    svg.appendChild(s('circle', { cx, cy, r, fill: 'none', stroke: '#efede7', 'stroke-width': sw }));
+
+    let offset = 0;
+    const nonZero = items.filter((it) => it.count > 0);
+    if (total > 0 && nonZero.length) {
+      nonZero.forEach((it) => {
+        const frac = it.count / total;
+        const seg = Math.max(1.5, frac * C - (nonZero.length > 1 ? 1.8 : 0));
+        const circ = s('circle', {
+          cx, cy, r, fill: 'none', stroke: it.color, 'stroke-width': sw,
+          'stroke-dasharray': `${seg.toFixed(2)} ${(C - seg).toFixed(2)}`,
+          'stroke-dashoffset': (-offset).toFixed(2),
+          transform: `rotate(-90 ${cx} ${cy})`,
+        }, s('title', {}, `${it.label}: ${it.count}건 (${Math.round(frac * 100)}%)`));
+        svg.appendChild(circ);
+        offset += frac * C;
+      });
+    }
+    svg.appendChild(s('text', { x: cx, y: cy - 2, 'text-anchor': 'middle', 'font-size': 20, 'font-weight': 800, fill: '#0a0a0c', 'font-family': 'ui-monospace, monospace' }, String(total)));
+    svg.appendChild(s('text', { x: cx, y: cy + 14, 'text-anchor': 'middle', 'font-size': 10, 'font-weight': 600, fill: '#7b8290' }, '건 완료'));
+    return svg;
+  }
+
   function swarmAllSvg(keys, opts) {
     return window.PixelCrew ? window.PixelCrew.renderAllClusterSvg(keys, opts) : avatarSvg('sejong', opts);
   }
 
-  window.Charts = { spark, paybar, timelineRow, flow, ring, ramChart, healthChart, workloadBars, companyGraph, habitGrid, avatarSvg, swarmAllSvg };
+  window.Charts = { spark, paybar, timelineRow, flow, ring, ramChart, healthChart, workloadBars, companyGraph, habitGrid, workTrendChart, workHeatmap, categoryDonut, avatarSvg, swarmAllSvg };
 })();

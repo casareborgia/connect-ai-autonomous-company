@@ -11,6 +11,7 @@ const ui = {
   autoTab: 'list', autoQuery: '', autoFilter: 'all', autoRunsFilter: 'all',
   kbCat: 'all', kbQuery: '',
   swarmTeam: 'all', swarmSelected: 'all',
+  archiveRange: 'today', archiveDay: '', archiveMore: false,
   hanokStage: (() => { try { return localStorage.getItem('aihq_hanok_stage') !== '0'; } catch { return true; } })(),
   drag: false, office: null, tools: null, briefOpen: false, models: null, listening: false, lastThread: null, handout: {}, ob: null, lan: null,
   composing: false, pendingRender: false, lastSig: '',
@@ -4415,6 +4416,386 @@ function openHealthConnectModal() {
   dlg.showModal();
 }
 
+// ───────── 성과 아카이브 (오늘 · 일주일 · 한 달 · 전체 누적 비주얼 데이터) ─────────
+const ARCHIVE_CATS = [
+  { key: 'sns',      label: 'SNS · 마케팅',     color: '#d4a359', re: /유튜브|youtube|인스타|instagram|스레드|threads|트위터|\bx\.com\b|댓글|답글|포스팅|마케팅|홍보|블로그|크로스포스팅|sns/i },
+  { key: 'video',    label: '영상 · 디자인',     color: '#14b8a6', re: /영상|쇼츠|shorts|릴스|모션|편집|썸네일|디자인|3d|블렌더|blender|remotion|ffmpeg|이미지|배너|자막/i },
+  { key: 'dev',      label: '개발 · 자동화',     color: '#0a0a0c', re: /코드|코딩|개발|버그|테스트|깃허브|github|배포|서버|api|스크립트|자동화|오토메이션|브라우저|에고|ego/i },
+  { key: 'research', label: '리서치 · 기획',     color: '#6366f1', re: /조사|리서치|분석|트렌드|브리핑|요약|해부|경쟁사|벤치마크|기획|대본|아이디어|회고/i },
+  { key: 'ops',      label: '운영 · 메일 · 일상', color: '#94a3b8', re: /.*/ },
+];
+
+function classifyArchiveCat(title = '', note = '', skills = []) {
+  const hay = `${title} ${note} ${(skills || []).join(' ')}`;
+  for (const c of ARCHIVE_CATS) {
+    if (c.key !== 'ops' && c.re.test(hay)) return c;
+  }
+  return ARCHIVE_CATS[ARCHIVE_CATS.length - 1];
+}
+
+function addDaysStr(baseYmd, delta) {
+  const dt = new Date(`${baseYmd}T12:00:00`);
+  dt.setDate(dt.getDate() + delta);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function fmtSavedMinutes(mins) {
+  const m = Math.max(0, Math.round(mins));
+  if (m === 0) return '0분';
+  if (m < 60) return `${m}분`;
+  const hVal = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem >= 10 ? `약 ${hVal}시간 ${rem}분` : `약 ${hVal}시간`;
+}
+
+function collectCompletedArchive(d, todayStr) {
+  const entries = [];
+  const coveredRoutineDays = new Set();
+
+  for (const t of (d.tasks || [])) {
+    if (t.status !== '완료') continue;
+    const rawDate = t.date || (t.completedAt ? String(t.completedAt).slice(0, 10) : todayStr);
+    const tsIso = t.completedAt || t.lastRunAt || t.createdAt || '';
+    let hour = null;
+    let timeStr = t.time || '';
+    if (tsIso) {
+      const dt = new Date(tsIso);
+      if (!Number.isNaN(dt.getTime())) {
+        hour = dt.getHours();
+        timeStr = `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+      }
+    }
+    if (hour === null && t.time && /^\d{1,2}:\d{2}/.test(t.time)) {
+      hour = Number(t.time.split(':')[0]);
+    }
+    const actorId = (t.completedBy && t.completedBy !== 'system') ? t.completedBy : (t.assignee || 'jay');
+    const isAi = Boolean(actorId && actorId !== 'jay');
+    const cat = classifyArchiveCat(t.title, `${t.note || ''} ${t.resultSummary || ''}`, t.skills);
+    const savedMin = isAi ? ((t.steps || []).length > 1 ? 30 : (t.routineId || (t.skills || []).length || t.account) ? 18 : 12) : 0;
+    if (t.routineId) coveredRoutineDays.add(`${t.routineId}|${rawDate}`);
+    entries.push({
+      id: t.id,
+      taskId: t.id,
+      date: rawDate,
+      hour: hour ?? 12,
+      timeStr,
+      sortKey: `${rawDate}T${timeStr || '12:00'}|${tsIso}`,
+      title: t.title,
+      summary: t.resultSummary || t.reason || '',
+      actorId,
+      isAi,
+      cat,
+      savedMin,
+      isRoutine: Boolean(t.routineId),
+    });
+  }
+
+  // 과거 루틴 완료 기록(r.log) 중 d.tasks에 없는 날짜도 함께 누적 집계
+  for (const r of (d.routines || [])) {
+    for (const [dayKey, status] of Object.entries(r.log || {})) {
+      if (status !== '완료' || !/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) continue;
+      if (coveredRoutineDays.has(`${r.id}|${dayKey}`)) continue;
+      const actorId = r.assignee || 'jay';
+      const isAi = actorId !== 'jay';
+      const cat = classifyArchiveCat(r.title, r.instruction || '', r.skills);
+      entries.push({
+        id: `log-${r.id}-${dayKey}`,
+        taskId: null,
+        date: dayKey,
+        hour: r.time && /^\d{1,2}:/.test(r.time) ? Number(r.time.split(':')[0]) : 12,
+        timeStr: r.time || '',
+        sortKey: `${dayKey}T${r.time || '12:00'}`,
+        title: r.title,
+        summary: '오토메이션 완료 기록',
+        actorId,
+        isAi,
+        cat,
+        savedMin: isAi ? 15 : 0,
+        isRoutine: true,
+      });
+    }
+  }
+
+  entries.sort((a, b) => b.sortKey.localeCompare(a.sortKey));
+  return entries;
+}
+
+function buildWorkArchiveCard() {
+  const d = S.data;
+  const todayStr = S.today;
+  const range = ui.archiveRange || 'today';
+  const selDay = ui.archiveDay || '';
+  const allDone = collectCompletedArchive(d, todayStr);
+
+  // 전체 날짜별 집계 (히트맵 + 스트릭 + 일 최고 기록)
+  const dayMap = {};
+  for (const it of allDone) {
+    if (!dayMap[it.date]) dayMap[it.date] = { total: 0, ai: 0, human: 0 };
+    dayMap[it.date].total += 1;
+    if (it.isAi) dayMap[it.date].ai += 1; else dayMap[it.date].human += 1;
+  }
+  let streak = 0;
+  for (let i = 0; i < 365; i++) {
+    const dk = addDaysStr(todayStr, -i);
+    if (dayMap[dk]?.total > 0) streak++;
+    else if (i === 0) continue; // 오늘 아직 0건이면 어제까지 스트릭 유지 확인
+    else break;
+  }
+  const bestDayEntry = Object.entries(dayMap).sort((a, b) => b[1].total - a[1].total)[0] || null;
+
+  // 선택 기간 필터링
+  const minDate = range === 'today'
+    ? todayStr
+    : range === 'week'
+      ? addDaysStr(todayStr, -6)
+      : range === 'month'
+        ? addDaysStr(todayStr, -29)
+        : '';
+  const periodItems = minDate ? allDone.filter((x) => x.date >= minDate && x.date <= todayStr) : allDone;
+  const activeItems = selDay ? allDone.filter((x) => x.date === selDay) : periodItems;
+
+  const totalCnt = activeItems.length;
+  const aiCnt = activeItems.filter((x) => x.isAi).length;
+  const humanCnt = totalCnt - aiCnt;
+  const aiRate = totalCnt ? Math.round((aiCnt / totalCnt) * 100) : 0;
+  const savedMin = activeItems.reduce((sum, x) => sum + x.savedMin, 0);
+
+  // 기간별 추이 차트 버킷 생성
+  const DOW = ['일', '월', '화', '수', '목', '금', '토'];
+  let buckets = [];
+  let trendTitle = '';
+  if (range === 'today') {
+    trendTitle = '오늘 시간대별 완료 분포 (3시간 단위)';
+    const slots = [0, 3, 6, 9, 12, 15, 18, 21];
+    buckets = slots.map((h0) => {
+      const hit = periodItems.filter((x) => x.hour >= h0 && x.hour < h0 + 3);
+      const ai = hit.filter((x) => x.isAi).length;
+      return {
+        label: `${pad(h0)}시`,
+        ai,
+        human: hit.length - ai,
+        total: hit.length,
+        isToday: new Date().getHours() >= h0 && new Date().getHours() < h0 + 3,
+        tip: `${pad(h0)}:00~${pad(h0 + 3)}:00 · 총 ${hit.length}건 (AI ${ai} · 대표 ${hit.length - ai})`,
+      };
+    });
+  } else if (range === 'week') {
+    trendTitle = '최근 7일 일별 완료 추이';
+    for (let i = 6; i >= 0; i--) {
+      const dk = addDaysStr(todayStr, -i);
+      const dt = new Date(`${dk}T12:00:00`);
+      const info = dayMap[dk] || { total: 0, ai: 0, human: 0 };
+      buckets.push({
+        label: `${dt.getMonth() + 1}/${dt.getDate()}(${DOW[dt.getDay()]})`,
+        ai: info.ai,
+        human: info.human,
+        total: info.total,
+        isToday: dk === todayStr,
+        tip: `${dk} (${DOW[dt.getDay()]}) · 총 ${info.total}건 (AI ${info.ai} · 대표 ${info.human})`,
+      });
+    }
+  } else if (range === 'month') {
+    trendTitle = '최근 30일 일별 누적 추이';
+    for (let i = 29; i >= 0; i--) {
+      const dk = addDaysStr(todayStr, -i);
+      const dt = new Date(`${dk}T12:00:00`);
+      const info = dayMap[dk] || { total: 0, ai: 0, human: 0 };
+      buckets.push({
+        label: `${dt.getMonth() + 1}/${dt.getDate()}`,
+        ai: info.ai,
+        human: info.human,
+        total: info.total,
+        isToday: dk === todayStr,
+        tip: `${dk} · 총 ${info.total}건 (AI ${info.ai} · 대표 ${info.human})`,
+      });
+    }
+  } else {
+    trendTitle = '최근 12주 주간 성과 성장 추이';
+    for (let w = 11; w >= 0; w--) {
+      const endDk = addDaysStr(todayStr, -w * 7);
+      const startDk = addDaysStr(endDk, -6);
+      const hit = allDone.filter((x) => x.date >= startDk && x.date <= endDk);
+      const ai = hit.filter((x) => x.isAi).length;
+      const dt = new Date(`${endDk}T12:00:00`);
+      buckets.push({
+        label: w === 0 ? '이번주' : `${dt.getMonth() + 1}/${dt.getDate()}`,
+        ai,
+        human: hit.length - ai,
+        total: hit.length,
+        isToday: w === 0,
+        tip: `${startDk} ~ ${endDk} · 총 ${hit.length}건 (AI ${ai} · 대표 ${hit.length - ai})`,
+      });
+    }
+  }
+
+  // AI 직원 & 대표 MVP 랭킹
+  const actorMap = new Map();
+  for (const it of activeItems) {
+    const k = it.actorId || 'jay';
+    const cur = actorMap.get(k) || { id: k, count: 0, savedMin: 0 };
+    cur.count += 1;
+    cur.savedMin += it.savedMin;
+    actorMap.set(k, cur);
+  }
+  const mvpList = [...actorMap.values()].sort((a, b) => b.count - a.count);
+  const maxMvp = Math.max(1, mvpList[0]?.count || 1);
+
+  // 업무 영역 분포
+  const catCounts = ARCHIVE_CATS.map((c) => ({
+    ...c,
+    count: activeItems.filter((x) => x.cat.key === c.key).length,
+  }));
+
+  const rangeMeta = {
+    today: { label: '오늘', sub: todayStr },
+    week:  { label: '일주일 (7일)', sub: `${addDaysStr(todayStr, -6)} ~ ${todayStr}` },
+    month: { label: '한 달 (30일)', sub: `${addDaysStr(todayStr, -29)} ~ ${todayStr}` },
+    all:   { label: '전체 누적', sub: `총 ${Object.keys(dayMap).length}일 기록 누적` },
+  };
+
+  const copySummary = async () => {
+    const scopeLbl = selDay ? `${selDay} 일간` : rangeMeta[range].label;
+    const topEmp = mvpList[0] ? `${mvpList[0].id === 'jay' ? '대표' : shortName(mvpList[0].id)} ${mvpList[0].count}건` : '기록 없음';
+    const topCat = [...catCounts].sort((a, b) => b.count - a.count)[0];
+    const lines = [
+      `📊 ${d.settings.companyName || 'CONNECT AI HQ'} · ${scopeLbl} 성과 리포트`,
+      `- 총 완료: ${totalCnt}건 (AI ${aiCnt}건 · 대표 ${humanCnt}건 · AI 위임률 ${aiRate}%)`,
+      `- 추정 절약 시간: ${fmtSavedMinutes(savedMin)} · 연속 가동: ${streak}일`,
+      `- 최다 처리 MVP: ${topEmp}${topCat && topCat.count ? ` · 주력 영역: ${topCat.label} (${topCat.count}건)` : ''}`,
+      ...activeItems.slice(0, 5).map((x, i) => `${i + 1}. [${x.cat.label}] ${x.title}${x.summary ? ` — ${x.summary.slice(0, 60)}` : ''}`),
+    ];
+    await copyText(lines.join('\n'));
+    toast(`${scopeLbl} 성과 요약을 복사했어요`);
+  };
+
+  const visibleLogs = ui.archiveMore ? activeItems.slice(0, 30) : activeItems.slice(0, 6);
+
+  return h('section', { class: 'ops-card arch-card', id: 'work-archive', 'aria-label': '성과 아카이브 비주얼 리포트' },
+    h('div', { class: 'arch-head' },
+      h('div', null,
+        h('div', { class: 'ops-sec-k' }, 'WORK CHRONICLE · VISUAL ACHIEVEMENT ARCHIVE'),
+        h('div', { class: 'arch-title-row' },
+          h('h2', null, '쌓인 성과 비주얼 아카이브'),
+          h('span', { class: 'small muted' }, selDay ? `${selDay} 선택됨` : rangeMeta[range].sub),
+          selDay ? h('button', {
+            type: 'button', class: 'arch-day-clr',
+            onclick: () => { ui.archiveDay = ''; ui.archiveMore = false; render(); },
+          }, `📅 ${selDay} 해제 ×`) : null)),
+      h('div', { class: 'arch-controls' },
+        h('div', { class: 'arch-tabs', role: 'tablist', 'aria-label': '성과 기간 선택' },
+          [['today', '오늘'], ['week', '일주일'], ['month', '한 달'], ['all', '전체 누적']].map(([k, lbl]) => h('button', {
+            type: 'button', role: 'tab', 'aria-selected': range === k && !selDay ? 'true' : 'false',
+            class: `arch-tab${range === k && !selDay ? ' on' : ''}`,
+            onclick: () => { ui.archiveRange = k; ui.archiveDay = ''; ui.archiveMore = false; render(); },
+          }, lbl))),
+        h('button', { type: 'button', class: 'btn sm', onclick: copySummary }, '요약 복사'))),
+
+    // 4개 핵심 누적 KPI 카드
+    h('div', { class: 'arch-kpis' },
+      h('div', { class: 'arch-kpi is-dark' },
+        h('span', { class: 'arch-kpi-k' }, `${selDay ? selDay : rangeMeta[range].label} 완료한 일`),
+        h('div', { class: 'arch-kpi-v' }, `${totalCnt}건`),
+        h('span', { class: 'arch-kpi-s' }, `AI ${aiCnt}건 · 대표 ${humanCnt}건`)),
+      h('div', { class: 'arch-kpi' },
+        h('span', { class: 'arch-kpi-k' }, 'AI 자율 위임률'),
+        h('div', { class: 'arch-kpi-v is-gold' }, `${aiRate}%`),
+        h('span', { class: 'arch-kpi-s' }, aiCnt ? '대표 대신 AI 직원이 완료' : 'AI에게 일을 맡겨 보세요')),
+      h('div', { class: 'arch-kpi' },
+        h('span', { class: 'arch-kpi-k' }, '절약한 대표 시간'),
+        h('div', { class: 'arch-kpi-v' }, fmtSavedMinutes(savedMin)),
+        h('span', { class: 'arch-kpi-s' }, `AI 처리 ${aiCnt}건 기준 추정`)),
+      h('div', { class: 'arch-kpi' },
+        h('span', { class: 'arch-kpi-k' }, '연속 가동 · 일 최고'),
+        h('div', { class: 'arch-kpi-v' }, `${streak}일 연속`),
+        h('span', { class: 'arch-kpi-s' }, bestDayEntry ? `최고 ${bestDayEntry[1].total}건 (${bestDayEntry[0].slice(5)})` : '오늘부터 기록 시작'))),
+
+    // 비주얼 차트 1행: 기간 추이 바 차트 + 12주 잔디 히트맵
+    h('div', { class: 'arch-grid-top' },
+      h('div', { class: 'arch-panel' },
+        h('div', { class: 'arch-panel-h' },
+          h('b', null, trendTitle),
+          h('div', { class: 'arch-legend' },
+            h('span', null, h('i', { class: 'arch-dot-ai' }), 'AI 완료'),
+            h('span', null, h('i', { class: 'arch-dot-me' }), '대표 완료'))),
+        C.workTrendChart(buckets, { ariaLabel: trendTitle })),
+      h('div', { class: 'arch-panel' },
+        h('div', { class: 'arch-panel-h' },
+          h('b', null, '최근 12주 누적 잔디'),
+          h('div', { class: 'arch-legend arch-heat-leg' },
+            h('span', null, '적음'),
+            h('i', { class: 'hl-0' }), h('i', { class: 'hl-1' }), h('i', { class: 'hl-2' }), h('i', { class: 'hl-3' }), h('i', { class: 'hl-4' }),
+            h('span', null, '많음'))),
+        C.workHeatmap(dayMap, todayStr, {
+          weeks: 12,
+          selectedDay: selDay,
+          onSelectDay: (dk) => { ui.archiveDay = dk; ui.archiveMore = false; render(); },
+        }),
+        h('div', { class: 'small muted arch-heat-hint' }, '날짜 칸을 클릭하면 그날 완료한 일만 바로 펼쳐봅니다 · 전체 누적 자동 보관'))),
+
+    // 비주얼 차트 2행: AI 직원 MVP 랭킹 + 업무 영역 도넛
+    h('div', { class: 'arch-grid-bot' },
+      h('div', { class: 'arch-panel' },
+        h('div', { class: 'arch-panel-h' },
+          h('b', null, 'AI 직원 · 대표 공헌도 MVP'),
+          h('span', { class: 'small muted' }, `${selDay || rangeMeta[range].label} 기준`)),
+        mvpList.length
+          ? h('div', { class: 'arch-mvp-list' }, mvpList.slice(0, 6).map((m, idx) => {
+            const eObj = m.id !== 'jay' ? emp(m.id) : null;
+            const share = totalCnt ? Math.round((m.count / totalCnt) * 100) : 0;
+            const barPct = Math.max(8, Math.round((m.count / maxMvp) * 100));
+            return h('div', { class: 'arch-mvp-row' },
+              h('span', { class: `arch-rank${idx === 0 ? ' is-top' : ''}` }, String(idx + 1)),
+              eObj ? avatarEl(eObj, { size: 30 }) : h('span', { class: 'ops-feed-me' }, '대표'),
+              h('div', { class: 'arch-mvp-mid' },
+                h('div', { class: 'arch-mvp-top' },
+                  h('b', null, m.id === 'jay' ? '대표 (직접)' : shortName(m.id)),
+                  h('span', { class: 'arch-mvp-cnt' }, `${m.count}건 · ${share}%`)),
+                h('div', { class: 'arch-mvp-track' },
+                  h('i', { class: `arch-mvp-fill${idx === 0 ? ' is-gold' : ''}`, style: `width:${barPct}%` }))));
+          }))
+          : h('div', { class: 'empty small' }, '선택한 기간에 완료된 기록이 없습니다')),
+      h('div', { class: 'arch-panel' },
+        h('div', { class: 'arch-panel-h' },
+          h('b', null, '업무 영역 분포'),
+          h('span', { class: 'small muted' }, '자동 분류')),
+        h('div', { class: 'arch-cat-wrap' },
+          C.categoryDonut(catCounts, totalCnt),
+          h('div', { class: 'arch-cat-list' }, catCounts.map((c) => {
+            const pct = totalCnt ? Math.round((c.count / totalCnt) * 100) : 0;
+            return h('div', { class: `arch-cat-row${c.count === 0 ? ' is-zero' : ''}` },
+              h('span', { class: 'arch-cat-dot', style: `background:${c.color}` }),
+              h('span', { class: 'arch-cat-lbl' }, c.label),
+              h('span', { class: 'arch-cat-val' }, `${c.count}건`),
+              h('span', { class: 'arch-cat-pct' }, `${pct}%`));
+          }))))),
+
+    // 하단: 기간별 쌓인 성과 기록 리스트
+    h('div', { class: 'arch-log-wrap' },
+      h('div', { class: 'arch-panel-h' },
+        h('b', null, `${selDay ? `${selDay} 완료한 일` : `${rangeMeta[range].label} 쌓인 성과 기록`} (${activeItems.length}건)`),
+        activeItems.length > 6 ? h('button', {
+          type: 'button', class: 'btn link',
+          onclick: () => { ui.archiveMore = !ui.archiveMore; render(); },
+        }, ui.archiveMore ? '접기' : `전체 ${activeItems.length}건 펼쳐보기 →`) : null),
+      visibleLogs.length
+        ? h('div', { class: 'arch-log-list' }, visibleLogs.map((it) => {
+          const eObj = it.actorId && it.actorId !== 'jay' ? emp(it.actorId) : null;
+          return h('button', {
+            type: 'button',
+            class: `arch-log-item${it.taskId ? '' : ' is-static'}`,
+            onclick: () => { if (it.taskId) openTaskById(it.taskId); },
+          },
+          h('span', { class: 'arch-log-date' }, `${it.date.slice(5)}${it.timeStr ? ` ${it.timeStr}` : ''}`),
+          eObj ? avatarEl(eObj, { size: 24 }) : h('span', { class: 'ops-feed-me sm' }, '대표'),
+          h('span', { class: 'arch-log-cat', style: `border-color:${it.cat.color}` }, it.cat.label),
+          h('div', { class: 'arch-log-main' },
+            h('div', { class: 'arch-log-ttl' }, it.title),
+            it.summary ? h('div', { class: 'arch-log-sum' }, it.summary) : null),
+          it.taskId ? h('span', { class: 'arch-log-go' }, '열기 →') : null);
+        }))
+        : h('div', { class: 'empty small' }, '이 기간에는 아직 완료된 작업이 없어요. AI에게 일을 시키면 자동으로 차곡차곡 쌓입니다.')));
+}
+
 function pageDashboard() {
   const d = S.data;
   const today = d.tasks.filter((t) => t.date === S.today);
@@ -4515,7 +4896,7 @@ function pageDashboard() {
         today.length ? `${pctDone}%` : '—',
         `완료 ${doneCnt} / 전체 ${today.length}건 · 오토메이션 ${aiRoutines.length}개`,
         '',
-        () => { location.hash = '#daily'; },
+        () => { document.getElementById('work-archive')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
       )));
 
   // 2) 좌측: MEMBERSHIP · 멤버십 잔여량 & 최적화 패널
@@ -4786,6 +5167,7 @@ function pageDashboard() {
         h('button', { class: 'btn sm', onclick: () => { location.hash = '#pocket'; } }, '폰 뷰'),
         h('button', { class: 'btn sm', onclick: openHealthLogModal }, '컨디션 기록'))),
     opsHero,
+    buildWorkArchiveCard(),
     h('div', { class: 'ops-deck' }, membershipCard, liveActivityCard),
     machinesCard,
     h('section', { class: 'dash-card' },
