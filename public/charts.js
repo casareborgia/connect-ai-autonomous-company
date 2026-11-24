@@ -91,15 +91,24 @@
     return svg;
   }
 
-  // 얇은 고리 게이지. frac 이 null 이면 점선 고리. opt: { label, sub, capFrac }
+  // 얇은 고리 게이지. frac 이 null 이면 점선 고리. opt: { label, sub, capFrac, tone, centerText }
+  const TONE_MAP = {
+    gold: '#D4A359',
+    emerald: '#10B981',
+    warn: '#D97706',
+    hot: '#DC2626',
+    ink: INK,
+  };
   function ring(frac, opt = {}) {
     const r = 23;
     const c = 2 * Math.PI * r;
+    const strokeCol = TONE_MAP[opt.tone] || INK;
     const svg = s('svg', { viewBox: '0 0 56 56', role: 'img', 'aria-label': opt.label || '' });
-    svg.appendChild(s('circle', { cx: 28, cy: 28, r, fill: 'none', stroke: frac === null ? GREY : LINE, 'stroke-width': frac === null ? 1 : 3, 'stroke-dasharray': frac === null ? '2 3' : null }));
+    svg.appendChild(s('circle', { cx: 28, cy: 28, r, fill: 'none', stroke: frac === null ? GREY : LINE, 'stroke-width': frac === null ? 1 : 3.2, 'stroke-dasharray': frac === null ? '2 3' : null }));
     if (frac !== null) {
-      svg.appendChild(s('circle', { cx: 28, cy: 28, r, fill: 'none', stroke: INK, 'stroke-width': 3, 'stroke-dasharray': `${(c * Math.min(Math.max(frac, 0), 1)).toFixed(2)} ${c.toFixed(2)}`, transform: 'rotate(-90 28 28)', 'stroke-linecap': 'butt' }));
-      svg.appendChild(s('text', { x: 28, y: 32, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 600, fill: INK, 'font-family': 'Pretendard, -apple-system, sans-serif' }, `${Math.round(frac * 100)}%`));
+      svg.appendChild(s('circle', { cx: 28, cy: 28, r, fill: 'none', stroke: strokeCol, 'stroke-width': 3.4, 'stroke-dasharray': `${(c * Math.min(Math.max(frac, 0), 1)).toFixed(2)} ${c.toFixed(2)}`, transform: 'rotate(-90 28 28)', 'stroke-linecap': 'round' }));
+      const centerTxt = opt.centerText != null ? String(opt.centerText) : `${Math.round(frac * 100)}%`;
+      svg.appendChild(s('text', { x: 28, y: 32, 'text-anchor': 'middle', 'font-size': centerTxt.length > 4 ? 10 : 12, 'font-weight': 700, fill: INK, 'font-family': 'Pretendard, -apple-system, sans-serif' }, centerTxt));
     } else {
       svg.appendChild(s('text', { x: 28, y: 32, 'text-anchor': 'middle', 'font-size': 11, fill: '#999', 'font-family': 'Pretendard, -apple-system, sans-serif' }, '—'));
     }
@@ -109,12 +118,12 @@
       const y1 = 28 + Math.sin(ang) * (r - 3.5);
       const x2 = 28 + Math.cos(ang) * (r + 3.5);
       const y2 = 28 + Math.sin(ang) * (r + 3.5);
-      svg.appendChild(s('line', { x1: x1.toFixed(1), y1: y1.toFixed(1), x2: x2.toFixed(1), y2: y2.toFixed(1), stroke: INK, 'stroke-width': 1.5 }));
+      svg.appendChild(s('line', { x1: x1.toFixed(1), y1: y1.toFixed(1), x2: x2.toFixed(1), y2: y2.toFixed(1), stroke: '#D4A359', 'stroke-width': 1.8 }));
     }
     return svg;
   }
 
-  // 실시간 RAM 사용률 추이 + 85% 상한선 그래프 (실제 측정치만 그림, 가짜 데이터 없음)
+  // 실시간 RAM 사용률 추이 + 85% 상한선 그래프 (CONNECT AI LAB 매트 블랙 × 샴페인 골드)
   function ramChart(history, maxRamPct = 85) {
     const W = 420;
     const H = 128;
@@ -133,10 +142,10 @@
       svg.appendChild(s('text', { x: padL - 6, y: y + 3, 'text-anchor': 'end', 'font-size': 9.5, fill: '#999', 'font-family': 'Pretendard, -apple-system, sans-serif' }, `${tick}%`));
     }
 
-    // 85% 상한선
+    // 85% 안전 상한선 (Champagne Gold)
     const capY = yOf(maxRamPct);
-    svg.appendChild(s('line', { x1: padL, x2: W - padR, y1: capY, y2: capY, stroke: INK, 'stroke-width': 1, 'stroke-dasharray': '4 3', opacity: 0.75 }));
-    svg.appendChild(s('text', { x: W - padR, y: capY - 4, 'text-anchor': 'end', 'font-size': 9.5, 'font-weight': 600, fill: INK, 'font-family': 'Pretendard, -apple-system, sans-serif' }, `상한 ${maxRamPct}%`));
+    svg.appendChild(s('line', { x1: padL, x2: W - padR, y1: capY, y2: capY, stroke: '#D4A359', 'stroke-width': 1.2, 'stroke-dasharray': '4 3', opacity: 0.9 }));
+    svg.appendChild(s('text', { x: W - padR, y: capY - 4, 'text-anchor': 'end', 'font-size': 9.5, 'font-weight': 700, fill: '#9A702E', 'font-family': 'Pretendard, -apple-system, sans-serif' }, `안전 상한 ${maxRamPct}%`));
 
     const pts = Array.isArray(history) ? history.filter((p) => typeof p.ramPct === 'number') : [];
     if (!pts.length) {
@@ -146,10 +155,12 @@
 
     if (pts.length === 1) {
       const y = yOf(pts[0].ramPct);
-      svg.appendChild(s('rect', { x: padL, y, width: cw, height: Math.max(0, yOf(0) - y), fill: '#f3f3f3' }));
-      svg.appendChild(s('line', { x1: padL, x2: W - padR, y1: y, y2: y, stroke: INK, 'stroke-width': 1.75 }));
-      svg.appendChild(s('circle', { cx: W - padR, cy: y, r: 3.5, fill: INK }));
-      svg.appendChild(s('text', { x: padL + 4, y: H - 5, 'font-size': 9.5, fill: '#999' }, '방금 측정 시작 · 10초마다 자동 기록'));
+      const hot = pts[0].ramPct >= maxRamPct;
+      svg.appendChild(s('rect', { x: padL, y, width: cw, height: Math.max(0, yOf(0) - y), fill: hot ? 'rgba(220, 38, 38, 0.08)' : 'rgba(212, 163, 89, 0.14)' }));
+      svg.appendChild(s('line', { x1: padL, x2: W - padR, y1: y, y2: y, stroke: hot ? '#DC2626' : INK, 'stroke-width': 1.9 }));
+      svg.appendChild(s('circle', { cx: W - padR, cy: y, r: 4, fill: hot ? '#DC2626' : '#D4A359', stroke: '#fff', 'stroke-width': 1.5 }));
+      svg.appendChild(s('text', { x: padL + 4, y: H - 5, 'font-size': 9.5, fill: '#888' }, '실시간 10초마다 자동 기록'));
+      svg.appendChild(s('text', { x: W - padR, y: H - 5, 'text-anchor': 'end', 'font-size': 9.5, 'font-weight': 700, fill: INK }, `여유 ${Math.max(0, 100 - pts[0].ramPct)}% · 사용 ${pts[0].ramPct}%`));
       return svg;
     }
 
@@ -159,14 +170,15 @@
       pct: p.ramPct,
       at: p.at,
     }));
-    const linePath = coords.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-    const areaPath = `${linePath} L${coords[coords.length - 1].x.toFixed(1)},${yOf(0).toFixed(1)} L${coords[0].x.toFixed(1)},${yOf(0).toFixed(1)} Z`;
-    svg.appendChild(s('path', { d: areaPath, fill: '#f2f2f2' }));
-    svg.appendChild(s('path', { d: linePath, fill: 'none', stroke: INK, 'stroke-width': 1.75, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
     const last = coords[coords.length - 1];
-    svg.appendChild(s('circle', { cx: last.x.toFixed(1), cy: last.y.toFixed(1), r: 3.5, fill: INK }));
-    svg.appendChild(s('text', { x: padL, y: H - 5, 'font-size': 9.5, fill: '#999' }, `최근 ${pts.length}회 측정`));
-    svg.appendChild(s('text', { x: W - padR, y: H - 5, 'text-anchor': 'end', 'font-size': 9.5, 'font-weight': 600, fill: INK }, `현재 ${last.pct}%`));
+    const hot = last.pct >= maxRamPct;
+    const linePath = coords.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    const areaPath = `${linePath} L${last.x.toFixed(1)},${yOf(0).toFixed(1)} L${coords[0].x.toFixed(1)},${yOf(0).toFixed(1)} Z`;
+    svg.appendChild(s('path', { d: areaPath, fill: hot ? 'rgba(220, 38, 38, 0.09)' : 'rgba(212, 163, 89, 0.14)' }));
+    svg.appendChild(s('path', { d: linePath, fill: 'none', stroke: hot ? '#DC2626' : INK, 'stroke-width': 1.9, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+    svg.appendChild(s('circle', { cx: last.x.toFixed(1), cy: last.y.toFixed(1), r: 4.2, fill: hot ? '#DC2626' : '#D4A359', stroke: '#fff', 'stroke-width': 1.5 }));
+    svg.appendChild(s('text', { x: padL, y: H - 5, 'font-size': 9.5, fill: '#888' }, `최근 ${pts.length}회 측정`));
+    svg.appendChild(s('text', { x: W - padR, y: H - 5, 'text-anchor': 'end', 'font-size': 9.5, 'font-weight': 700, fill: hot ? '#DC2626' : INK }, `여유 ${Math.max(0, 100 - last.pct)}% 남음 · 사용 ${last.pct}%`));
     return svg;
   }
 

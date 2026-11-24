@@ -32,7 +32,7 @@ import { startDispatcher, isOffice, officeName, guessSshAlias, validAlias, ssh, 
 import { TEMPLATES, validateJob } from './lib/jobspec.mjs';
 import { MUSE_DEFAULTS, MUSE_HOSTS, runMuseOnce } from './lib/muse.mjs';
 import { modelFor, recordModels, UNKNOWN as MODEL_UNKNOWN } from './lib/models.mjs';
-import { BROWSER_CATALOG, PHONE_MODES, OSS_CATALOG, DESIGN_PRESETS, sanitizeSkillRepoUrl, parseOpenSourceInput, normalizeSubSkills, normalizeEmployeeSkill, matchEmployeeSkills, detectBrowsers, probeEgoLiteCached, detectOpenSource, detectDesktopBridges, pickBrowser, pickPhone, phonePromptBlock, pickTools, pickDesigns } from './lib/tools.mjs';
+import { BROWSER_CATALOG, PHONE_MODES, OSS_CATALOG, CONNECT_AI_SKILL_KEYS, DESIGN_PRESETS, sanitizeSkillRepoUrl, parseOpenSourceInput, normalizeSubSkills, normalizeEmployeeSkill, matchEmployeeSkills, runSkillDoctor, scanLocalSkills, detectBrowsers, probeEgoLiteCached, detectOpenSource, detectDesktopBridges, pickBrowser, pickPhone, phonePromptBlock, pickTools, pickDesigns } from './lib/tools.mjs';
 import { ensureHealth, rotateHealthToken, ingestHealthEntry, evaluateHealth } from './lib/health.mjs';
 import { createPowerGuard, DEFAULT_HANG_MS } from './lib/runtime.mjs';
 import { scanLocalUsageCached, buildEmployeeUsageMap } from './lib/usage.mjs';
@@ -835,17 +835,24 @@ function taskPromptCommon(d, emp, t) {
   const instTrim = String(routine?.instruction || '').trim();
   const showInst = Boolean(instTrim && instTrim !== noteTrim);
   const fullText = `${t.title} ${noteTrim} ${instTrim}`;
-  const empSkills = Array.isArray(emp?.skills) ? emp.skills : [];
-  const matchedEmpSkills = matchEmployeeSkills(fullText, emp, tokens);
+  const empSkills = (Array.isArray(emp?.skills) ? emp.skills : []).filter((s) => s.published !== false && s.doctorStatus !== 'upcoming');
+  const matchedEmpSkills = matchEmployeeSkills(fullText, { ...emp, skills: empSkills }, tokens);
   const matchedIds = new Set(matchedEmpSkills.map((s) => s.id));
   const otherEmpSkills = empSkills.filter((s) => !matchedIds.has(s.id)).sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
   const empSkillRepos = new Set(empSkills.map((s) => (s.repo || s.name || '').toLowerCase()).filter(Boolean));
   const extraOss = oss.filter((x) => !empSkillRepos.has((x.repo || x.name || '').toLowerCase()));
   const fmtSkill = (x) => {
     const subs = Array.isArray(x.subSkills) && x.subSkills.length
-      ? ` · 세부 스킬: ${x.subSkills.map((s) => `${s.name}${s.command ? ` (${s.command})` : ''}`).join(', ')}`
+      ? ` · 세부 스킬: ${x.subSkills.map((s, i) => `${i + 1}) ${s.name}${s.note ? `(${s.note})` : ''}${s.command ? ` [${s.command}]` : ''}`).join(', ')}`
       : '';
-    return `- ${x.primary ? '★ [주요] ' : ''}${x.name}${x.repo ? ` · GitHub: ${x.repo}` : ''}${x.command ? ` · 명령: ${x.command}` : ''}${x.skillPath ? ` · 스킬: ${x.skillPath}` : ''}${subs}${x.when ? ` · 용도: ${x.when}` : ''}${x.note ? ` · ${x.note}` : ''}`;
+    const statusLine = x.doctorStatus === 'ready'
+      ? ' · 상태: 사용 가능(doctor Ready 확인됨)'
+      : (x.installCmd ? ` · 최초 1회 설치: ${x.installCmd}${x.doctorCmd ? ` → 점검: ${x.doctorCmd} (Ready 확인 후 사용)` : ''}` : '');
+    const ioLine = (x.inputSpec || x.outputSpec)
+      ? ` · 입출력: ${x.inputSpec || '입력'} → ${x.outputSpec || '출력'}`
+      : '';
+    const hostLine = x.computeHint ? ` · 실행 컴퓨터: ${x.computeHint}` : '';
+    return `- ${x.primary ? '★ [주요] ' : ''}${x.name}${x.roleLabel ? ` (${x.roleLabel})` : ''}${x.command ? ` · 명령: ${x.command}` : ''}${x.repo ? ` · GitHub: ${x.repo}` : ''}${statusLine}${ioLine}${hostLine}${subs}${x.when ? ` · 트리거: ${x.when}` : ''}${x.note ? ` · ${x.note}` : ''}`;
   };
   const kbLines = pickKnowledgeForTask(d, emp, fullText);
   const autoEgoLine = !browser && /(ego\s*lite|egolite|에고\s*라이트|ego-browser)/i.test(fullText) && findBin('ego-browser', 'AIHQ_EGO_BIN')
@@ -1118,7 +1125,7 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
   const prompt = runPrompt(d, emp, t);
   const label = emp.engine === 'local' ? `로컬 모델 ${emp.model.replace(/^(ollama|lmstudio):/, '')}` : runnerInfo(emp.engine).label;
   const runModel = emp.engine === 'local' ? emp.model.replace(/^(ollama|lmstudio):/, '') : (modelFor(emp)?.name || modelOf(emp) || MODEL_UNKNOWN);
-  const job = { emp: emp.id, thread, taskId: t.id, kind: emp.engine === 'local' ? 'local' : 'run', since: nowIso(), label, statusLine: '작업 준비 중' };
+  const job = { emp: emp.id, thread, taskId: t.id, title: t.title, resourceId: t.resource || null, kind: emp.engine === 'local' ? 'local' : 'run', since: nowIso(), label, statusLine: '작업 준비 중' };
   working.set(emp.id, job);
   syncPower();
   await store.mutate((x) => {
@@ -1398,20 +1405,67 @@ async function stateView(viaLan = false) {
     currentLocalStat(),
     probeEgoLiteCached(),
   ]);
-  const workingList = [...working.values(), ...officeWorking()];
+  const thisMacRes = d.resources.find((r) => r.kind === '기계' && r.isThisMac) || d.resources.find((r) => r.kind === '기계') || null;
+  const nowMs = Date.now();
+  const workingList = [...working.values(), ...officeWorking()].map((w) => {
+    const taskObj = w.taskId ? d.tasks.find((x) => x.id === w.taskId) : null;
+    const empObj = d.employees.find((x) => x.id === w.emp);
+    const resObj = (w.resourceId ? d.resources.find((r) => r.id === w.resourceId) : null)
+      || (taskObj?.resource ? d.resources.find((r) => r.id === taskObj.resource) : null)
+      || (w.office ? d.resources.find((r) => r.name === w.office && r.kind === '기계') : null)
+      || thisMacRes;
+    const sinceMs = w.since ? Date.parse(w.since) : NaN;
+    return {
+      ...w,
+      empName: empObj ? (empObj.avatarName || empObj.name) : w.emp,
+      title: w.title || taskObj?.title || '',
+      resourceId: resObj?.id || null,
+      machineName: w.office || resObj?.name || '이 컴퓨터',
+      elapsedSec: Number.isFinite(sinceMs) ? Math.max(0, Math.floor((nowMs - sinceMs) / 1000)) : 0,
+    };
+  });
   const offices = dispatcher ? dispatcher.view() : [];
-  const machineHealth = Object.fromEntries(buildMachineHealthMap(d, { localStat, offices, workingList }));
+  const rawMachineHealth = Object.fromEntries(buildMachineHealthMap(d, { localStat, offices, workingList }));
   const localTelemetry = localStat ? {
     chip: localStat.chip || '',
     cpus: localStat.cpus || 1,
     load1: Number(localStat.load?.[0]) || 0,
+    cpuFreePct: Math.max(0, Math.min(100, Math.round((1 - (Number(localStat.load?.[0]) || 0) / Math.max(1, localStat.cpus || 1)) * 100))),
     uptimeSec: localStat.uptimeSec || 0,
     ramPct: localStat.memory?.total ? Math.round((1 - Math.max(0, localStat.memory.available ?? 0) / localStat.memory.total) * 100) : null,
+    ramAvailPct: localStat.memory?.total ? Math.round((Math.max(0, localStat.memory.available ?? 0) / localStat.memory.total) * 100) : null,
     availGB: localStat.memory?.available != null ? Math.round((localStat.memory.available / 1024 ** 3) * 10) / 10 : null,
     totalGB: localStat.memory?.total ? Math.round((localStat.memory.total / 1024 ** 3) * 10) / 10 : null,
     diskPct: localStat.disk?.total ? Math.round(((localStat.disk.total - localStat.disk.free) / localStat.disk.total) * 100) : null,
     diskFreeGB: localStat.disk?.free != null ? Math.round((localStat.disk.free / 1024 ** 3) * 10) / 10 : null,
   } : null;
+  const machineHealth = Object.fromEntries(Object.entries(rawMachineHealth).map(([rid, mh]) => {
+    const resObj = d.resources.find((r) => r.id === rid);
+    const activeJobs = workingList
+      .filter((w) => w.resourceId === rid || (!w.resourceId && resObj?.isThisMac))
+      .map((w) => ({ empId: w.emp, empName: w.empName, taskId: w.taskId, title: w.title, elapsedSec: w.elapsedSec, statusLine: w.statusLine || '' }));
+    const ramPctVal = typeof mh.ramPct === 'number' ? mh.ramPct : null;
+    const capVal = mh.maxRamPct || 85;
+    const extraLocal = resObj?.isThisMac && localTelemetry ? {
+      chip: localTelemetry.chip,
+      cpus: localTelemetry.cpus,
+      load1: localTelemetry.load1,
+      cpuFreePct: localTelemetry.cpuFreePct,
+      availGB: localTelemetry.availGB,
+      totalGB: localTelemetry.totalGB,
+      diskPct: localTelemetry.diskPct,
+      diskFreeGB: localTelemetry.diskFreeGB,
+      uptimeSec: localTelemetry.uptimeSec,
+    } : {};
+    return [rid, {
+      ...mh,
+      ...extraLocal,
+      ramAvailPct: ramPctVal !== null ? Math.max(0, 100 - ramPctVal) : null,
+      headroomToCapPct: ramPctVal !== null ? Math.max(0, capVal - ramPctVal) : null,
+      activeJobs,
+      moving: activeJobs.length > 0,
+    }];
+  }));
   const healthSummary = evaluateHealth(d.health, ymd(), new Date().getHours());
   const lanIps = lanAddresses();
   const ingestUrls = lanIps.map((ip) => `http://${ip}:${PORT}/api/health/ingest`);
@@ -2589,27 +2643,39 @@ route('POST', '/api/ui/employees/:id/skills', async ({ params, body }) => {
       id: `sk_${crypto.randomBytes(4).toString('hex')}`,
       preset: presetObj?.key || resObj?.preset || text(body.preset, 60),
       name: text(body.name, 80) || presetObj?.name || resObj?.name || parsed.name,
+      roleLabel: body.roleLabel !== undefined ? text(body.roleLabel, 80) : presetObj?.roleLabel,
       repo: sanitizeSkillRepoUrl(body.repo || parsed.repo || presetObj?.repo || resObj?.repo || ''),
       command: text(body.command, 240) || parsed.command || presetObj?.command || resObj?.command || '',
-      when: text(body.when, 300) || presetObj?.when || resObj?.when || '',
-      note: text(body.note, 240) || presetObj?.hint || resObj?.note || '',
+      installCmd: body.installCmd !== undefined ? text(body.installCmd, 240) : presetObj?.installCmd,
+      doctorCmd: body.doctorCmd !== undefined ? text(body.doctorCmd, 240) : presetObj?.doctorCmd,
+      doctorExpect: body.doctorExpect !== undefined ? text(body.doctorExpect, 60) : presetObj?.doctorExpect,
+      inputSpec: body.inputSpec !== undefined ? text(body.inputSpec, 180) : presetObj?.inputSpec,
+      outputSpec: body.outputSpec !== undefined ? text(body.outputSpec, 180) : presetObj?.outputSpec,
+      computeHint: body.computeHint !== undefined ? text(body.computeHint, 180) : presetObj?.computeHint,
+      published: body.published !== undefined ? Boolean(body.published) : (presetObj?.published !== undefined ? Boolean(presetObj.published) : true),
+      publishNote: body.publishNote !== undefined ? text(body.publishNote, 120) : presetObj?.publishNote,
+      when: text(body.when, 360) || presetObj?.when || resObj?.when || '',
+      note: text(body.note, 260) || presetObj?.hint || resObj?.note || '',
       skillPath: text(body.skillPath, 300) || resObj?.skillPath || '',
-      primary: body.primary !== undefined ? Boolean(body.primary) : e.skills.length === 0,
+      primary: body.primary !== undefined ? Boolean(body.primary) : (presetObj?.connectAiPack || e.skills.length === 0),
       subSkills: body.subSkills !== undefined ? body.subSkills : presetObj?.subSkills,
       addedBy: 'jay',
     }, e.skills.length);
     if (!candidate) throw new HttpError(400, '스킬 이름이나 GitHub 주소를 입력해 주세요.');
     const existing = e.skills.find((ex) =>
-      (candidate.repo && ex.repo && ex.repo.toLowerCase() === candidate.repo.toLowerCase())
+      (candidate.preset && ex.preset && ex.preset.toLowerCase() === candidate.preset.toLowerCase())
+      || (candidate.repo && ex.repo && ex.repo.toLowerCase() === candidate.repo.toLowerCase())
       || ex.name.toLowerCase() === candidate.name.toLowerCase());
     if (existing) {
       existing.name = candidate.name;
-      if (candidate.repo) existing.repo = candidate.repo;
-      if (candidate.command) existing.command = candidate.command;
-      if (candidate.when) existing.when = candidate.when;
-      if (candidate.note) existing.note = candidate.note;
-      if (candidate.skillPath) existing.skillPath = candidate.skillPath;
-      if (candidate.preset) existing.preset = candidate.preset;
+      for (const k of ['roleLabel', 'repo', 'command', 'installCmd', 'doctorCmd', 'doctorExpect', 'inputSpec', 'outputSpec', 'computeHint', 'publishNote', 'when', 'note', 'skillPath', 'preset']) {
+        if (candidate[k]) existing[k] = candidate[k];
+      }
+      if (body.published !== undefined || presetObj?.published !== undefined) {
+        existing.published = candidate.published;
+        if (!existing.published) existing.doctorStatus = 'upcoming';
+        else if (existing.doctorStatus === 'upcoming') existing.doctorStatus = 'unchecked';
+      }
       if (body.primary !== undefined) existing.primary = Boolean(body.primary);
       if (body.subSkills !== undefined) existing.subSkills = candidate.subSkills;
       else if (candidate.subSkills?.length && !(existing.subSkills || []).length) existing.subSkills = candidate.subSkills;
@@ -2629,19 +2695,134 @@ route('PATCH', '/api/ui/employees/:id/skills/:skillId', async ({ params, body })
   const sk = (e.skills || []).find((x) => x.id === params.skillId);
   if (!sk) throw new HttpError(404, '해당 스킬을 찾을 수 없어요.');
   if (body.name !== undefined) { const s = text(body.name, 80); if (s) sk.name = s; }
+  if (body.roleLabel !== undefined) sk.roleLabel = text(body.roleLabel, 80);
   if (body.repo !== undefined) {
     const raw = text(body.repo, 400);
     if (raw && !sanitizeSkillRepoUrl(raw)) throw new HttpError(400, 'GitHub 주소는 https:// 또는 owner/repo 형식으로 입력해 주세요.');
     sk.repo = raw ? sanitizeSkillRepoUrl(raw) : '';
   }
   if (body.command !== undefined) sk.command = text(body.command, 240);
-  if (body.when !== undefined) sk.when = text(body.when, 300);
-  if (body.note !== undefined) sk.note = text(body.note, 240);
+  if (body.installCmd !== undefined) sk.installCmd = text(body.installCmd, 240);
+  if (body.doctorCmd !== undefined) sk.doctorCmd = text(body.doctorCmd, 240);
+  if (body.doctorExpect !== undefined) sk.doctorExpect = text(body.doctorExpect, 60);
+  if (body.inputSpec !== undefined) sk.inputSpec = text(body.inputSpec, 180);
+  if (body.outputSpec !== undefined) sk.outputSpec = text(body.outputSpec, 180);
+  if (body.computeHint !== undefined) sk.computeHint = text(body.computeHint, 180);
+  if (body.publishNote !== undefined) sk.publishNote = text(body.publishNote, 120);
+  if (body.published !== undefined) {
+    sk.published = Boolean(body.published);
+    if (!sk.published) sk.doctorStatus = 'upcoming';
+    else if (sk.doctorStatus === 'upcoming') sk.doctorStatus = 'unchecked';
+  }
+  if (body.when !== undefined) sk.when = text(body.when, 360);
+  if (body.note !== undefined) sk.note = text(body.note, 260);
   if (body.skillPath !== undefined) sk.skillPath = text(body.skillPath, 300);
   if (body.primary !== undefined) sk.primary = Boolean(body.primary);
   if (body.subSkills !== undefined) sk.subSkills = normalizeSubSkills(body.subSkills);
   return { employee: e, skill: sk };
 }), UI);
+
+// 스킬 doctor 점검 실행 → Ready 확인되면 "사용 가능" 상태 저장
+route('POST', '/api/ui/employees/:id/skills/:skillId/doctor', async ({ params }) => {
+  const empObj = store.data.employees.find((x) => x.id === params.id);
+  if (!empObj) throw new HttpError(404, '직원이 없습니다.');
+  const targetSk = (empObj.skills || []).find((x) => x.id === params.skillId);
+  if (!targetSk) throw new HttpError(404, '해당 스킬을 찾을 수 없어요.');
+  const doc = await runSkillDoctor(targetSk);
+  const updated = await store.mutate((d) => {
+    const e = d.employees.find((x) => x.id === params.id);
+    const sk = (e?.skills || []).find((x) => x.id === params.skillId);
+    if (!sk) return null;
+    sk.doctorStatus = doc.status;
+    sk.doctorCheckedAt = doc.checkedAt;
+    sk.doctorOutput = text(doc.output, 240);
+    if (doc.ready && !sk.installedAt) sk.installedAt = doc.checkedAt;
+    return sk;
+  });
+  return { skill: updated, doctor: doc };
+}, UI);
+
+// CONNECT AI LAB 회사 콘텐츠 스킬 7종 일괄 등록 (공개 스킬은 로컬 설치 자동 점검, 공개 전 스킬은 "준비 중" · 자동 배분 제외)
+route('POST', '/api/ui/skills/connect-ai-pack', async ({ body }) => {
+  const localSkills = scanLocalSkills();
+  const localSet = new Set(localSkills.map((s) => s.key.toLowerCase()));
+  const out = await store.mutate((d) => {
+    const cliEmps = d.employees.filter((e) => e.engine !== 'local');
+    const targetPool = cliEmps.length ? cliEmps : d.employees;
+    if (!targetPool.length) throw new HttpError(400, '먼저 스킬을 장착할 AI 직원을 1명 이상 추가해 주세요.');
+    const pinnedEmp = body?.empId ? d.employees.find((e) => e.id === body.empId) : null;
+    const pickEmpFor = (preset) => {
+      if (pinnedEmp) return pinnedEmp;
+      const byRole = targetPool.find((e) => {
+        const txt = `${e.role || ''} ${e.name || ''} ${e.id || ''} ${e.team || ''}`.toLowerCase();
+        if (preset.key === 'connect-ai-marketer' || preset.key === 'connect-ai-slides-web') return /(마케팅|홍보|codex)/.test(txt);
+        if (preset.key === 'reversebusiness') return /(리서치|분석|antigravity|agy)/.test(txt);
+        if (preset.key === 'connect-ai-three') return /(opencode|터미널)/.test(txt);
+        return /(claude|영상|디자인|모션)/.test(txt);
+      });
+      return byRole || targetPool[0];
+    };
+    const packPresets = OSS_CATALOG.filter((c) => CONNECT_AI_SKILL_KEYS.includes(c.key));
+    let added = 0;
+    let updated = 0;
+    const assigned = [];
+    for (const preset of packPresets) {
+      const emp = pickEmpFor(preset);
+      if (!Array.isArray(emp.skills)) emp.skills = [];
+      const isInstalledLocally = Boolean(preset.published && preset.skill && localSet.has(preset.skill.toLowerCase()));
+      const normalized = normalizeEmployeeSkill({
+        id: `sk_${crypto.randomBytes(4).toString('hex')}`,
+        preset: preset.key,
+        primary: true,
+        published: preset.published !== false,
+        doctorStatus: preset.published === false ? 'upcoming' : (isInstalledLocally ? 'ready' : 'unchecked'),
+        doctorOutput: isInstalledLocally ? `Ready · 로컬 스킬 설치 확인 (${preset.skill})` : '',
+        doctorCheckedAt: isInstalledLocally ? nowIso() : null,
+        addedBy: 'jay',
+      }, emp.skills.length);
+      const ex = emp.skills.find((s) => (s.preset || '').toLowerCase() === preset.key.toLowerCase() || s.name.toLowerCase() === preset.name.toLowerCase());
+      if (ex) {
+        Object.assign(ex, {
+          name: normalized.name,
+          preset: normalized.preset,
+          roleLabel: normalized.roleLabel,
+          repo: normalized.repo || ex.repo,
+          command: normalized.command,
+          installCmd: normalized.installCmd,
+          doctorCmd: normalized.doctorCmd,
+          doctorExpect: normalized.doctorExpect,
+          inputSpec: normalized.inputSpec,
+          outputSpec: normalized.outputSpec,
+          computeHint: normalized.computeHint,
+          published: normalized.published,
+          publishNote: normalized.publishNote,
+          when: normalized.when,
+          note: normalized.note,
+          primary: true,
+          doctorStatus: normalized.published ? (ex.doctorStatus === 'ready' || isInstalledLocally ? 'ready' : 'unchecked') : 'upcoming',
+          doctorOutput: ex.doctorOutput || normalized.doctorOutput,
+          doctorCheckedAt: ex.doctorCheckedAt || normalized.doctorCheckedAt,
+        });
+        // 대표가 나중에 직접 붙인 세부 스킬은 보존하면서 기본 세부 스킬을 채운다
+        const existingSubs = Array.isArray(ex.subSkills) ? ex.subSkills : [];
+        const mergedSubs = [...existingSubs];
+        const subNames = new Set(existingSubs.map((s) => s.name.toLowerCase()));
+        for (const sub of normalized.subSkills) {
+          if (!subNames.has(sub.name.toLowerCase())) mergedSubs.push(sub);
+        }
+        ex.subSkills = mergedSubs;
+        updated++;
+      } else if (emp.skills.length < 20) {
+        emp.skills.push(normalized);
+        added++;
+      }
+      assigned.push({ key: preset.key, empId: emp.id, empName: emp.name, published: normalized.published, doctorStatus: isInstalledLocally ? 'ready' : normalized.doctorStatus });
+    }
+    return { added, updated, total: packPresets.length, assigned, reassigned: reassignUnmatched(d) };
+  });
+  refineMany(out.reassigned);
+  return out;
+}, UI);
 
 route('DELETE', '/api/ui/employees/:id/skills/:skillId', async ({ params }) => store.mutate((d) => {
   const e = d.employees.find((x) => x.id === params.id);
@@ -4253,7 +4434,16 @@ function fail(res, e) {
 
 async function main() {
   await store.load();
-  await store.mutate((d) => migrate(d));
+  await store.mutate((d) => {
+    migrate(d);
+    // 이전 서버 종료·재시작으로 실행이 끊겨 "진행" 상태에 고착된 AI 작업을 "대기"로 안전 복구
+    for (const t of d.tasks || []) {
+      if (t.status === '진행' && t.assignee && t.assignee !== 'jay') {
+        t.status = '대기';
+        t.runStartedAt = null;
+      }
+    }
+  });
   await loadSecret();
   const server = http.createServer((req, res) => { handle(req, res).catch((e) => fail(res, e)); });
   server.listen(PORT, HOST, () => {

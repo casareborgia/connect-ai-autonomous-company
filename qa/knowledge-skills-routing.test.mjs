@@ -178,9 +178,38 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     // 4) 최종 프롬프트 미리보기에 주요·세부 스킬 + 내 지식(브랜드 톤)이 모두 자동 주입되는지 확인
     const prev = await srv.ui('GET', `/api/ui/tasks/${del.body.id}/prompt-preview`);
     assert.equal(prev.status, 200);
-    assert.match(prev.body.prompt, /★ \[주요\] Connect AI Motion/);
+    assert.match(prev.body.prompt, /★ \[주요\] connect-ai-video-motion/);
     assert.match(prev.body.prompt, /9:16 숏폼 크롭/);
     assert.match(prev.body.prompt, /CONNECT AI LAB 브랜드 톤/);
+    assert.match(prev.body.prompt, /npx connect-ai-video-motion install-skill/);
+
+    // 4-b) CONNECT AI 콘텐츠 스킬 7종 일괄 등록 + 공개 전(준비 중) 스킬 자동 배분 제외 + doctor 점검 검증
+    const packRes = await srv.ui('POST', '/api/ui/skills/connect-ai-pack', {});
+    assert.equal(packRes.status, 200);
+    assert.equal(packRes.body.total, 7);
+    const motionInfo = packRes.body.assigned.find((a) => a.key === 'connect-ai-motion');
+    const videoInfo = packRes.body.assigned.find((a) => a.key === 'connect-ai-video-motion');
+    assert.equal(motionInfo?.published, false, 'connect-ai-motion은 아직 공개 전(준비 중)이어야 함');
+    assert.equal(motionInfo?.doctorStatus, 'upcoming');
+    assert.equal(videoInfo?.published, true);
+
+    // 공개 안 된 connect-ai-motion 스킬은 matchEmployeeSkills에서 완전히 제외되어야 함
+    const stPack = await srv.ui('GET', '/api/state');
+    const motionOwner = stPack.body.data.employees.find((e) => e.id === motionInfo.empId);
+    const unpubHits = matchEmployeeSkills('connect-ai-motion 글 몇 줄 모션그래픽', motionOwner);
+    assert.equal(unpubHits.some((s) => s.preset === 'connect-ai-motion'), false, '공개 전 스킬은 자동 배분 매칭에서 제외되어야 함');
+
+    // 공개 전 스킬 doctor 호출 시 upcoming 유지
+    const upSkill = motionOwner.skills.find((s) => s.preset === 'connect-ai-motion');
+    const upDoc = await srv.ui('POST', `/api/ui/employees/${motionOwner.id}/skills/${upSkill.id}/doctor`, {});
+    assert.equal(upDoc.status, 200);
+    assert.equal(upDoc.body.doctor.status, 'upcoming');
+
+    // machineHealth에 잔여량·움직임 필드가 포함되는지 검증
+    const macIds = Object.keys(stPack.body.machineHealth || {});
+    assert.ok(macIds.length >= 1);
+    assert.equal(Array.isArray(stPack.body.machineHealth[macIds[0]].activeJobs), true);
+    assert.equal(typeof stPack.body.machineHealth[macIds[0]].moving, 'boolean');
 
     // 5) 청사진 내보내기에 주요·세부 스킬은 포함되고 비공개 내 지식은 제외되는지 확인
     const stNow = await srv.ui('GET', '/api/state');
