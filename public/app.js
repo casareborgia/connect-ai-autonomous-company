@@ -4911,24 +4911,21 @@ function buildAvatarPrompt(emp, vibe, prop) {
 function openAvatarModal(e, opts = {}) {
   const dlg = document.getElementById('dlg');
   dlg.className = 'wide';
-  const presets = S.options.avatarPresets || [];
+  const presets = (S.options.avatarPresets || []).filter((p) => p.pack === 'joseon' || p.pack === 'k-crew');
   const teams = S.options.teams || [];
-  const packs = S.options.avatarPacks || [
-    { key: 'joseon', name: '조선 AI 집현전 (남·여 직업군)' },
-    { key: 'k-crew', name: 'K-수호 크루 (한국 전통)' },
-    { key: 'modern', name: '모던 랩 크루' },
-  ];
-  const styles = S.options.avatarStyles || [
-    { key: 'studio', name: '스튜디오 3D', hint: 'CONNECT AI LAB 컬러 3D 피규어' },
-    { key: 'motion', name: '코딩 모션', hint: '눈 깜빡임 · 호흡 · 타자 컬러 모션' },
-    { key: 'pixel', name: '픽셀 펫', hint: '16비트 도트 모션 (일함 초록불 · 대기 Z)' },
-    { key: 'flat', name: '컬러 미니멀', hint: '깔끔한 컬러 플랫' },
-  ];
+  const packs = (S.options.avatarPacks || [
+    { key: 'joseon', name: '조선 집현전 픽셀 (21종)' },
+    { key: 'k-crew', name: '한국 수호신 픽셀 (8종)' },
+  ]).filter((pk) => pk.key === 'joseon' || pk.key === 'k-crew');
   let pickedKey = normAvatarKey(e.avatar);
-  let pickedStyle = e.avatarStyle || 'studio';
+  if (!presets.some((p) => p.key === pickedKey)) pickedKey = presets[0]?.key || 'jangyeongsil';
+  const pickedStyle = 'pixel';
   let pickedTeam = e.team || 'ops';
   let customImg = e.avatarImage || '';
-  let pickedTab = opts.tab || (customImg ? 'custom' : (presets.find((p) => p.key === pickedKey)?.pack || 'k-crew'));
+  const initialPack = presets.find((p) => p.key === pickedKey)?.pack || 'joseon';
+  let pickedTab = (opts.tab && (opts.tab === 'joseon' || opts.tab === 'k-crew' || opts.tab === 'custom'))
+    ? opts.tab
+    : (customImg ? 'custom' : initialPack);
   let previewState = 'working';
   let genVibe = 'k3d';
   const avatarNameIn = h('input', { class: 'in', value: e.avatarName || '', placeholder: `예: 장영실 팀장 · 보부상 과장 (비우면 ${e.name})`, maxlength: '40', 'data-k': 'av-name' });
@@ -4939,7 +4936,6 @@ function openAvatarModal(e, opts = {}) {
   const grayChk = h('input', { type: 'checkbox', checked: false });
   const previewWrap = h('div', { class: 'av-preview-bar' });
   const packBar = h('div', { class: 'picker' });
-  const styleBar = h('div', { class: 'picker' });
   const bodyWrap = h('div');
   const promptPre = h('pre', { class: 'full', style: 'margin:8px 0 0;font-size:11px;max-height:110px' });
 
@@ -4954,7 +4950,6 @@ function openAvatarModal(e, opts = {}) {
       customImg = await resizeImageToDataUrl(f, grayChk.checked);
       pickedTab = 'custom';
       renderPackBar();
-      renderStyleBar();
       renderBody();
       renderPreview();
       toast(fromPaste ? '붙여넣은 이미지를 캐릭터로 적용했어요' : '캐릭터 이미지를 적용했어요');
@@ -5013,84 +5008,65 @@ function openAvatarModal(e, opts = {}) {
         if (pk.key !== 'custom') {
           const firstInPack = presets.find((p) => p.pack === pk.key);
           if (firstInPack && presets.find((p) => p.key === pickedKey)?.pack !== pk.key) pickedKey = firstInPack.key;
-          if (pk.key === 'joseon') pickedStyle = 'pixel';
           customImg = '';
         }
         renderPackBar();
-        renderStyleBar();
         renderBody();
         renderPreview();
       },
     }, pk.name)));
   };
 
-  const renderStyleBar = () => {
-    if (pickedTab === 'custom' || pickedTab === 'joseon') { styleBar.replaceChildren(); return; }
-    styleBar.replaceChildren(...styles.map((st) => h('button', {
-      type: 'button', class: `chip sm${pickedStyle === st.key ? ' on' : ''}`,
-      onclick: () => {
-        pickedStyle = st.key;
-        customImg = '';
-        renderStyleBar();
-        renderBody();
-        renderPreview();
-      },
-    }, st.name)));
-  };
-
   const renderPreview = () => {
     const customName = avatarNameIn.value.trim();
     const displayName = customName || e.name;
     const fakeEmp = { ...e, name: displayName, avatar: pickedKey, avatarStyle: pickedStyle, avatarImage: customImg };
-    const stObj = styles.find((x) => x.key === pickedStyle);
     const prObj = presets.find((x) => x.key === pickedKey);
     const pkObj = packs.find((x) => x.key === pickedTab);
     const stateBtns = [['idle', '대기'], ['working', '근무 중'], ['cooling', '휴식']].map(([sk, sl]) => h('button', {
       type: 'button', class: `chip sm${previewState === sk ? ' on' : ''}`,
       onclick: () => { previewState = sk; renderPreview(); },
     }, sl));
-    previewWrap.replaceChildren(
+    previewWrap.replaceChildren(...[
       h('div', { class: 'row', style: 'gap:14px;align-items:center;min-width:0' },
         avatarEl(fakeEmp, { size: 64, stateOverride: previewState, styleOverride: pickedStyle }),
         h('div', { style: 'min-width:0' },
           h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
             h('span', { style: 'font-weight:600;font-size:15px' }, displayName),
             customName && customName !== e.name ? h('span', { class: 'tag' }, e.name) : null),
-          h('div', { class: 'small muted', style: 'margin-top:2px' }, customImg ? '직접 올린 내 캐릭터 이미지 · GIF' : `${prObj?.name || pickedKey} · ${stObj?.name || pickedStyle}`),
+          h('div', { class: 'small muted', style: 'margin-top:2px' }, customImg ? '직접 올린 내 캐릭터 이미지 · GIF' : `${prObj?.name || pickedKey} · 16비트 픽셀`),
           h('div', { class: 'row', style: 'gap:5px;margin-top:6px' }, h('span', { class: 'small muted' }, '모션'), stateBtns))),
       pickedTab !== 'custom' ? h('button', {
         type: 'button', class: 'btn sm',
-        title: '모든 AI 직원에게 이 팩과 스타일을 한 번에 적용합니다',
+        title: '모든 AI 직원에게 이 팩을 한 번에 적용합니다',
         onclick: () => once('all-av-style', async () => {
-          await act('POST', '/api/ui/employees/avatar-style', { avatarStyle: pickedStyle, pack: pickedTab }, `전체 직원을 "${pkObj?.name || pickedTab} · ${stObj?.name || pickedStyle}"로 맞췄어요`);
+          await act('POST', '/api/ui/employees/avatar-style', { avatarStyle: 'pixel', pack: pickedTab }, `전체 직원을 "${pkObj?.name || pickedTab}"로 맞췄어요`);
         }),
-      }, '전체 직원 통일') : null);
+      }, '전체 직원 통일') : null,
+    ].filter(Boolean));
   };
 
   const renderBody = () => {
     if (pickedTab !== 'custom') {
-      const visible = presets.filter((p) => (p.pack || 'k-crew') === pickedTab);
+      const visible = presets.filter((p) => p.pack === pickedTab);
       const grid = h('div', { class: 'avatar-grid' }, visible.map((p) => {
-        const fake = { id: `pre-${p.key}`, name: p.name, avatar: p.key, avatarStyle: pickedStyle, avatarImage: '' };
+        const fake = { id: `pre-${p.key}`, name: p.name, avatar: p.key, avatarStyle: 'pixel', avatarImage: '' };
         return h('button', {
           type: 'button', class: `avatar-opt${!customImg && pickedKey === p.key ? ' on' : ''}`,
           onclick: () => {
             pickedKey = p.key;
-            if (p.pack === 'joseon' || p.pack === 'k-crew') {
-              pickedStyle = 'pixel';
-              if (p.team && teams.some((t) => t.key === p.team)) { pickedTeam = p.team; teamSel.value = p.team; }
-            }
+            if (p.team && teams.some((t) => t.key === p.team)) { pickedTeam = p.team; teamSel.value = p.team; }
             customImg = '';
             renderBody();
             renderPreview();
           },
-        }, avatarEl(fake, { size: 46, stateOverride: (p.pack === 'joseon' || p.pack === 'k-crew') ? 'working' : 'idle', styleOverride: (p.pack === 'joseon' || p.pack === 'k-crew') ? 'pixel' : pickedStyle }), h('b', null, p.name), h('span', { class: 'small muted' }, p.hint));
+        }, avatarEl(fake, { size: 46, stateOverride: 'working', styleOverride: 'pixel' }), h('b', null, p.name), h('span', { class: 'small muted' }, p.hint));
       }));
       bodyWrap.replaceChildren(
         grid,
         h('div', { class: 'bp-bar' },
           h('span', { class: 'small muted' }, '직접 만든 그림·사진·GIF로 바꾸고 싶다면?'),
-          h('button', { type: 'button', class: 'btn sm', onclick: () => { pickedTab = 'custom'; renderPackBar(); renderStyleBar(); renderBody(); renderPreview(); } }, '내 이미지 올리기 →')));
+          h('button', { type: 'button', class: 'btn sm', onclick: () => { pickedTab = 'custom'; renderPackBar(); renderBody(); renderPreview(); } }, '내 이미지 올리기 →')));
       return;
     }
 
@@ -5173,14 +5149,13 @@ function openAvatarModal(e, opts = {}) {
   };
 
   renderPackBar();
-  renderStyleBar();
   renderBody();
   renderPreview();
   syncPrompt();
 
   setDlg(dlg,
     h('h3', null, `${shortName(e.id)} · CONNECT AI LAB 캐릭터 스튜디오`),
-    h('p', { class: 'small muted', style: 'margin:-6px 0 10px' }, '한국 전통 K-수호 크루·모던 크루 중에서 고르거나, 직접 이름과 내 이미지를 넣어 나만의 AI 직원을 만드세요.'),
+    h('p', { class: 'small muted', style: 'margin:-6px 0 10px' }, '조선 집현전(21종) · 한국 수호신(8종) 16비트 픽셀 크루 중에서 고르거나, 직접 이름과 내 이미지를 넣어 나만의 AI 직원을 만드세요.'),
     fileIn,
     previewWrap,
     h('div', { class: 'grid2', style: 'margin-bottom:12px' },
@@ -5188,7 +5163,7 @@ function openAvatarModal(e, opts = {}) {
       h('label', { class: 'field' }, '소속 팀 (부서)', teamSel)),
     h('div', { style: 'margin-bottom:12px' },
       h('label', { class: 'field' }, '한 줄 소개 (폰 뷰에 표시, 선택)', personaIn)),
-    h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px' }, packBar, styleBar),
+    h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px' }, packBar),
     bodyWrap,
     h('div', { class: 'bar' },
       h('button', { class: 'btn', onclick: closeDlg }, '취소'),
