@@ -409,8 +409,9 @@ function blueprintPillsRow(item) {
   const kbIds = Array.isArray(item.knowledgeIds) ? item.knowledgeIds : [];
   const acc = item.account ? res(item.account) : null;
   const kbs = kbIds.map((id) => (S.data?.knowledge || []).find((k) => k.id === id)).filter(Boolean);
-  if (!skillKeys.length && !kbs.length && !acc) return null;
+  if (!skillKeys.length && !kbs.length && !acc && !item.autoApprove) return null;
   return h('div', { class: 'auto-bp-pills' },
+    item.autoApprove ? h('span', { class: 'bp-pill bp-auto', title: '게시·댓글·업로드는 대표 확인 없이 바로 실행합니다 (결제·삭제는 보호)' }, '⚡ 바로 실행') : null,
     ...skillKeys.map((k) => {
       const m = skillChipMeta(k);
       return h('span', { class: 'bp-pill bp-skill', title: `지정 스킬: ${m.titleKo} (${m.name})` },
@@ -1320,6 +1321,7 @@ async function openPromptPreview(kind, id, flushFn = null) {
     for (const dName of p.linked?.designs || []) badges.push(h('span', { class: 'tag' }, `디자인: ${dName}`));
     for (const tObj of p.linked?.tools || []) badges.push(h('span', { class: 'tag' }, tObj.name));
     if (p.linked?.estCost) badges.push(h('span', { class: 'tag' }, `예상 ${won(p.linked.estCost)}`));
+    if (p.linked?.autoApprove) badges.push(h('span', { class: 'tag bp-prev-sk' }, '⚡ 게시·업로드 바로 실행'));
     if (p.linked?.gate) badges.push(h('span', { class: 'tag' }, `${p.linked.gate} ${p.linked.gateApproved ? '확인됨' : '확인 필요'}`));
     setDlg(dlg, 
       h('h3', null, 'AI에게 전달되는 최종 지시서'),
@@ -3061,12 +3063,17 @@ function openStampApprovalModal(t) {
     h('span', { class: 'stamp-placeholder' }, '(인)'));
   const statusHint = h('div', { class: 'stamp-status-hint' }, '아래 버튼을 누르면 대표 낙관 도장이 쾅 찍히고 AI가 즉시 실행합니다.');
   const cancelBtn = h('button', { type: 'button', class: 'btn', onclick: () => { dlg.className = ''; dlg.close(); } }, '취소');
-  const confirmBtn = h('button', { type: 'button', class: 'btn stamp-go-btn' }, '도장 쾅! 승인하고 실행');
+  const canAutoForever = Boolean(t.routineId && (t.gate === '게시' || t.gate === '업로드'));
+  const foreverBtn = canAutoForever
+    ? h('button', { type: 'button', class: 'btn stamp-auto-btn', title: '이번 실행을 승인하고 앞으로 이 오토메이션은 게시 확인 없이 바로 실행합니다 (결제·삭제는 계속 보호)' }, '⚡ 승인 + 앞으로 바로 실행')
+    : null;
+  const confirmBtn = h('button', { type: 'button', class: 'btn stamp-go-btn' }, '도장 쾅! 이번만 승인');
 
-  const doStamp = async () => {
+  const doStamp = async (autoApproveRoutine = false) => {
     if (stamped) return;
     stamped = true;
     confirmBtn.disabled = true;
+    if (foreverBtn) foreverBtn.disabled = true;
     cancelBtn.disabled = true;
     confirmBtn.textContent = '어명 집행 중…';
     SND()?.play('approve');
@@ -3075,13 +3082,21 @@ function openStampApprovalModal(t) {
       h('span', { class: 'stamp-ink-ring', 'aria-hidden': 'true' }),
       h('div', { class: 'stamp-mark-anim' }, koreanStampSvg('代表', sealBot, 86)));
     statusHint.className = 'stamp-status-hint is-done';
-    statusHint.textContent = `쾅! 대표 낙관 승인 완료 — ${shortName(t.assignee)} 직원이 즉시 실행에 들어갑니다.`;
+    statusHint.textContent = autoApproveRoutine
+      ? `쾅! 대표 승인 완료 — 이제 이 오토메이션은 게시 확인 없이 바로 실행됩니다.`
+      : `쾅! 대표 낙관 승인 완료 — ${shortName(t.assignee)} 직원이 즉시 실행에 들어갑니다.`;
     await new Promise((r) => setTimeout(r, 640));
     dlg.className = '';
     dlg.close();
-    await act('POST', `/api/ui/tasks/${t.id}/approve-gate`, {}, `도장 쾅! ${gateO(t.gate)} 승인했어요`);
+    await act(
+      'POST',
+      `/api/ui/tasks/${t.id}/approve-gate`,
+      autoApproveRoutine ? { autoApproveRoutine: true } : {},
+      autoApproveRoutine ? '도장 쾅! 앞으로 이 오토메이션은 승인 없이 바로 실행돼요' : `도장 쾅! ${gateO(t.gate)} 승인했어요`,
+    );
   };
-  confirmBtn.addEventListener('click', doStamp);
+  confirmBtn.addEventListener('click', () => doStamp(false));
+  if (foreverBtn) foreverBtn.addEventListener('click', () => doStamp(true));
 
   const metaParts = [
     `${t.gate} 결재`,
@@ -3110,7 +3125,7 @@ function openStampApprovalModal(t) {
       h('div', { class: 'stamp-doc-title' }, t.title),
       t.note ? h('div', { class: 'stamp-doc-note' }, t.note.slice(0, 220) + (t.note.length > 220 ? '…' : '')) : null),
     statusHint,
-    h('div', { class: 'stamp-doc-foot' }, cancelBtn, confirmBtn));
+    h('div', { class: 'stamp-doc-foot' }, cancelBtn, foreverBtn, confirmBtn));
 
   setDlg(dlg, docCard);
   dlg.showModal();
@@ -5301,6 +5316,7 @@ function openNewAutomationModal(preset = null) {
   const pickedSkills = new Set(Array.isArray(preset?.skills) ? preset.skills : []);
   const pickedKbIds = new Set(Array.isArray(preset?.knowledgeIds) ? preset.knowledgeIds : []);
   let pickedAccount = preset?.account || '';
+  let autoApproveOn = Boolean(preset?.autoApprove);
   let showAllSkills = false;
   let showQuickKb = false;
   const initSched = preset?.intervalMin ? String(preset.intervalMin) : 'time';
@@ -5552,6 +5568,7 @@ function openNewAutomationModal(preset = null) {
         const isHuman = pickedAssignee === 'jay';
         promptField.classList.toggle('is-hidden', isHuman);
         aiPillarsWrap.classList.toggle('is-hidden', isHuman);
+        autoApproveWrap.classList.toggle('is-hidden', isHuman);
         alarmHint.classList.toggle('is-hidden', !isHuman);
         if (isHuman && schedSel.value !== 'time') {
           schedSel.value = 'time';
@@ -5581,6 +5598,25 @@ function openNewAutomationModal(preset = null) {
   renderAccountChips();
   renderSummary();
 
+  const autoApproveChk = h('input', {
+    type: 'checkbox',
+    checked: autoApproveOn,
+    onchange: (ev) => {
+      autoApproveOn = ev.target.checked;
+      autoApproveHint.textContent = autoApproveOn
+        ? '⚡ 게시·댓글·업로드는 확인 없이 바로 실행 (결제·삭제만 대표 승인 보호)'
+        : '게시·업로드 승인 없이 바로 실행 (끄면 게시 전 대표 확인)';
+      autoApproveWrap.classList.toggle('is-on', autoApproveOn);
+    },
+  });
+  const autoApproveHint = h('span', { class: 'auto-ap-txt' }, autoApproveOn
+    ? '⚡ 게시·댓글·업로드는 확인 없이 바로 실행 (결제·삭제만 대표 승인 보호)'
+    : '게시·업로드 승인 없이 바로 실행 (끄면 게시 전 대표 확인)');
+  const autoApproveWrap = h('label', { class: `switch auto-ap-sw${autoApproveOn ? ' is-on' : ''}${pickedAssignee === 'jay' ? ' is-hidden' : ''}` },
+    autoApproveChk,
+    h('span', { class: 'tr' }),
+    autoApproveHint);
+
   const submitBtn = h('button', { type: 'button', class: 'btn dark' }, '만들기 ⌘↵');
   const submit = async () => {
     const v = titleIn.value.trim();
@@ -5597,6 +5633,7 @@ function openNewAutomationModal(preset = null) {
       instruction: isHuman ? '' : promptIn.value.trim(),
       skills: isHuman ? [] : [...pickedSkills],
       knowledgeIds: isHuman ? [] : [...pickedKbIds],
+      autoApprove: isHuman ? false : autoApproveOn,
       ...(pickedAccount && !isHuman ? { account: pickedAccount } : {}),
     };
     const r = await once('modal-add-routine', () => act('POST', '/api/ui/routines', body));
@@ -5605,7 +5642,7 @@ function openNewAutomationModal(preset = null) {
       ui.autoTab = 'list';
       const skCnt = (r.skills || []).length;
       const kbCnt = (r.knowledgeIds || []).length;
-      const extra = [skCnt ? `스킬 ${skCnt}` : '', kbCnt ? `지식 ${kbCnt}` : ''].filter(Boolean).join(' · ');
+      const extra = [skCnt ? `스킬 ${skCnt}` : '', kbCnt ? `지식 ${kbCnt}` : '', r.autoApprove ? '⚡ 바로 실행' : ''].filter(Boolean).join(' · ');
       toast(`${shortName(r.assignee)} 오토메이션을 추가했어요${extra ? ` (${extra})` : ''}`);
       render();
     }
@@ -5649,7 +5686,7 @@ function openNewAutomationModal(preset = null) {
       alarmHint,
       blueprintBar),
     h('div', { class: 'auto-m-foot' },
-      h('span', { class: 'small muted' }, '결제 · 업로드 · 게시 · 삭제는 대표 승인 전 자동 정지'),
+      autoApproveWrap,
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn', onclick: closeDlg }, '취소'),
         submitBtn)));
@@ -5780,7 +5817,29 @@ function pageDaily() {
           ...rAccList.map((a) => h('button', {
             type: 'button', class: `chip sm${r.account === a.id ? ' on' : ''}`,
             onclick: () => act('PATCH', `/api/ui/routines/${r.id}`, { account: a.id }, `${a.name} 연결했어요`),
-          }, a.name.split(' · ')[0])))) : null) : null;
+          }, a.name.split(' · ')[0])))) : null,
+      h('div', { class: 'rt-auto-ap-row' },
+        h('label', { class: `switch auto-ap-sw${r.autoApprove ? ' is-on' : ''}` },
+          h('input', {
+            type: 'checkbox',
+            checked: Boolean(r.autoApprove),
+            onchange: (ev) => act('PATCH', `/api/ui/routines/${r.id}`, { autoApprove: ev.target.checked }, ev.target.checked ? '⚡ 앞으로 게시·업로드 확인 없이 바로 실행해요' : '게시 전 대표 승인 대기로 돌렸어요'),
+          }),
+          h('span', { class: 'tr' }),
+          h('span', { class: 'auto-ap-txt' }, r.autoApprove
+            ? '⚡ 게시·댓글·업로드 승인 없이 바로 실행 켜짐 (결제·삭제는 계속 보호)'
+            : '게시·댓글·업로드 승인 없이 바로 실행 (켜면 매번 승인 안 물음)')))) : null;
+
+    const autoApproveCardBtn = !human && (r.autoApprove || r.gate === '게시' || r.gate === '업로드')
+      ? h('button', {
+        type: 'button',
+        class: `btn sm auto-ap-pill${r.autoApprove ? ' is-on' : ''}`,
+        title: r.autoApprove
+          ? '게시·업로드 승인 없이 바로 실행 중 · 누르면 승인 대기로 전환'
+          : `${r.gate} 전 대표 확인 대기 중 · 누르면 승인 없이 바로 실행으로 전환`,
+        onclick: () => act('PATCH', `/api/ui/routines/${r.id}`, { autoApprove: !r.autoApprove }, !r.autoApprove ? '⚡ 이제 게시 확인 없이 바로 실행돼요!' : '게시 전 대표 확인으로 바꿨어요'),
+      }, r.autoApprove ? '⚡ 바로 실행' : `🔒 ${r.gate} 승인 후`)
+      : null;
 
     const runNowBtn = h('button', {
       type: 'button', class: 'btn sm auto-run-btn',
@@ -5820,6 +5879,7 @@ function pageDaily() {
           !human ? blueprintPillsRow(r) : null),
         h('div', { class: 'r-ctl' },
           whoBtn,
+          autoApproveCardBtn,
           runNowBtn,
           dots7(r),
           human ? h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: r.alarm, onchange: (ev) => act('PATCH', `/api/ui/routines/${r.id}`, { alarm: ev.target.checked }) }), h('span', { class: 'tr' }), '알람') : null,

@@ -329,6 +329,53 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     assert.deepEqual(rtAfterDel.knowledgeIds, []);
     assert.deepEqual(tAfterDel.knowledgeIds, []);
     assert.deepEqual(tAfterDel.skills, ['connect-ai-marketer']);
+
+    // 10) 오토메이션 '게시·업로드 승인 없이 바로 실행(autoApprove)' 검증 + 결제·삭제 안전선 유지 검증
+    const autoPubRt = await srv.ui('POST', '/api/ui/routines', {
+      title: '5분마다 유튜브 커뮤니티 댓글에 세종대왕 말투로 댓글 달아 게시',
+      intervalMin: 5,
+      days: [0, 1, 2, 3, 4, 5, 6],
+      assignee: 'codex',
+      autoApprove: true,
+    });
+    assert.equal(autoPubRt.status, 200);
+    assert.equal(autoPubRt.body.autoApprove, true);
+    assert.equal(autoPubRt.body.gate, null, 'autoApprove=true이면 게시 게이트가 자동 해제되어야 함');
+    const autoPubPrev = await srv.ui('GET', `/api/ui/routines/${autoPubRt.body.id}/prompt-preview`);
+    assert.equal(autoPubPrev.status, 200);
+    assert.equal(autoPubPrev.body.linked.autoApprove, true);
+    assert.match(autoPubPrev.body.prompt, /대표 사전 승인/);
+
+    // 결제·삭제는 autoApprove=true여도 절대 자동 통과되지 않아야 함
+    const payRt = await srv.ui('POST', '/api/ui/routines', {
+      title: '매달 클라우드 요금 결제',
+      time: '09:00',
+      days: [1],
+      assignee: 'codex',
+      autoApprove: true,
+    });
+    assert.equal(payRt.status, 200);
+    assert.equal(payRt.body.gate, '결제', '결제 게이트는 autoApprove=true여도 절대 해제되면 안 됨');
+
+    // 결재서에서 "승인 + 앞으로 바로 실행(autoApproveRoutine)" 누르면 루틴까지 자동 해제
+    const gatedRt = await srv.ui('POST', '/api/ui/routines', {
+      title: '유튜브 댓글 게시 자동 답글 테스트',
+      intervalMin: 30,
+      days: [0, 1, 2, 3, 4, 5, 6],
+      assignee: 'codex',
+      autoApprove: false,
+    });
+    assert.equal(gatedRt.status, 200);
+    assert.equal(gatedRt.body.gate, '게시');
+    const stGated = await srv.ui('GET', '/api/state');
+    const gatedTask = stGated.body.data.tasks.find((t) => t.routineId === gatedRt.body.id);
+    assert.ok(gatedTask);
+    const appRes = await srv.ui('POST', `/api/ui/tasks/${gatedTask.id}/approve-gate`, { autoApproveRoutine: true });
+    assert.equal(appRes.status, 200);
+    const stAfterApp = await srv.ui('GET', '/api/state');
+    const rtAfterApp = stAfterApp.body.data.routines.find((r) => r.id === gatedRt.body.id);
+    assert.equal(rtAfterApp.autoApprove, true);
+    assert.equal(rtAfterApp.gate, null);
   } finally {
     await srv.close();
   }

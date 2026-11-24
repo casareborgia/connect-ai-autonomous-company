@@ -67,6 +67,9 @@ const RUN_MODES = ['off', 'manual', 'auto'];
 const RES_KINDS = ['기계', '스마트폰', '브라우저', '오픈소스', '디자인', '멤버십', '계정', '폴더'];
 const RES_STATUS = ['사용 가능', '사용 중', '꺼짐', '확인 필요'];
 const KNOWLEDGE_CATEGORIES = ['브랜드', '비즈니스', '업무 규칙', '참고 자료', 'AI 학습 메모'];
+// 대표가 '바로 실행(승인 생략)'을 켠 오토메이션에서 자동 통과 가능한 게이트 (결제·삭제는 절대 자동 통과 금지)
+const AUTO_APPROVE_GATES = new Set(['게시', '업로드']);
+const applyAutoApproveGate = (gate, autoApprove) => (autoApprove && gate && AUTO_APPROVE_GATES.has(gate) ? null : (gate || null));
 
 // 데이터 파일이 없으면 빈 회사로 시작한다 (예시 회사는 AIHQ_SEED=jay 또는 example 일 때만, 이미 있는 데이터 파일은 그대로)
 const store = new Store(path.join(DATA_DIR, 'hq.json'), () => (['jay', 'example'].includes(process.env.AIHQ_SEED) ? seedData() : emptyData()));
@@ -139,10 +142,11 @@ function migrate(d) {
   }
   d.tasks.forEach((t, i) => {
     if (typeof t.order !== 'number') t.order = i + 1;
-    for (const [k, v] of Object.entries({ resource: null, account: null, browser: null, design: null, tools: [], skills: [], knowledgeIds: [], manualLinks: {}, estCost: null, intervalMin: null, stepMode: 'serial', sharedFolder: '', steps: [], gate: null, gateApprovedAt: null, reason: '', reasonBy: '', noMatch: false, handedAt: null, assignSource: 'jay', routineId: null, jobId: null, runStartedAt: null, lastRunAt: null, completedAt: null, completedBy: null, resultSummary: '', failoverTrail: [], queued: false, queueReason: '', retryAfter: null, localOnly: false, history: [], officeRun: false, officeJob: null, remote: null, relayedAt: null })) if (t[k] === undefined) t[k] = v;
+    for (const [k, v] of Object.entries({ resource: null, account: null, browser: null, design: null, tools: [], skills: [], knowledgeIds: [], autoApprove: false, manualLinks: {}, estCost: null, intervalMin: null, stepMode: 'serial', sharedFolder: '', steps: [], gate: null, gateApprovedAt: null, reason: '', reasonBy: '', noMatch: false, handedAt: null, assignSource: 'jay', routineId: null, jobId: null, runStartedAt: null, lastRunAt: null, completedAt: null, completedBy: null, resultSummary: '', failoverTrail: [], queued: false, queueReason: '', retryAfter: null, localOnly: false, history: [], officeRun: false, officeJob: null, remote: null, relayedAt: null })) if (t[k] === undefined) t[k] = v;
     if (!Array.isArray(t.steps)) t.steps = [];
     if (!Array.isArray(t.skills)) t.skills = [];
     if (!Array.isArray(t.knowledgeIds)) t.knowledgeIds = [];
+    t.autoApprove = Boolean(t.autoApprove);
   });
   for (const r of d.routines) {
     if (r.account === undefined) r.account = null;
@@ -155,6 +159,7 @@ function migrate(d) {
     if (!Array.isArray(r.tools)) r.tools = [];
     if (!Array.isArray(r.skills)) r.skills = [];
     if (!Array.isArray(r.knowledgeIds)) r.knowledgeIds = [];
+    r.autoApprove = Boolean(r.autoApprove);
     if (r.nextAssignee === undefined) r.nextAssignee = null;
     if (!STEP_MODES.includes(r.stepMode)) r.stepMode = 'serial';
     if (r.sharedFolder === undefined) r.sharedFolder = '';
@@ -645,6 +650,7 @@ function syncTodayTasksFromRoutine(d, r) {
     t.design = r.design || null;
     t.skills = [...(r.skills || [])];
     t.knowledgeIds = [...(r.knowledgeIds || [])];
+    t.autoApprove = Boolean(r.autoApprove);
     t.estCost = r.estCost ?? null;
     t.stepMode = r.stepMode === 'parallel' ? 'parallel' : 'serial';
     t.sharedFolder = r.sharedFolder || '';
@@ -659,7 +665,8 @@ function syncTodayTasksFromRoutine(d, r) {
       t.steps = [];
       t.assignee = r.assignee; t.kind = r.assignee === 'jay' ? 'human' : 'ai'; t.resource = r.resource; t.account = r.account || null; t.browser = r.browser || null; t.tools = [...(r.tools || [])];
     }
-    if (t.gate !== (r.gate || null)) { t.gate = r.gate || null; t.gateApprovedAt = null; }
+    const effGate = applyAutoApproveGate(r.gate, r.autoApprove);
+    if (t.gate !== effGate) { t.gate = effGate; t.gateApprovedAt = null; }
   }
 }
 
@@ -756,6 +763,7 @@ function recheckGate(t, before, resources = []) {
   const pol = acc ? evaluateAccountPolicy(acc, now) : null;
   if (pol && pol.level === 'allow' && pol.action && pol.action.key !== 'read' && g !== '결제' && g !== '삭제') g = null;
   if (pol?.level === 'approval' && !g) g = pol.gate || '게시';
+  g = applyAutoApproveGate(g, t.autoApprove);
   if (!g) return;
   if (!t.gate || t.gateApprovedAt) { t.gate = g; t.gateApprovedAt = null; }
 }
@@ -780,7 +788,7 @@ function refineWithAi(kind, id) {
       } else {
         if ((it.steps || []).length) return;
         Object.assign(it, { assignee: s.assignee, resource: s.resource || null, account: s.account || null, browser: s.browser || null, design: s.design || null, tools: s.tools || [], reason: s.reason, reasonBy: s.engine, noMatch: Boolean(s.noMatch), assignSource: 'ai' });
-        if (s.gate && !it.gate) it.gate = s.gate;
+        if (s.gate && !it.gate) it.gate = applyAutoApproveGate(s.gate, it.autoApprove);
         syncTodayTasksFromRoutine(d, it);
       }
     }))
@@ -957,10 +965,13 @@ function taskPromptCommon(d, emp, t) {
     ? '쓸 브라우저: Ego Lite (명령: ego-browser nodejs · 웹 확인 후 task.finish({ keep: [] })로 스페이스를 닫으세요)'
     : '';
   const gateApproved = Boolean(t.gate && t.gateApprovedAt);
+  const autoApproved = Boolean((t.autoApprove || routine?.autoApprove) && (!t.gate || AUTO_APPROVE_GATES.has(t.gate)));
   const approvedAtLabel = gateApproved ? `${ymd(new Date(t.gateApprovedAt))} ${hm(new Date(t.gateApprovedAt))}` : '';
   const approvedGateBlock = gateApproved
     ? `✅ 대표 승인 완료 상태: "${t.gate}" 게이트를 대표가 본사 화면에서 직접 승인했습니다 (${approvedAtLabel}). 이 할 일에 해당하는 실제 ${t.gate}(최종 게시/Post/업로드/발송 버튼 클릭 포함)까지 다시 승인을 묻거나 버튼 앞에서 멈추지 말고 끝까지 완료한 뒤 결과(URL·상태)를 보고하세요.`
-    : '';
+    : autoApproved
+      ? '⚡ 대표 사전 승인 완료 (자동 실행 오토메이션): 대표가 이 오토메이션을 "게시·업로드 승인 없이 바로 실행"으로 직접 허용했습니다. 이 작업에 해당하는 댓글 작성·답글·게시·업로드 버튼 클릭까지 승인을 묻거나 버튼 앞에서 멈추지 말고 끝까지 완료한 뒤 결과(URL·작성 내용)를 보고하세요. (단, 결제·삭제·계정 설정 변경은 여전히 금지)'
+      : '';
   return [
     `할 일 ${t.id}: ${t.title}`,
     t.time ? `시간: ${t.time}` : '',
@@ -1004,11 +1015,15 @@ function runPrompt(d, emp, t) {
   const voiceRule = voiceRole
     ? `- 말투(야학 · 집현전 감성): 결과 보고 첫 한 줄에만 ${voiceRole} 스타일로 짧고 재치 있는 한마디를 곁들이고, 본문 정보와 초안은 현대 실무자가 바로 쓸 수 있게 깔끔·정확하게 작성한다.`
     : '';
+  const routine = t.routineId ? d.routines.find((r) => r.id === t.routineId) : null;
   const gateApproved = Boolean(t.gate && t.gateApprovedAt);
+  const autoApproved = Boolean((t.autoApprove || routine?.autoApprove) && (!t.gate || AUTO_APPROVE_GATES.has(t.gate)));
   const otherGates = ['결제', '업로드', '게시', '삭제', '메시지 발송'].filter((g) => !(g === t.gate || (t.gate === '발송' && g === '메시지 발송')));
   const gateRule = gateApproved
     ? `- ✅ [대표 승인 완료: ${t.gate}] 대표가 본사 화면에서 "${t.gate}" 실행을 직접 승인했습니다. 이 할 일의 실제 ${t.gate}(예: 최종 Post/게시/업로드/발송 클릭)까지 끝까지 완료하세요. (승인받지 않은 다른 위험 작업인 ${otherGates.join(', ')}은 여전히 금지)`
-    : '- 결제, 업로드, 게시, 삭제, 메시지 발송은 직접 하지 않는다. 필요하면 승인을 요청하고 멈춘다.';
+    : autoApproved
+      ? '- ⚡ [대표 사전 승인: 게시·업로드 자동 실행] 대표가 이 오토메이션의 댓글 작성·게시·업로드 실행을 사전 허용했습니다. 실제 댓글/답글/게시/업로드 버튼 클릭까지 묻지 말고 끝까지 완료하세요. (결제, 삭제, 메시지 발송은 여전히 금지)'
+      : '- 결제, 업로드, 게시, 삭제, 메시지 발송은 직접 하지 않는다. 필요하면 승인을 요청하고 멈춘다.';
   const lines = isLocal
     ? [
       ...taskPromptCommon(d, emp, t),
@@ -1770,6 +1785,7 @@ function buildPromptPreview(d, t) {
       knowledge: resolvedKb.map((x) => ({ id: x.k.id, title: x.k.title, category: x.k.category, pinned: x.pinned })),
       gate: t.gate || null,
       gateApproved: Boolean(t.gateApprovedAt),
+      autoApprove: Boolean(t.autoApprove || routine?.autoApprove),
       estCost: sumEstCost(t),
     },
   };
@@ -1790,9 +1806,10 @@ route('GET', '/api/ui/routines/:id/prompt-preview', async ({ params }) => {
     note: r.instruction || r.where || '', assignee: r.assignee, resource: r.resource || null,
     account: r.account || null, browser: r.browser || null, design: r.design || null,
     tools: [...(r.tools || [])], skills: [...(r.skills || [])], knowledgeIds: [...(r.knowledgeIds || [])],
+    autoApprove: Boolean(r.autoApprove),
     estCost: r.estCost ?? null, stepMode: r.stepMode || 'serial',
     sharedFolder: r.sharedFolder || '', steps: cloneRoutineSteps(r.steps || []),
-    gate: r.gate || null, gateApprovedAt: null, routineId: r.id,
+    gate: applyAutoApproveGate(r.gate, r.autoApprove), gateApprovedAt: null, routineId: r.id,
   };
   return buildPromptPreview(d, synthetic);
 });
@@ -1970,6 +1987,10 @@ route('PATCH', '/api/ui/tasks/:id', async ({ params, body }) => store.mutate((d)
   if (body.tools !== undefined) t.tools = toolRefs(d, body.tools);
   if (body.skills !== undefined) t.skills = skillKeyRefs(body.skills);
   if (body.knowledgeIds !== undefined) t.knowledgeIds = knowledgeRefs(d, body.knowledgeIds);
+  if (body.autoApprove !== undefined) {
+    t.autoApprove = Boolean(body.autoApprove);
+    if (t.autoApprove) t.gate = applyAutoApproveGate(t.gate, true);
+  }
   // 프롬프트(제목/지시 메모)가 바뀌거나 수동 연결이 변경되면 자동 연결 항목을 정확히 동기화 (지워진 언급도 정리)
   const full = `${t.title} ${t.note || ''}`;
   if (full !== before || body.account !== undefined || body.browser !== undefined || body.design !== undefined || body.tools !== undefined) {
@@ -2082,7 +2103,7 @@ route('POST', '/api/ui/tasks/:id/to-routine', async ({ params }) => store.mutate
     id: nextId(d, 'r'), title: t.title, where: '', days: [0, 1, 2, 3, 4, 5, 6], time: t.intervalMin ? null : (t.time || null),
     intervalMin: t.intervalMin || null, lastIntervalAt: null,
     assignee: t.assignee, resource: t.resource || null, account: t.account || null, browser: t.browser || null, design: t.design || null, tools: [...(t.tools || [])],
-    skills: [...(t.skills || [])], knowledgeIds: [...(t.knowledgeIds || [])],
+    skills: [...(t.skills || [])], knowledgeIds: [...(t.knowledgeIds || [])], autoApprove: Boolean(t.autoApprove),
     manualLinks: { ...(t.manualLinks || {}) }, estCost: t.estCost ?? null,
     stepMode: t.stepMode === 'parallel' ? 'parallel' : 'serial', sharedFolder: t.sharedFolder || '', steps: cloneRoutineSteps(t.steps),
     nextAssignee: null, alarm: t.assignee === 'jay', enabled: true, instruction: t.note || '',
@@ -2163,13 +2184,25 @@ route('POST', '/api/ui/tasks/reorder', async ({ body }) => store.mutate((d) => {
 }), UI);
 
 // 결제, 업로드, 게시, 삭제가 들어간 할 일: 대표 클릭으로만 풀린다
-route('POST', '/api/ui/tasks/:id/approve-gate', async ({ params }) => {
+route('POST', '/api/ui/tasks/:id/approve-gate', async ({ params, body }) => {
   const out = await store.mutate((d) => {
     const t = getTask(d, params.id);
     if (!t.gate) throw new HttpError(400, '확인이 필요한 할 일이 아닙니다.');
+    const prevGate = t.gate;
     t.gateApprovedAt = nowIso();
-    pushHistory(t, 'jay', t.status, `${t.gate} 확인`);
-    sys(d, `task:${t.id}`, `대표 확인 완료: ${t.gate}. 진행해도 됩니다.`);
+    const enableForever = Boolean(body?.autoApproveRoutine) && AUTO_APPROVE_GATES.has(prevGate);
+    if (enableForever) {
+      t.autoApprove = true;
+      if (t.routineId) {
+        const r = d.routines.find((x) => x.id === t.routineId);
+        if (r) {
+          r.autoApprove = true;
+          r.gate = applyAutoApproveGate(r.gate, true);
+        }
+      }
+    }
+    pushHistory(t, 'jay', t.status, enableForever ? `${prevGate} 확인 + 오토메이션 자동 실행 켜기` : `${prevGate} 확인`);
+    sys(d, `task:${t.id}`, enableForever ? `대표 확인 완료 (${prevGate}) + 앞으로 이 오토메이션은 승인 없이 바로 실행합니다.` : `대표 확인 완료: ${prevGate}. 진행해도 됩니다.`);
     return t;
   });
   const d = store.data;
@@ -2533,7 +2566,7 @@ route('POST', '/api/ui/routines', async ({ body }) => {
       id: nextId(d, 'r'), title, where: text(body.where, 100), days: daysOf(body.days), time: timeOrNull(body.time),
       intervalMin: intervalOrNull(body.intervalMin), lastIntervalAt: null,
       assignee: 'jay', resource: null, account: null, browser: null, design: null, tools: [],
-      skills: skillKeyRefs(body.skills), knowledgeIds: knowledgeRefs(d, body.knowledgeIds),
+      skills: skillKeyRefs(body.skills), knowledgeIds: knowledgeRefs(d, body.knowledgeIds), autoApprove: Boolean(body.autoApprove),
       manualLinks: {}, estCost: costOrNull(body.estCost),
       stepMode: STEP_MODES.includes(body.stepMode) ? body.stepMode : 'serial', sharedFolder: text(body.sharedFolder, 400), steps: [],
       nextAssignee: null, alarm: true, enabled: true, instruction: text(body.instruction, 8000), gate: null, feature: null, log: {}, reason: '', assignSource: 'jay',
@@ -2563,14 +2596,14 @@ route('POST', '/api/ui/routines', async ({ body }) => {
       const pol = accObj ? evaluateAccountPolicy(accObj, full) : null;
       if (pol && pol.level === 'allow' && pol.action && pol.action.key !== 'read' && g !== '결제' && g !== '삭제') g = null;
       if (pol?.level === 'approval' && !g) g = pol.gate || '게시';
-      r.gate = g;
+      r.gate = applyAutoApproveGate(g, r.autoApprove);
       r.manualLinks = {
         account: body.account !== undefined && Boolean(r.account),
         browser: body.browser !== undefined && Boolean(r.browser),
         design: body.design !== undefined && Boolean(r.design),
         tools: Array.isArray(body.tools) && body.tools.length > 0,
       };
-      if (picked && !g) d.settings.assignMemory = learnAssignMemory(d.settings.assignMemory, title, picked);
+      if (picked && !r.gate) d.settings.assignMemory = learnAssignMemory(d.settings.assignMemory, title, picked);
     } else {
       const skillHint = r.skills.length ? ` ${r.skills.join(' ')}` : '';
       const s = ruleAssign(title, `${r.instruction}${skillHint}`, d.employees, d.resources, d.settings?.assignMemory);
@@ -2584,11 +2617,11 @@ route('POST', '/api/ui/routines', async ({ body }) => {
           r.manualLinks = { ...(r.manualLinks || {}), account: true };
         }
       }
-      // 대표가 자동 배분 + AI 스킬을 명시적으로 장착한 경우(결제·금지 제외), 사람 알람으로 내리지 않고 스킬 보유 AI 직원에게 배정(승인 게이트는 그대로 유지)
+      // 대표가 자동 배분 + AI 스킬 또는 바로 실행(autoApprove)을 지정한 경우(결제·금지 제외), 사람 알람으로 내리지 않고 AI 직원에게 배정
       let assignSrc = 'rule';
-      if (r.skills.length && s.assignee === 'jay' && s.gate !== '결제' && !s.accountBlocked) {
+      if ((r.skills.length || r.autoApprove) && s.assignee === 'jay' && s.gate !== '결제' && !s.accountBlocked) {
         const pinLow = new Set(r.skills.map((k) => String(k).toLowerCase()));
-        const skillOwner = d.employees.find((e) => (e.skills || []).some((sk) => pinLow.has(String(sk.preset || sk.name || '').toLowerCase())))
+        const skillOwner = (pinLow.size ? d.employees.find((e) => (e.skills || []).some((sk) => pinLow.has(String(sk.preset || sk.name || '').toLowerCase()))) : null)
           || d.employees.find((e) => e.id === d.settings?.mainAi)
           || d.employees.find((e) => CLI_ENGINES.includes(e.engine) && e.runMode !== 'off')
           || d.employees[0];
@@ -2600,11 +2633,14 @@ route('POST', '/api/ui/routines', async ({ body }) => {
             const accObj = d.resources.find((x) => x.id === s.account);
             s.browser = (accObj ? resolveAccountBrowser(accObj, d.resources)?.id : null) || pickBrowser(`${title} ${r.instruction}`, d.resources, null)?.id || null;
           }
-          s.reason = `지정 스킬 기반 AI 배분 → ${skillOwner.name}${s.gate ? ` (${s.gate} 승인 대기)` : ''}`;
+          const effG = applyAutoApproveGate(s.gate, r.autoApprove);
+          s.reason = r.autoApprove
+            ? `⚡ 바로 실행 AI 배분 → ${skillOwner.name}`
+            : `지정 스킬 기반 AI 배분 → ${skillOwner.name}${effG ? ` (${effG} 승인 대기)` : ''}`;
           assignSrc = 'jay';
         }
       }
-      Object.assign(r, { assignee: s.assignee, resource: s.resource, account: s.account || null, browser: s.browser || null, design: s.design || null, tools: s.tools || [], reason: s.reason, reasonBy: s.engine, noMatch: Boolean(s.noMatch), gate: s.gate, assignSource: assignSrc });
+      Object.assign(r, { assignee: s.assignee, resource: s.resource, account: s.account || null, browser: s.browser || null, design: s.design || null, tools: s.tools || [], reason: s.reason, reasonBy: s.engine, noMatch: Boolean(s.noMatch), gate: applyAutoApproveGate(s.gate, r.autoApprove), assignSource: assignSrc });
     }
     d.routines.push(r);
     ensureRoutineTasks(d);
@@ -2653,57 +2689,71 @@ route('POST', '/api/ui/routines/pack', async ({ body }) => {
   return res;
 }, UI);
 
-route('PATCH', '/api/ui/routines/:id', async ({ params, body }) => store.mutate((d) => {
-  const r = d.routines.find((x) => x.id === params.id);
-  if (!r) throw new HttpError(404, '매일 할 일이 없습니다.');
-  const rBefore = `${r.title} ${r.instruction || ''}`;
-  if (body.title !== undefined) { const s = text(body.title, 200); if (s) r.title = s; }
-  if (body.where !== undefined) r.where = text(body.where, 100);
-  if (body.time !== undefined) { r.time = timeOrNull(body.time); if (r.time) r.intervalMin = null; }
-  if (body.intervalMin !== undefined) { r.intervalMin = intervalOrNull(body.intervalMin); if (r.intervalMin) { r.time = null; r.lastIntervalAt = null; } }
-  if (body.days !== undefined) r.days = daysOf(body.days);
-  if (body.alarm !== undefined) r.alarm = Boolean(body.alarm);
-  if (body.enabled !== undefined) r.enabled = Boolean(body.enabled);
-  if (body.instruction !== undefined) r.instruction = text(body.instruction, 8000);
-  if (body.resource !== undefined) r.resource = resourceRef(d, body.resource);
-  if (body.account !== undefined) r.account = accountRef(d, body.account);
-  if (body.browser !== undefined) r.browser = browserRef(d, body.browser);
-  if (body.design !== undefined) r.design = designRef(d, body.design);
-  if (body.estCost !== undefined) r.estCost = costOrNull(body.estCost);
-  if (body.tools !== undefined) r.tools = toolRefs(d, body.tools);
-  if (body.skills !== undefined) r.skills = skillKeyRefs(body.skills);
-  if (body.knowledgeIds !== undefined) r.knowledgeIds = knowledgeRefs(d, body.knowledgeIds);
-  const full = `${r.title} ${r.instruction || ''}`;
-  if (full !== rBefore || body.account !== undefined || body.browser !== undefined || body.design !== undefined || body.tools !== undefined) {
-    syncPromptLinks(d, r, full, body);
+route('PATCH', '/api/ui/routines/:id', async ({ params, body }) => {
+  const out = await store.mutate((d) => {
+    const r = d.routines.find((x) => x.id === params.id);
+    if (!r) throw new HttpError(404, '매일 할 일이 없습니다.');
+    const rBefore = `${r.title} ${r.instruction || ''}`;
+    if (body.title !== undefined) { const s = text(body.title, 200); if (s) r.title = s; }
+    if (body.where !== undefined) r.where = text(body.where, 100);
+    if (body.time !== undefined) { r.time = timeOrNull(body.time); if (r.time) r.intervalMin = null; }
+    if (body.intervalMin !== undefined) { r.intervalMin = intervalOrNull(body.intervalMin); if (r.intervalMin) { r.time = null; r.lastIntervalAt = null; } }
+    if (body.days !== undefined) r.days = daysOf(body.days);
+    if (body.alarm !== undefined) r.alarm = Boolean(body.alarm);
+    if (body.enabled !== undefined) r.enabled = Boolean(body.enabled);
+    if (body.instruction !== undefined) r.instruction = text(body.instruction, 8000);
+    if (body.resource !== undefined) r.resource = resourceRef(d, body.resource);
+    if (body.account !== undefined) r.account = accountRef(d, body.account);
+    if (body.browser !== undefined) r.browser = browserRef(d, body.browser);
+    if (body.design !== undefined) r.design = designRef(d, body.design);
+    if (body.estCost !== undefined) r.estCost = costOrNull(body.estCost);
+    if (body.tools !== undefined) r.tools = toolRefs(d, body.tools);
+    if (body.skills !== undefined) r.skills = skillKeyRefs(body.skills);
+    if (body.knowledgeIds !== undefined) r.knowledgeIds = knowledgeRefs(d, body.knowledgeIds);
+    const full = `${r.title} ${r.instruction || ''}`;
+    if (full !== rBefore || body.account !== undefined || body.browser !== undefined || body.design !== undefined || body.tools !== undefined) {
+      syncPromptLinks(d, r, full, body);
+    }
+    const recomputeGate = () => {
+      let g = detectGate(full);
+      const acc = (r.account ? d.resources.find((x) => x.id === r.account && x.kind === '계정') : null) || pickAccount(full, d.resources);
+      const pol = acc ? evaluateAccountPolicy(acc, full) : null;
+      if (pol && pol.level === 'allow' && pol.action && pol.action.key !== 'read' && g !== '결제' && g !== '삭제') g = null;
+      if (pol?.level === 'approval' && !g) g = pol.gate || '게시';
+      return applyAutoApproveGate(g, r.autoApprove);
+    };
+    if (body.autoApprove !== undefined) {
+      r.autoApprove = Boolean(body.autoApprove);
+      r.gate = r.autoApprove ? applyAutoApproveGate(r.gate, true) : recomputeGate();
+    }
+    if (full !== rBefore && body.gate === undefined) {
+      const g = recomputeGate();
+      if (g) r.gate = g;
+    }
+    if (body.stepMode !== undefined && STEP_MODES.includes(body.stepMode)) r.stepMode = body.stepMode;
+    if (body.sharedFolder !== undefined) r.sharedFolder = text(body.sharedFolder, 400);
+    if (body.steps !== undefined) r.steps = normalizeSteps(body.steps, d, { asTemplate: true });
+    if (body.nextAssignee !== undefined) r.nextAssignee = assigneeRef(d, body.nextAssignee);
+    if (body.gate !== undefined) r.gate = GATES.includes(body.gate) ? body.gate : null;
+    if (body.assignee !== undefined) {
+      const next = assigneeRef(d, body.assignee);
+      r.assignee = next; r.reason = '대표가 정함'; r.assignSource = 'jay';
+      if (next && !r.gate) d.settings.assignMemory = learnAssignMemory(d.settings.assignMemory, r.title, next);
+    }
+    if (body.logDate !== undefined) {
+      const day = dateOrNull(body.logDate);
+      if (!day) throw new HttpError(400, '날짜 형식이 아닙니다.');
+      if (body.logStatus === '완료') r.log[day] = '완료'; else delete r.log[day];
+    }
+    syncTodayTasksFromRoutine(d, r);
+    ensureRoutineTasks(d);
+    return r;
+  });
+  if (body.autoApprove === true && out.enabled !== false) {
+    setTimeout(() => autoRun(new Date()).catch(() => {}), 250);
   }
-  if (full !== rBefore && body.gate === undefined) {
-    let g = detectGate(full);
-    const acc = (r.account ? d.resources.find((x) => x.id === r.account && x.kind === '계정') : null) || pickAccount(full, d.resources);
-    const pol = acc ? evaluateAccountPolicy(acc, full) : null;
-    if (pol && pol.level === 'allow' && pol.action && pol.action.key !== 'read' && g !== '결제' && g !== '삭제') g = null;
-    if (pol?.level === 'approval' && !g) g = pol.gate || '게시';
-    if (g) r.gate = g;
-  }
-  if (body.stepMode !== undefined && STEP_MODES.includes(body.stepMode)) r.stepMode = body.stepMode;
-  if (body.sharedFolder !== undefined) r.sharedFolder = text(body.sharedFolder, 400);
-  if (body.steps !== undefined) r.steps = normalizeSteps(body.steps, d, { asTemplate: true });
-  if (body.nextAssignee !== undefined) r.nextAssignee = assigneeRef(d, body.nextAssignee);
-  if (body.gate !== undefined) r.gate = GATES.includes(body.gate) ? body.gate : null;
-  if (body.assignee !== undefined) {
-    const next = assigneeRef(d, body.assignee);
-    r.assignee = next; r.reason = '대표가 정함'; r.assignSource = 'jay';
-    if (next && !r.gate) d.settings.assignMemory = learnAssignMemory(d.settings.assignMemory, r.title, next);
-  }
-  if (body.logDate !== undefined) {
-    const day = dateOrNull(body.logDate);
-    if (!day) throw new HttpError(400, '날짜 형식이 아닙니다.');
-    if (body.logStatus === '완료') r.log[day] = '완료'; else delete r.log[day];
-  }
-  syncTodayTasksFromRoutine(d, r);
-  ensureRoutineTasks(d);
-  return r;
-}), UI);
+  return out;
+}, UI);
 
 route('POST', '/api/ui/routines/:id/steps', async ({ params, body }) => store.mutate((d) => {
   const r = d.routines.find((x) => x.id === params.id);
@@ -2783,26 +2833,31 @@ route('POST', '/api/ui/routines/:id/run-now', async ({ params }) => {
         tools: first && first.tools?.length ? [...first.tools] : [...(r.tools || [])],
         skills: [...(r.skills || [])],
         knowledgeIds: [...(r.knowledgeIds || [])],
+        autoApprove: Boolean(r.autoApprove),
         estCost: r.estCost ?? null,
         intervalMin: r.intervalMin || null,
         stepMode, sharedFolder: r.sharedFolder || '', steps,
-        gate: r.gate || null, gateApprovedAt: null,
+        gate: applyAutoApproveGate(r.gate, r.autoApprove), gateApprovedAt: null,
         reason: '오토메이션 즉시 실행',
         assignSource: 'routine', routineId: r.id, jobId: null,
         createdAt: nowIso(), createdBy: 'jay', history: [], runStartedAt: null,
       };
       t.order = orderFor(d, t);
       d.tasks.push(t);
-    } else if (t.status === '완료' || t.status === '막힘') {
-      t.status = '대기';
-      t.runStartedAt = null;
-      t.handedAt = null;
-      t.relayedAt = null;
-      t.time = hm(now);
-      t.skills = [...(r.skills || [])];
-      t.knowledgeIds = [...(r.knowledgeIds || [])];
-      if (steps.length) t.steps = steps;
-      t.reason = '오토메이션 다시 실행';
+    } else {
+      t.autoApprove = Boolean(r.autoApprove);
+      if (r.autoApprove && AUTO_APPROVE_GATES.has(t.gate)) t.gate = null;
+      if (t.status === '완료' || t.status === '막힘') {
+        t.status = '대기';
+        t.runStartedAt = null;
+        t.handedAt = null;
+        t.relayedAt = null;
+        t.time = hm(now);
+        t.skills = [...(r.skills || [])];
+        t.knowledgeIds = [...(r.knowledgeIds || [])];
+        if (steps.length) t.steps = steps;
+        t.reason = '오토메이션 다시 실행';
+      }
     }
     r.lastIntervalAt = nowIso();
     pushHistory(t, 'jay', '즉시 실행', '오토메이션에서 지금 실행');

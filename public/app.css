@@ -1614,6 +1614,26 @@ input.in.sm.auto-qkb-title { flex: 1 1 auto; width: auto; min-width: 0; }
 .bp-pill.bp-acc {
   background: var(--fill); color: var(--ink-2); border: 1px solid var(--line-2);
 }
+.bp-pill.bp-auto {
+  background: linear-gradient(135deg, #0a0a0c 0%, #1c1914 100%);
+  color: #f6e2b4; border: 1px solid #d4a359; font-weight: 700;
+}
+.auto-ap-sw { font-size: 12px; color: var(--ink-2); gap: 7px; }
+.auto-ap-sw.is-on .auto-ap-txt { color: #7a5418; font-weight: 700; }
+.auto-ap-pill {
+  height: 28px; padding: 0 9px; font-size: 11.5px; font-weight: 700; border-radius: 99px;
+  border: 1px solid rgba(200, 40, 32, 0.35); background: rgba(200, 40, 32, 0.06); color: #9f1f19;
+}
+.auto-ap-pill:hover { border-color: rgba(200, 40, 32, 0.65); background: rgba(200, 40, 32, 0.12); }
+.auto-ap-pill.is-on {
+  background: #0a0a0c; color: #f6e2b4; border-color: #d4a359;
+}
+.auto-ap-pill.is-on:hover { background: #1a1814; }
+.rt-auto-ap-row { padding-top: 6px; border-top: 1px dashed var(--line-2); }
+.stamp-auto-btn {
+  background: #0a0a0c; color: #f6e2b4; border: 1px solid #d4a359; font-weight: 700;
+}
+.stamp-auto-btn:hover { background: #1d1a14; color: #fff2d1; }
 .bp-pill-ic { font-size: 10.5px; line-height: 1; }
 .rt-bp-editor {
   display: flex; flex-direction: column; gap: 8px;
