@@ -1667,25 +1667,34 @@
     return g;
   }
 
-  function renderSvg(key = 'seonbi', { size = 44, state = 'idle', showZ = true, round = 3.5 } = {}) {
+  function renderSvg(key = 'seonbi', { size = 44, state = 'idle', showZ = true, round = 3.5, transparent = false } = {}) {
     const def = SPRITES[key] || SPRITES.seonbi;
     const working = state === 'working';
+    const walking = state === 'walking';
+    const awake = state === 'awake';
     const cooling = state === 'cooling';
-    const sleeping = !working;
+    const animated = working || walking;
     const svg = s('svg', {
       viewBox: '0 0 20 20', width: size, height: size,
-      class: `avatar-svg av-pixel-v2${working ? ' working' : ' sleeping'}${cooling ? ' cool' : ''}`,
+      class: `avatar-svg av-pixel-v2${working ? ' working' : walking ? ' walking' : awake ? ' awake' : ' sleeping'}${cooling ? ' cool' : ''}${transparent ? ' is-transparent' : ''}`,
       'shape-rendering': 'crispEdges', role: 'img', 'aria-label': `조선 AI 픽셀 캐릭터 ${key}`,
     });
-    const clipId = `pxc-${key}-${Math.random().toString(36).slice(2, 8)}`;
-    svg.appendChild(s('defs', {}, s('clipPath', { id: clipId }, s('rect', { x: 0, y: 0, width: 20, height: 20, rx: round }))));
-    const inner = s('g', { 'clip-path': `url(#${clipId})` });
-    inner.appendChild(s('rect', { x: 0, y: 0, width: 20, height: 20, fill: def.pal.bg }));
-    inner.appendChild(bgPatternGroup(def.pal, def.pattern));
+    let inner;
+    if (transparent) {
+      inner = s('g');
+    } else {
+      const clipId = `pxc-${key}-${Math.random().toString(36).slice(2, 8)}`;
+      svg.appendChild(s('defs', {}, s('clipPath', { id: clipId }, s('rect', { x: 0, y: 0, width: 20, height: 20, rx: round }))));
+      inner = s('g', { 'clip-path': `url(#${clipId})` });
+      inner.appendChild(s('rect', { x: 0, y: 0, width: 20, height: 20, fill: def.pal.bg }));
+      inner.appendChild(bgPatternGroup(def.pal, def.pattern));
+    }
 
-    if (working) {
+    if (animated) {
       inner.appendChild(gridToGroup(def.a0, def.pal, 'av-px-f0'));
       inner.appendChild(gridToGroup(def.a1, def.pal, 'av-px-f1'));
+    } else if (awake) {
+      inner.appendChild(gridToGroup(def.a0, def.pal));
     } else {
       inner.appendChild(gridToGroup(def.sleep, def.pal, 'av-px-sleep'));
       if (showZ) inner.appendChild(zGlyphGroup());

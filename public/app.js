@@ -11,6 +11,7 @@ const ui = {
   autoTab: 'list', autoQuery: '', autoFilter: 'all', autoRunsFilter: 'all',
   kbCat: 'all', kbQuery: '',
   swarmTeam: 'all', swarmSelected: 'all',
+  hanokStage: (() => { try { return localStorage.getItem('aihq_hanok_stage') !== '0'; } catch { return true; } })(),
   drag: false, office: null, tools: null, briefOpen: false, models: null, listening: false, lastThread: null, handout: {}, ob: null, lan: null,
   composing: false, pendingRender: false, lastSig: '',
 };
@@ -3465,6 +3466,280 @@ function openCoordinatorConfigModal() {
   dlg.showModal();
 }
 
+// ───────── 집현전 집무실 · 살아 움직이는 16비트 픽셀 AI 오피스 무대 ─────────
+const HANOK_DESKS = [
+  { x: 23.2, y: 74.5 },
+  { x: 36.6, y: 74.5 },
+  { x: 50.0, y: 74.5 },
+  { x: 63.4, y: 74.5 },
+  { x: 76.6, y: 74.5 },
+];
+const HANOK_IDLE_SPOTS = [
+  { x: 14.5, y: 94.0, line: '달빛 창호지 앞' },
+  { x: 24.0, y: 96.0, line: '서안 점검 중' },
+  { x: 35.5, y: 94.5, line: '차 한 잔 대기' },
+  { x: 47.0, y: 96.5, line: '어명 대기 중' },
+  { x: 58.5, y: 94.5, line: '에헴! 이상 무' },
+  { x: 70.5, y: 96.0, line: '문서 정리 중' },
+  { x: 83.5, y: 94.0, line: '규장각 서고 열람' },
+];
+const HANOK_SIM = {
+  actors: new Map(),
+  timer: null,
+};
+
+function hanokClamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function hanokPickTarget(actorId, allActors) {
+  const spots = [...HANOK_IDLE_SPOTS].sort(() => Math.random() - 0.5);
+  for (const sp of spots) {
+    const jitterX = hanokClamp(sp.x + (Math.random() - 0.5) * 7, 13, 86);
+    const jitterY = hanokClamp(sp.y + (Math.random() - 0.5) * 2.2, 92, 97.5);
+    let crowded = false;
+    for (const [id, other] of allActors.entries()) {
+      if (id === actorId || other.mode === 'work') continue;
+      if (Math.abs((other.tx ?? other.x) - jitterX) < 7.5) { crowded = true; break; }
+    }
+    if (!crowded) return { x: jitterX, y: jitterY, line: sp.line };
+  }
+  return { x: 18 + Math.random() * 64, y: 87 + Math.random() * 7, line: '어명 대기 중' };
+}
+
+function syncHanokActorVisual(el, actor) {
+  el.style.left = `${actor.x.toFixed(2)}%`;
+  el.style.top = `${actor.y.toFixed(2)}%`;
+  el.style.zIndex = String(Math.round(actor.y));
+  const moving = actor.moving && actor.mode !== 'cool';
+  el.classList.toggle('is-walking', moving);
+  el.classList.toggle('is-seated', actor.mode === 'work' && !actor.moving);
+  const spriteBox = el.querySelector('.hanok-sprite-box');
+  if (spriteBox) spriteBox.classList.toggle('is-flip', actor.facing < 0);
+  const bub = el.querySelector('.hanok-bubble');
+  if (bub && actor.mode === 'idle') {
+    const show = Boolean(actor.bubble && Date.now() < actor.bubbleUntil);
+    bub.classList.toggle('is-shown', show);
+    if (show && bub.textContent !== actor.bubble) bub.textContent = actor.bubble;
+  }
+}
+
+function ensureHanokSimLoop() {
+  if (HANOK_SIM.timer) return;
+  HANOK_SIM.timer = setInterval(() => {
+    const stage = document.querySelector('.hanok-stage');
+    if (!stage || !stage.isConnected) {
+      clearInterval(HANOK_SIM.timer);
+      HANOK_SIM.timer = null;
+      return;
+    }
+    const now = Date.now();
+    const nodes = stage.querySelectorAll('.hanok-actor[data-emp]');
+    let ambientShown = 0;
+    for (const a of HANOK_SIM.actors.values()) {
+      if (a.mode === 'idle' && a.bubble && now < a.bubbleUntil) ambientShown++;
+    }
+    for (const el of nodes) {
+      const id = el.getAttribute('data-emp');
+      const actor = HANOK_SIM.actors.get(id);
+      if (!actor) continue;
+      const dx = actor.tx - actor.x;
+      const dy = actor.ty - actor.y;
+      const dist = Math.hypot(dx, dy);
+      const speed = actor.mode === 'work' ? 1.15 : actor.mode === 'approve' ? 0.85 : 0.42;
+      if (dist > speed) {
+        actor.x += (dx / dist) * speed;
+        actor.y += (dy / dist) * speed;
+        if (Math.abs(dx) > 0.15) actor.facing = dx < 0 ? -1 : 1;
+        actor.moving = true;
+      } else {
+        actor.x = actor.tx;
+        actor.y = actor.ty;
+        actor.moving = false;
+        if (actor.mode === 'idle' && now >= actor.pauseUntil) {
+          if (actor.justArrived) {
+            actor.justArrived = false;
+            actor.pauseUntil = now + 2600 + Math.random() * 3400;
+            if (ambientShown < 2 && Math.random() < 0.42) {
+              actor.bubble = actor.spotLine || '어명 대기 중';
+              actor.bubbleUntil = now + 2600;
+              ambientShown++;
+            }
+          } else {
+            const next = hanokPickTarget(id, HANOK_SIM.actors);
+            actor.tx = next.x;
+            actor.ty = next.y;
+            actor.spotLine = next.line;
+            actor.justArrived = true;
+          }
+        }
+      }
+      syncHanokActorVisual(el, actor);
+    }
+  }, 110);
+}
+
+function buildHanokOfficeStage(emps, selEmp) {
+  const d = S.data;
+  const px = window.PixelCrew;
+  const voiceOn = d.settings?.joseonVoice !== false;
+  const pendingGatesByEmp = new Map();
+  for (const t of (d.tasks || [])) {
+    if (t.gate && !t.gateApprovedAt && t.status !== '완료' && t.assignee && t.assignee !== 'jay') {
+      if (!pendingGatesByEmp.has(t.assignee)) pendingGatesByEmp.set(t.assignee, t);
+    }
+  }
+  const activeDesks = new Set();
+  const now = Date.now();
+  const list = emps.slice(0, 8);
+
+  const workingEmps = list.filter((e) => isWorking(e.id));
+  const deskMap = new Map();
+  workingEmps.forEach((e, idx) => {
+    const slot = idx % HANOK_DESKS.length;
+    deskMap.set(e.id, slot);
+    activeDesks.add(slot);
+  });
+
+  const actorNodes = list.map((e, idx) => {
+    const wJob = S.working.find((w) => w.emp === e.id) || null;
+    const gateTask = !wJob ? (pendingGatesByEmp.get(e.id) || null) : null;
+    const cooling = !wJob && isEmpCooling(e);
+    const mode = wJob ? 'work' : gateTask ? 'approve' : cooling ? 'cool' : 'idle';
+
+    let actor = HANOK_SIM.actors.get(e.id);
+    if (!actor) {
+      const spreadX = list.length <= 1 ? 50 : 17 + (idx / Math.max(1, list.length - 1)) * 66;
+      const spreadY = 93.5 + (idx % 2) * 3.0;
+      actor = {
+        x: spreadX, y: spreadY, tx: spreadX, ty: spreadY,
+        facing: idx % 2 === 0 ? 1 : -1,
+        mode, moving: false, justArrived: false,
+        pauseUntil: now + 900 + idx * 700,
+        bubble: '', bubbleUntil: 0, spotLine: HANOK_IDLE_SPOTS[idx % HANOK_IDLE_SPOTS.length].line,
+      };
+      HANOK_SIM.actors.set(e.id, actor);
+    }
+
+    const prevMode = actor.mode;
+    actor.mode = mode;
+    if (mode === 'work') {
+      const slot = deskMap.get(e.id) ?? (idx % HANOK_DESKS.length);
+      actor.deskIdx = slot;
+      actor.tx = HANOK_DESKS[slot].x;
+      actor.ty = HANOK_DESKS[slot].y;
+    } else if (mode === 'approve') {
+      actor.tx = 44 + (idx % 3) * 6;
+      actor.ty = 91;
+    } else if (mode === 'cool') {
+      actor.tx = idx % 2 === 0 ? 15.5 : 83.5;
+      actor.ty = 89;
+    } else if (prevMode !== 'idle') {
+      const next = hanokPickTarget(e.id, HANOK_SIM.actors);
+      actor.tx = next.x;
+      actor.ty = next.y;
+      actor.spotLine = next.line;
+      actor.justArrived = true;
+    }
+
+    const spriteState = mode === 'work' ? 'working' : mode === 'cool' ? 'cooling' : 'walking';
+    const spriteKey = px?.isJoseonKey(e.avatar) ? e.avatar : 'seonbi';
+    const spriteVisual = e.avatarImage
+      ? h('img', { src: e.avatarImage, alt: shortName(e.id), width: 42, height: 42, class: 'hanok-photo-av' })
+      : px?.renderSvg(spriteKey, { size: 54, state: spriteState, showZ: mode === 'cool', transparent: true });
+
+    const liveText = mode === 'work'
+      ? `⚡ ${(wJob.statusLine || wJob.title || '집무 중').slice(0, 26)}`
+      : mode === 'approve'
+        ? `印 ${gateTask.gate} 결재 대기`
+        : mode === 'cool'
+          ? `💤 휴식 ${empCooldownMin(e)}m`
+          : (actor.bubble && now < actor.bubbleUntil ? actor.bubble : '');
+    const bubbleShown = Boolean(mode === 'work' || mode === 'approve' || mode === 'cool' || liveText);
+    const isSel = Boolean(selEmp && selEmp.id === e.id);
+
+    const btn = h('button', {
+      type: 'button',
+      class: `hanok-actor mode-${mode}${isSel ? ' is-sel' : ''}${actor.moving ? ' is-walking' : ''}${mode === 'work' && !actor.moving ? ' is-seated' : ''}`,
+      'data-emp': e.id,
+      title: mode === 'work'
+        ? `${shortName(e.id)} 집무 중 · 클릭해 실시간 로그 열기`
+        : mode === 'approve'
+          ? `${shortName(e.id)} · ${gateTask.gate} 결재 대기 — 클릭해 도장 결재서 열기`
+          : `${shortName(e.id)} · 클릭해 선택`,
+      onclick: () => {
+        if (mode === 'work' && wJob?.taskId) {
+          openTaskById(wJob.taskId);
+        } else if (mode === 'approve' && gateTask) {
+          openStampApprovalModal(gateTask);
+        } else {
+          ui.swarmSelected = e.id;
+          if (ui.route === 'home') ui.taskPick = e.id;
+          actor.bubble = voiceOn ? '부르셨사옵니까?' : '무엇을 도와드릴까요?';
+          actor.bubbleUntil = Date.now() + 2500;
+          actor.pauseUntil = Date.now() + 2600;
+          render();
+        }
+      },
+    },
+    h('span', { class: `hanok-bubble${bubbleShown ? ' is-shown' : ''}${mode === 'work' ? ' is-live' : mode === 'approve' ? ' is-seal' : ''}` }, liveText),
+    h('span', { class: `hanok-sprite-box${actor.facing < 0 ? ' is-flip' : ''}` }, spriteVisual),
+    h('span', { class: 'hanok-shadow', 'aria-hidden': 'true' }),
+    h('span', { class: 'hanok-name' },
+      h('i', { class: `hanok-st-dot st-${mode}` }),
+      shortName(e.id)));
+
+    btn.style.left = `${actor.x.toFixed(2)}%`;
+    btn.style.top = `${actor.y.toFixed(2)}%`;
+    btn.style.zIndex = String(Math.round(actor.y));
+    return btn;
+  });
+
+  const deskGlows = HANOK_DESKS.map((dk, i) => {
+    const g = h('span', { class: `hanok-desk-glow${activeDesks.has(i) ? ' is-active' : ''}`, 'aria-hidden': 'true' });
+    g.style.left = `${dk.x}%`;
+    g.style.top = `${dk.y - 6}%`;
+    return g;
+  });
+
+  const lanternPositions = [21.5, 42.8, 58.2, 79.1];
+  const lanternGlows = lanternPositions.map((lx, i) => {
+    const lg = h('span', { class: `hanok-lantern-glow l-${i}`, 'aria-hidden': 'true' });
+    lg.style.left = `${lx}%`;
+    return lg;
+  });
+
+  const workCnt = workingEmps.length;
+  const gateCnt = pendingGatesByEmp.size;
+  const statusBadgeText = workCnt
+    ? `${workCnt}명 서안에서 집무 중`
+    : gateCnt
+      ? `결재 대기 ${gateCnt}건 · 클릭해 도장 승인`
+      : `${list.length}명 대청마루 순찰 중`;
+
+  const stageEl = h('div', { class: 'hanok-stage', 'aria-label': '집현전 AI 집무실 라이브 무대' },
+    h('div', { class: 'hanok-stage-top' },
+      h('span', { class: `hanok-pill${workCnt ? ' is-live' : ''}` },
+        h('i', { class: `hanok-dot${workCnt ? ' is-live' : ''}` }),
+        '집현전 집무실 · LIVE'),
+      h('div', { class: 'hanok-stage-right' },
+        h('span', { class: 'hanok-pill is-sub' }, statusBadgeText),
+        h('button', {
+          type: 'button', class: 'hanok-hide-btn', title: '집무실 무대 접기 (상단 버튼으로 다시 켤 수 있어요)',
+          onclick: () => {
+            ui.hanokStage = false;
+            try { localStorage.setItem('aihq_hanok_stage', '0'); } catch { /* ignore */ }
+            render();
+          },
+        }, '접기'))),
+    ...lanternGlows,
+    ...deskGlows,
+    ...actorNodes);
+
+  setTimeout(ensureHanokSimLoop, 30);
+  return stageEl;
+}
+
 function joseonSwarmPanel() {
   const d = S.data;
   if (!d.employees.length) return null;
@@ -3514,6 +3789,15 @@ function joseonSwarmPanel() {
   const voiceOn = d.settings?.joseonVoice !== false;
   const topActions = h('div', { class: 'swarm-actions' },
     h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => openSwarmMissionModal() }, '멀티 팀 실행'),
+    h('button', {
+      type: 'button', class: `swarm-btn${ui.hanokStage ? ' voice-on' : ''}`,
+      title: '한옥 집현전 집무실에서 AI 직원들이 움직이며 일하는 무대 ON/OFF',
+      onclick: () => {
+        ui.hanokStage = !ui.hanokStage;
+        try { localStorage.setItem('aihq_hanok_stage', ui.hanokStage ? '1' : '0'); } catch { /* ignore */ }
+        render();
+      },
+    }, ui.hanokStage ? '🏮 집무실 ON' : '🏮 집무실 OFF'),
     h('button', {
       type: 'button', class: `swarm-btn${voiceOn ? ' voice-on' : ''}`,
       title: '장영실·세종대왕 등 야학·집현전 캐릭터 말투("에헴!") ON/OFF',
@@ -3767,9 +4051,12 @@ function joseonSwarmPanel() {
       })))
     : null;
 
+  const stageNode = ui.hanokStage ? buildHanokOfficeStage(visible.length ? visible : d.employees, selEmp) : null;
+
   return h('section', { class: 'swarm-card', 'aria-label': 'CONNECT AI LIVE CREW' },
     h('div', { class: 'swarm-top' }, h('div', { class: 'swarm-tabs' }, teamTabs), topActions),
     heroNode,
+    stageNode,
     h('div', { class: 'swarm-strip' }, allItem, workerItems, addTile),
     tickerNode,
     liveConsoleNode);
