@@ -66,10 +66,31 @@
         tone(c, { freq: 587.33, start: 0.09, dur: 0.14, vol: 0.07, type: 'sine' });
         tone(c, { freq: 659.25, start: 0.18, dur: 0.24, vol: 0.075, type: 'sine' });
       } else if (kind === 'approve') {
-        // 결재 · 印 낙관 승인: 묵직한 도장 쿵 + 맑은 확인음
-        tone(c, { freq: 165, endFreq: 58, start: 0, dur: 0.065, vol: 0.11, type: 'triangle' });
-        tone(c, { freq: 880, start: 0.055, dur: 0.28, vol: 0.07, type: 'sine' });
-        tone(c, { freq: 1318.5, start: 0.095, dur: 0.28, vol: 0.045, type: 'sine' });
+        // 결재 · 한국식 도장 "쾅!" 낙관 타격음 (묵직한 나무 도장 저음 + 한지 타격 노이즈 + 맑은 옥음)
+        tone(c, { freq: 155, endFreq: 36, start: 0, dur: 0.11, vol: 0.22, type: 'triangle' });
+        tone(c, { freq: 92, endFreq: 30, start: 0, dur: 0.13, vol: 0.18, type: 'sine' });
+        // 짧은 한지 타격음 (화이트 노이즈 버스트)
+        try {
+          const bufLen = Math.floor(c.sampleRate * 0.045);
+          const buf = c.createBuffer(1, bufLen, c.sampleRate);
+          const ch = buf.getChannelData(0);
+          for (let i = 0; i < bufLen; i++) ch[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.28));
+          const src = c.createBufferSource();
+          src.buffer = buf;
+          const flt = c.createBiquadFilter();
+          flt.type = 'bandpass';
+          flt.frequency.setValueAtTime(720, c.currentTime);
+          flt.Q.setValueAtTime(1.2, c.currentTime);
+          const ng = c.createGain();
+          ng.gain.setValueAtTime(0.18, c.currentTime);
+          ng.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.045);
+          src.connect(flt);
+          flt.connect(ng);
+          ng.connect(c.destination);
+          src.start(c.currentTime);
+        } catch { /* ignore noise fallback */ }
+        tone(c, { freq: 783.99, start: 0.075, dur: 0.28, vol: 0.065, type: 'sine' });
+        tone(c, { freq: 1174.66, start: 0.12, dur: 0.34, vol: 0.05, type: 'sine' });
       } else if (kind === 'alert') {
         // 결재 요청 · 확인 필요: 차분한 2음 알림 (F5 → D5)
         tone(c, { freq: 698.46, start: 0, dur: 0.18, vol: 0.065, type: 'sine' });

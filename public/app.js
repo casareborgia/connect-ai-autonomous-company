@@ -1585,7 +1585,8 @@ function taskRow(t, { draggable = true, overdue = false } = {}) {
   const right = h('div', { class: 'right' },
     overdue && !done ? h('button', { class: 'btn sm', title: '오늘 할 일로 옮기기', onclick: (ev) => { ev.stopPropagation(); act('PATCH', `/api/ui/tasks/${t.id}`, { date: S.today }, '오늘로 옮겼어요'); } }, '오늘로') : null,
     pendAppr ? h('span', { class: 'tag solid', title: '대표 결재 대기 중' }, '결재 대기') : null,
-    gated ? h('button', { class: 'btn sm dark', onclick: (ev) => { ev.stopPropagation(); if (confirm(`"${t.title}" 에 ${gateK(t.gate)} 들어 있습니다. AI가 진행해도 될까요?`)) act('POST', `/api/ui/tasks/${t.id}/approve-gate`, {}, `${gateO(t.gate)} 확인했어요`); } }, `${t.gate} 확인`) : null,
+    gated ? h('button', { class: 'btn sm stamp-trig-btn', onclick: (ev) => { ev.stopPropagation(); openStampApprovalModal(t); } }, `${t.gate} 결재 印`) : null,
+    t.gate && t.gateApprovedAt ? h('span', { class: 'seal-mini', title: `대표 낙관 승인 완료 (${stamp(t.gateApprovedAt)})` }, '결재 印') : null,
     stLen ? h('span', { class: 'tag', title: '팀 협업 워크플로우' }, `${t.stepMode === 'parallel' ? '동시' : '협업'} ${stDone}/${stLen}`) : null,
     trail.length ? h('span', { class: 'tag', title: trail.map((x) => `${x.fromName} → ${x.toName} (${x.reason})`).join(' / ') }, `인계 ${trail.length}`) : null,
     t.queued && !done ? h('span', { class: 'tag dash', title: t.queueReason || '여유 생기면 자동 시작' }, '대기열') : null,
@@ -2074,7 +2075,7 @@ function msgView(m) {
       a && a.status === '대기'
         ? h('div', { class: 'row', style: 'margin-top:10px' },
           h('button', { class: 'btn sm', onclick: () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '반려' }, '반려했습니다') }, '반려'),
-          h('button', { class: 'btn sm dark', onclick: () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인' }, '승인했습니다') }, '승인'))
+          h('button', { class: 'btn sm dark', onclick: () => { triggerRoyalStampFx(a.kind || '결재'); act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인' }, '도장 쾅! 승인했습니다'); } }, '승인 印'))
         : h('div', { class: 'small muted', style: 'margin-top:6px' }, a ? `${a.status}${a.decidedAt ? ` · ${stamp(a.decidedAt)}` : ''}` : ''));
   } else {
     const long = m.text.length > 600;
@@ -2824,7 +2825,127 @@ function approvalInlineCard(a) {
     draftEl ? h('label', { class: 'field' }, h('span', { class: 'small muted' }, '보낼 초안 (수정 후 승인 가능)'), draftEl) : null,
     h('div', { class: 'row', style: 'justify-content:flex-end' },
       h('button', { type: 'button', class: 'btn sm', onclick: () => once(`ap-r-${a.id}`, () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '반려' }, '반려했어요')) }, '반려'),
-      h('button', { type: 'button', class: 'btn sm dark', onclick: () => once(`ap-a-${a.id}`, () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인', ...(draftEl ? { finalText: draftEl.value } : {}) }, '승인했어요')) }, '승인')));
+      h('button', { type: 'button', class: 'btn sm stamp-trig-btn', onclick: () => once(`ap-a-${a.id}`, async () => { triggerRoyalStampFx(a.kind || '결재'); await act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인', ...(draftEl ? { finalText: draftEl.value } : {}) }, '도장 쾅! 승인했어요'); }) }, '도장 쾅! 승인')));
+}
+
+// ───────── 조선 어보 · 한국식 대표 낙관 도장 ("쾅!") 결재 연출 ─────────
+function koreanStampSvg(topLine = '代表', botLine = '決裁', size = 84) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs, txt) => {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, String(v));
+    if (txt != null) n.textContent = txt;
+    return n;
+  };
+  const svg = el('svg', {
+    viewBox: '0 0 96 96', width: size, height: size,
+    class: 'kr-stamp-svg', role: 'img', 'aria-label': `한국 전통 대표 낙관 도장 ${topLine}${botLine}`,
+  });
+  // 전통 사각 이중 주홍 테두리 + 미세한 인주 틈새
+  svg.appendChild(el('rect', { x: 5, y: 5, width: 86, height: 86, rx: 9, fill: 'rgba(200,40,32,0.06)', stroke: '#c82820', 'stroke-width': 4.5 }));
+  svg.appendChild(el('rect', { x: 12, y: 12, width: 72, height: 72, rx: 5, fill: 'none', stroke: '#c82820', 'stroke-width': 1.8, 'stroke-dasharray': '18 2 24 1.5 20 2' }));
+  // 미세 인주 질감 점
+  for (const [cx, cy, r] of [[18, 17, 1], [77, 22, 1.2], [22, 79, 1.1], [75, 76, 1]]) {
+    svg.appendChild(el('circle', { cx, cy, r, fill: '#c82820', opacity: '0.45' }));
+  }
+  svg.appendChild(el('text', {
+    x: 48, y: 44, 'text-anchor': 'middle', fill: '#c82820',
+    'font-size': '26', 'font-weight': '900', 'letter-spacing': '4',
+    'font-family': '"AppleMyungjo", "Nanum Myeongjo", "Batang", Georgia, serif',
+  }, topLine));
+  svg.appendChild(el('text', {
+    x: 48, y: 74, 'text-anchor': 'middle', fill: '#c82820',
+    'font-size': '26', 'font-weight': '900', 'letter-spacing': '4',
+    'font-family': '"AppleMyungjo", "Nanum Myeongjo", "Batang", Georgia, serif',
+  }, botLine));
+  return svg;
+}
+
+function triggerRoyalStampFx(gateLabel = '결재') {
+  SND()?.play('approve');
+  const existing = document.querySelector('.royal-stamp-overlay');
+  if (existing) existing.remove();
+  const topMap = { 결제: '決裁', 게시: '發刊', 업로드: '登錄', 발송: '發送', 삭제: '廢棄' };
+  const botWord = topMap[gateLabel] || '承認';
+  const ov = h('div', { class: 'royal-stamp-overlay', 'aria-hidden': 'true' },
+    h('div', { class: 'royal-stamp-burst' },
+      h('span', { class: 'royal-stamp-ring' }),
+      h('div', { class: 'royal-stamp-seal' }, koreanStampSvg('代表', botWord, 128)),
+      h('div', { class: 'royal-stamp-cap' }, `도장 쾅! · ${gateLabel} 승인 완료`)));
+  document.body.appendChild(ov);
+  setTimeout(() => ov.classList.add('out'), 780);
+  setTimeout(() => ov.remove(), 1120);
+}
+
+function openStampApprovalModal(t) {
+  const dlg = document.getElementById('dlg');
+  dlg.className = 'stamp-dlg';
+  const eObj = emp(t.assignee);
+  const accObj = t.account ? res(t.account) : null;
+  const brObj = t.browser ? res(t.browser) : null;
+  const topMap = { 결제: '決裁', 게시: '發刊', 업로드: '登錄', 발송: '發送', 삭제: '廢棄' };
+  const sealBot = topMap[t.gate] || '承認';
+  let stamped = false;
+
+  const docCard = h('div', { class: 'stamp-paper' });
+  const sealSlot = h('div', { class: 'stamp-seal-slot' },
+    h('span', { class: 'stamp-placeholder' }, '(인)'));
+  const statusHint = h('div', { class: 'stamp-status-hint' }, '아래 버튼을 누르면 대표 낙관 도장이 쾅 찍히고 AI가 즉시 실행합니다.');
+  const cancelBtn = h('button', { type: 'button', class: 'btn', onclick: () => { dlg.className = ''; dlg.close(); } }, '취소');
+  const confirmBtn = h('button', { type: 'button', class: 'btn stamp-go-btn' }, '도장 쾅! 승인하고 실행');
+
+  const doStamp = async () => {
+    if (stamped) return;
+    stamped = true;
+    confirmBtn.disabled = true;
+    cancelBtn.disabled = true;
+    confirmBtn.textContent = '어명 집행 중…';
+    SND()?.play('approve');
+    docCard.classList.add('is-slammed');
+    sealSlot.replaceChildren(
+      h('span', { class: 'stamp-ink-ring', 'aria-hidden': 'true' }),
+      h('div', { class: 'stamp-mark-anim' }, koreanStampSvg('代表', sealBot, 86)));
+    statusHint.className = 'stamp-status-hint is-done';
+    statusHint.textContent = `쾅! 대표 낙관 승인 완료 — ${shortName(t.assignee)} 직원이 즉시 실행에 들어갑니다.`;
+    await new Promise((r) => setTimeout(r, 640));
+    dlg.className = '';
+    dlg.close();
+    await act('POST', `/api/ui/tasks/${t.id}/approve-gate`, {}, `도장 쾅! ${gateO(t.gate)} 승인했어요`);
+  };
+  confirmBtn.addEventListener('click', doStamp);
+
+  const metaParts = [
+    `${t.gate} 결재`,
+    accObj ? accObj.name : '',
+    brObj ? brObj.name : '',
+    t.estCost ? `예산 ${won(t.estCost)}` : '',
+  ].filter(Boolean);
+
+  docCard.replaceChildren(
+    h('div', { class: 'stamp-doc-top' },
+      h('div', { class: 'stamp-doc-head' },
+        h('div', { class: 'stamp-kicker' }, 'CONNECT AI HQ · 대표 결재서'),
+        h('h3', { class: 'stamp-doc-h' }, `${t.gate} 승인 요청`),
+        h('div', { class: 'stamp-meta-row' }, metaParts.map((m) => h('span', { class: 'stamp-meta-chip' }, m)))),
+      h('div', { class: 'stamp-box-grid', 'aria-label': '결재란' },
+        h('div', { class: 'stamp-box-col' },
+          h('div', { class: 'stamp-box-th' }, '담당'),
+          h('div', { class: 'stamp-box-td' },
+            eObj ? avatarEl(eObj, { size: 36, stateOverride: 'working' }) : null,
+            h('span', { class: 'stamp-emp-lbl' }, shortName(t.assignee)))),
+        h('div', { class: 'stamp-box-col is-ceo' },
+          h('div', { class: 'stamp-box-th' }, '대표 印'),
+          h('div', { class: 'stamp-box-td' }, sealSlot)))),
+    h('div', { class: 'stamp-doc-body' },
+      h('div', { class: 'stamp-doc-lbl' }, '결재 안건'),
+      h('div', { class: 'stamp-doc-title' }, t.title),
+      t.note ? h('div', { class: 'stamp-doc-note' }, t.note.slice(0, 220) + (t.note.length > 220 ? '…' : '')) : null),
+    statusHint,
+    h('div', { class: 'stamp-doc-foot' }, cancelBtn, confirmBtn));
+
+  setDlg(dlg, docCard);
+  dlg.showModal();
+  confirmBtn.focus();
 }
 
 // ───────── CONNECT AI · LIVE CREW (매트 블랙 × 샴페인 골드 · K-Heritage 16비트 픽셀) ─────────
@@ -4691,10 +4812,10 @@ function pagePocket() {
       h('div', { class: 'pocket-sec-h' }, h('b', null, `대표 확인 대기 (${pendingApprs.length + pendingGates.length}건)`)),
       pendingGates.map((t) => h('div', { class: 'pocket-appr' },
         h('div', null, h('div', { style: 'font-weight:600;font-size:13px' }, t.title), h('div', { class: 'small muted' }, `${shortName(t.assignee)} · ${t.gate} 확인 필요`)),
-        h('button', { type: 'button', class: 'btn sm dark', onclick: () => act('POST', `/api/ui/tasks/${t.id}/approve-gate`, {}, '승인했어요') }, '승인'))),
+        h('button', { type: 'button', class: 'btn sm stamp-trig-btn', onclick: () => { triggerRoyalStampFx(t.gate || '결재'); act('POST', `/api/ui/tasks/${t.id}/approve-gate`, {}, '도장 쾅! 승인했어요'); } }, '도장 쾅!'))),
       pendingApprs.map((a) => h('div', { class: 'pocket-appr' },
         h('div', null, h('div', { style: 'font-weight:600;font-size:13px' }, a.title || a.kind), h('div', { class: 'small muted' }, a.summary || a.body || '')),
-        h('button', { type: 'button', class: 'btn sm dark', onclick: () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인' }, '승인했어요') }, '승인')))) : null,
+        h('button', { type: 'button', class: 'btn sm stamp-trig-btn', onclick: () => { triggerRoyalStampFx(a.kind || '결재'); act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인' }, '도장 쾅! 승인했어요'); } }, '도장 쾅!')))) : null,
     h('section', { class: 'pocket-cmd' },
       h('div', { class: 'small muted', style: 'margin-bottom:6px' }, `받는 직원: `, h('b', null, shortName(pickEmpId))),
       h('div', { class: 'row' }, cmdIn, h('button', { type: 'button', class: 'btn dark', onclick: sendCmd }, '보내기'))));

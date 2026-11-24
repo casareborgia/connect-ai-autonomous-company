@@ -2087,6 +2087,162 @@ dialog.wide.arsenal-dlg { width: min(740px, calc(100vw - 32px)); max-width: 740p
   border-color: rgba(255, 255, 255, 0.12);
 }
 
+/* ───── 조선 어보 · 한국식 대표 낙관 도장 ("쾅!") 결재 연출 ───── */
+.stamp-trig-btn {
+  background: #0a0a0c; color: #fff; border: 1px solid rgba(200, 40, 32, 0.65);
+  font-weight: 700; transition: background .14s ease, border-color .14s ease, transform .12s ease;
+}
+.stamp-trig-btn:hover { background: #c82820; border-color: #c82820; color: #fff; transform: translateY(-1px); }
+
+.seal-mini {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 1px 6px; border-radius: 4px;
+  border: 1.5px solid #c82820; background: rgba(200, 40, 32, 0.06);
+  color: #c82820; font-size: 10.5px; font-weight: 800; letter-spacing: 0.03em;
+  font-family: "AppleMyungjo", "Nanum Myeongjo", Georgia, serif;
+  transform: rotate(-5deg); flex: none;
+}
+
+dialog.stamp-dlg {
+  width: min(520px, calc(100vw - 28px)); padding: 0; border-radius: 18px;
+  border: 1.5px solid rgba(212, 163, 89, 0.55); background: transparent;
+  box-shadow: 0 28px 70px rgba(10, 10, 12, 0.42); overflow: visible;
+}
+dialog.stamp-dlg::backdrop { background: rgba(10, 10, 12, 0.56); backdrop-filter: blur(4px); }
+
+.stamp-paper {
+  background: linear-gradient(180deg, #fcfaf4 0%, #f6f1e6 100%);
+  border-radius: 17px; padding: 22px 24px 20px; color: #161513;
+  display: flex; flex-direction: column; gap: 15px;
+  position: relative;
+}
+.stamp-paper.is-slammed { animation: kr-stamp-shake 0.3s cubic-bezier(.36,.07,.19,.97) 0.1s both; }
+
+.stamp-doc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.stamp-doc-head { flex: 1; min-width: 0; }
+.stamp-kicker {
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.1em; color: #9a702e;
+  margin-bottom: 4px;
+}
+.stamp-doc-h { margin: 0; font-size: 20px; font-weight: 800; color: #0a0a0c; letter-spacing: -0.02em; }
+.stamp-meta-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.stamp-meta-chip {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  background: rgba(10, 10, 12, 0.06); color: #3d3932; border: 1px solid rgba(10, 10, 12, 0.08);
+}
+
+.stamp-box-grid {
+  display: grid; grid-template-columns: 74px 92px;
+  border: 1.5px solid #2b2620; border-radius: 6px; background: #fffdf8; overflow: visible; flex: none;
+}
+.stamp-box-col { display: flex; flex-direction: column; }
+.stamp-box-col + .stamp-box-col { border-left: 1px solid #2b2620; }
+.stamp-box-th {
+  font-size: 10.5px; font-weight: 700; text-align: center; padding: 4px 2px;
+  background: rgba(212, 163, 89, 0.16); border-bottom: 1px solid #2b2620; color: #2b2620;
+}
+.stamp-box-col.is-ceo .stamp-box-th { color: #c82820; background: rgba(200, 40, 32, 0.09); }
+.stamp-box-td {
+  height: 78px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; position: relative; padding: 4px;
+}
+.stamp-emp-lbl { font-size: 10.5px; font-weight: 700; color: #2b2620; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 66px; }
+.stamp-seal-slot { width: 76px; height: 70px; display: grid; place-items: center; position: relative; }
+.stamp-placeholder {
+  font-size: 12px; color: rgba(43, 38, 32, 0.35);
+  font-family: "AppleMyungjo", "Nanum Myeongjo", serif;
+  border: 1px dashed rgba(200, 40, 32, 0.32); border-radius: 6px; padding: 14px 16px;
+}
+
+.stamp-doc-body {
+  background: #fff; border: 1px solid rgba(43, 38, 32, 0.14); border-radius: 11px;
+  padding: 13px 15px; display: flex; flex-direction: column; gap: 6px;
+}
+.stamp-doc-lbl { font-size: 10.5px; font-weight: 700; color: #8c6525; }
+.stamp-doc-title { font-size: 14.5px; font-weight: 700; color: #0a0a0c; line-height: 1.45; word-break: keep-all; }
+.stamp-doc-note {
+  font-size: 12px; color: #57524a; line-height: 1.5; white-space: pre-wrap;
+  border-top: 1px dashed rgba(43, 38, 32, 0.14); padding-top: 8px; margin-top: 2px;
+}
+
+.stamp-status-hint {
+  font-size: 12px; color: #57524a; text-align: center; padding: 6px 10px;
+  border-radius: 8px; background: rgba(10, 10, 12, 0.04); transition: all .18s ease;
+}
+.stamp-status-hint.is-done {
+  background: rgba(200, 40, 32, 0.1); color: #a61e17; font-weight: 700;
+}
+
+.stamp-doc-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.stamp-go-btn {
+  background: #c82820; color: #fff; border: 1px solid #a61e17;
+  font-weight: 800; padding: 0 18px; height: 38px; border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(200, 40, 32, 0.28);
+  transition: transform .12s ease, background .14s ease;
+}
+.stamp-go-btn:hover:not(:disabled) { background: #a61e17; transform: translateY(-1px); }
+.stamp-go-btn:disabled { opacity: 0.85; cursor: default; }
+
+.stamp-mark-anim {
+  position: relative; z-index: 2;
+  animation: kr-stamp-slam 0.26s cubic-bezier(.22, 1.35, .36, 1) forwards;
+  filter: drop-shadow(0 2px 6px rgba(200, 40, 32, 0.28));
+}
+.stamp-ink-ring {
+  position: absolute; inset: 4px; border-radius: 50%;
+  border: 2.5px solid rgba(200, 40, 32, 0.65);
+  animation: kr-stamp-ring 0.48s ease-out 0.11s forwards;
+  opacity: 0; pointer-events: none;
+}
+
+/* 1클릭 승인용 화면 중앙 낙관 쾅! 오버레이 */
+.royal-stamp-overlay {
+  position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+  display: grid; place-items: center;
+  background: rgba(10, 10, 12, 0.16);
+  transition: opacity .32s ease;
+}
+.royal-stamp-overlay.out { opacity: 0; }
+.royal-stamp-burst {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 22px 28px; border-radius: 18px;
+  background: rgba(252, 250, 244, 0.96);
+  border: 2px solid rgba(200, 40, 32, 0.35);
+  box-shadow: 0 24px 60px rgba(10, 10, 12, 0.34);
+  animation: kr-stamp-shake 0.3s cubic-bezier(.36,.07,.19,.97) 0.1s both;
+}
+.royal-stamp-ring {
+  position: absolute; width: 132px; height: 132px; top: 18px; border-radius: 50%;
+  border: 3px solid rgba(200, 40, 32, 0.65);
+  animation: kr-stamp-ring 0.52s ease-out 0.11s forwards;
+  opacity: 0;
+}
+.royal-stamp-seal {
+  animation: kr-stamp-slam 0.26s cubic-bezier(.22, 1.35, .36, 1) forwards;
+  filter: drop-shadow(0 4px 12px rgba(200, 40, 32, 0.3));
+}
+.royal-stamp-cap {
+  font-size: 13px; font-weight: 800; color: #a61e17; letter-spacing: 0.02em;
+}
+
+@keyframes kr-stamp-slam {
+  0%   { opacity: 0; transform: scale(2.85) rotate(-20deg) translateY(-16px); }
+  55%  { opacity: 1; transform: scale(0.9) rotate(-6deg) translateY(2px); }
+  78%  { opacity: 1; transform: scale(1.04) rotate(-7.5deg) translateY(0); }
+  100% { opacity: 1; transform: scale(1) rotate(-7deg) translateY(0); }
+}
+@keyframes kr-stamp-shake {
+  0%, 100% { transform: translate(0, 0); }
+  20% { transform: translate(-4px, 3px); }
+  45% { transform: translate(4px, -2px); }
+  70% { transform: translate(-2px, 2px); }
+  88% { transform: translate(2px, -1px); }
+}
+@keyframes kr-stamp-ring {
+  0%   { opacity: 0.85; transform: scale(0.55); }
+  100% { opacity: 0; transform: scale(1.85); }
+}
+
 /* 모바일 보강 (cascade 맨 마지막에 두어 .chip.sm 등의 터치 영역을 보장) */
 @media (max-width: 860px) {
   .ars-grid { grid-template-columns: 1fr; max-height: 360px; }
