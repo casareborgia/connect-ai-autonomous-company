@@ -1617,7 +1617,7 @@
   };
 
   function isJoseonKey(key) {
-    return Boolean(key && Object.prototype.hasOwnProperty.call(SPRITES, key) && !['haetae','dokkaebi','kkachi','horangi','cheongnyong','dalto','jangseung','bonghwang'].includes(key));
+    return Boolean(key && Object.prototype.hasOwnProperty.call(SPRITES, key));
   }
 
   function bgPatternGroup(pal, pattern) {

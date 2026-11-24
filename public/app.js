@@ -203,6 +203,222 @@ function skillPillsEl(empObj, { onDark = false, max = 6 } = {}) {
     h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id) }, '+ 스킬'));
 }
 
+// ───── 조선 비급서 · RPG 스킬 도감 (시각적 16비트 픽셀 아이콘 · 카테고리 · 검색 · 장착 슬롯) ─────
+const SKILL_CATEGORIES = [
+  { key: 'all',       label: '전체' },
+  { key: 'connect',   label: '✦ CONNECT AI' },
+  { key: 'video',     label: '영상·모션' },
+  { key: 'marketing', label: '마케팅·SNS' },
+  { key: 'research',  label: '사업·리서치' },
+  { key: 'build',     label: '3D·웹·자동화' },
+];
+
+const SKILL_ICON_GRIDS = {
+  video:    ['................','..OOOOOOOOOOOO..','.OLLLLLLLLLLLLO.','.OOKKOOKKOOKKOO.','.OLLLLLLLLLLLLO.','.OOOOOOOOOOOOOO.','.OOMMMMMMMMMMOO.','.OOMMMYYMMMMMOO.','.OOMMMYYYMMMMOO.','.OOMMMYYYYMMMOO.','.OOMMMYYYMMMMOO.','.OOMMMYYMMMMMOO.','.OOMMMMMMMMMMOO.','..OOOOOOOOOOOO..','................','................'],
+  motion:   ['.......OO.......','......OYYO......','......OYYO......','.....OYYYYO.....','..OO.OYHHYO.OO..','.OYYOOYHHYOOYYO.','OYYYYYYHHYYYYYYO','.OYYOOYHHYOOYYO.','..OO.OYHHYO.OO..','.....OYYYYO.....','......OYYO......','......OYYO......','.......OO.......','...OO......OO...','..OYYO....OYYO..','...OO......OO...'],
+  marketer: ['..........OO....','.........OYYO...','........OYYYO...','.......OYYYYO.O.','..OOOOOYYYYYO.YO','.OLLLLYYYYYYO..O','.OLLLLYYYYYYO.YO','.OLLLLYYYYYYO..O','..OOOOOYYYYYO.YO','....OLLOYYYYO.O.','....OLLO.OYYO...','....OLLO..OO....','....OLLO........','.....OO.........','................','................'],
+  research: ['....OOOOOO......','..OOLLLLLLOO....','.OLLHHLLLLLLO...','.OLHLLLLLLLLO...','.OLLLLLLLLLLO...','.OLLLLLLLLLLO...','..OOLLLLLLOO....','....OOOOOOYO....','.........OYYO...','..........OYYO..','...........OYYO.','............OYYO','.............OO.','................','................','................'],
+  slides:   ['................','.OOOOOOOOOOOOOO.','.OLLLLLLLLLLLLO.','.OLYYLLLLLLLLLO.','.OLYYLLMMMMMLLO.','.OLLLLLLLLLLLLO.','.OLMMMMMLLYYLLO.','.OLMMMMMLLYYLLO.','.OLLLLLLLLLLLLO.','.OOOOOOOOOOOOOO.','.......OO.......','......OYYO......','....OOYYYYOO....','....OOOOOOOO....','................','................'],
+  three:    ['......OOOO......','....OOYYYYOO....','..OOYYYYYYYYOO..','.OYYYYHHHHYYYYO.','.OYYOOYYYYOOYYO.','.OMMOOYYYYOODDO.','.OMMMMOYYODDDDO.','.OMMMMMOODDDDDO.','.OMMMMMOODDDDDO.','.OMMMMMOODDDDDO.','.OMMMMMOODDDDDO.','..OOMMMOODDOO...','....OOMOODO.....','......OOOO......','................','................'],
+  blender:  ['.....OOOOOO.....','...OOYYYYYYOO...','..OYYHHHHHHYYO..','.OYYHMMMMMMHYYO.','.OYMMOOOOOOMMYO.','.OYMOLLLLLLOMYO.','.OYMOLHHHHLOMYO.','.OYMOLHHHHLOMYO.','.OYMOLLLLLLOMYO.','.OYMMOOOOOOMMYO.','..OYYMMMMMMYYO..','...OOYYYYYYOO...','.....OOOOOO.....','................','................','................'],
+  audio:    ['.......OO.......','......OYYO......','......OYYO......','...OO.OYYO.OO...','..OLLO.YY.OLLO..','..OLLOYYYYOLLO..','..OLLOYYYYOLLO..','.O.LLOYYYYOLL.O.','.O.LLOYYYYOLL.O.','..OLLOYYYYOLLO..','..OLLO.YY.OLLO..','...OO.OYYO.OO...','......OYYO......','......OYYO......','.......OO.......','................'],
+  auto:     ['......OOOO......','.....OYYYYO.....','..OO.OYYYYO.OO..','.OYYOOYOOYOOYYO.','.OYYYYOMMOYYYYO.','..OOYOMHHMOYOO..','...OOMHHHHMOO...','...OOMHHHHMOO...','..OOYOMHHMOYOO..','.OYYYYOMMOYYYYO.','.OYYOOYOOYOOYYO.','..OO.OYYYYO.OO..','.....OYYYYO.....','......OOOO......','................','................'],
+  scroll:   ['...OOOOOOOOOO...','..OYYYYYYYYYYO..','.OYYLLLLLLLLYYO.','.OYLLMMMMMMLLYO.','.OYLLLLLLLLLLYO.','.OYLLMMMMMMLLYO.','.OYLLLLLLLLLLYO.','.OYLLMMMMLLLLY0.'.replace('0','O'),'.OYLLLLLLLLLLYO.','.OYLLMMMMMMLLYO.','.OYYLLLLLLLLYYO.','..OYYYYYYYYYYO..','...OOOOOOOOOO...','................','................'],
+};
+
+const SKILL_ICON_PALETTES = {
+  video:    { O: '#181410', L: '#f8fafc', K: '#18181b', M: '#1e293b', Y: '#d4a359', H: '#fff7d6' },
+  motion:   { O: '#261a08', Y: '#f5b93b', H: '#fffbeb', L: '#fde68a', M: '#d97706' },
+  marketer: { O: '#2b1212', Y: '#fb7185', L: '#ffe4e6', M: '#f43f5e', H: '#fff1f2' },
+  research: { O: '#0f1f38', L: '#93c5fd', H: '#eff6ff', Y: '#d4a359', M: '#3b82f6' },
+  slides:   { O: '#1f1636', L: '#ede9fe', M: '#a78bfa', Y: '#d4a359', H: '#ffffff' },
+  three:    { O: '#0c261d', Y: '#34d399', H: '#d1fae5', M: '#10b981', D: '#047857', L: '#6ee7b7' },
+  blender:  { O: '#2d1607', Y: '#fb923c', H: '#ffedd5', M: '#ea580c', L: '#fdba74' },
+  audio:    { O: '#0c2426', Y: '#2dd4bf', L: '#99f6e4', H: '#f0fdfa', M: '#14b8a6' },
+  auto:     { O: '#161b26', Y: '#d4a359', M: '#64748b', H: '#f8fafc', L: '#cbd5e1' },
+  scroll:   { O: '#261b0c', Y: '#d4a359', L: '#fef3c7', M: '#92400e', H: '#fffbeb' },
+};
+
+function skillPixelIconSvg(kind = 'scroll', size = 28) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const grid = SKILL_ICON_GRIDS[kind] || SKILL_ICON_GRIDS.scroll;
+  const pal = SKILL_ICON_PALETTES[kind] || SKILL_ICON_PALETTES.scroll;
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.setAttribute('shape-rendering', 'crispEdges');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', 'ars-px-svg');
+  for (let y = 0; y < grid.length; y++) {
+    const row = grid[y];
+    for (let x = 0; x < row.length; x++) {
+      const ch = row[x];
+      if (!ch || ch === '.') continue;
+      const fill = pal[ch];
+      if (!fill) continue;
+      const r = document.createElementNS(NS, 'rect');
+      r.setAttribute('x', String(x));
+      r.setAttribute('y', String(y));
+      r.setAttribute('width', '1');
+      r.setAttribute('height', '1');
+      r.setAttribute('fill', fill);
+      svg.appendChild(r);
+    }
+  }
+  return svg;
+}
+
+const SKILL_VISUAL_MAP = {
+  'connect-ai-video-motion': { cat: 'video',     icon: 'video',    titleKo: '영상 편집 직원 · 2강',      flow: '내 영상(mp4) → 9:16 숏츠' },
+  'connect-ai-motion':       { cat: 'video',     icon: 'motion',   titleKo: '모션그래픽 직원 · 3강',     flow: '글 몇 줄 → 모션그래픽 영상' },
+  'connect-ai-marketer':     { cat: 'marketing', icon: 'marketer', titleKo: '마케팅팀 · 24시간',         flow: 'SNS · 유튜브 → 답글 · 벤치마크' },
+  reversebusiness:           { cat: 'research',  icon: 'research', titleKo: '사업 구조 해부',            flow: 'URL 1개 → 6칸 수익모델 해부' },
+  'connect-ai-slides-web':   { cat: 'build',     icon: 'slides',   titleKo: '웹 슬라이드 · 4~9강',       flow: '발표 개요 → 인터랙티브 슬라이드' },
+  'connect-ai-three':        { cat: 'build',     icon: 'three',    titleKo: '3D 웹 · Three.js',         flow: '콘셉트 → 3D 웹 쇼케이스' },
+  'connect-ai-blender':      { cat: 'build',     icon: 'blender',  titleKo: '3D 블렌더 렌더',           flow: '장면 지시서 → 3D 턴테이블 렌더' },
+  remotion:                  { cat: 'video',     icon: 'motion',   titleKo: 'Remotion 코드 영상',       flow: 'React 코드 → 쇼츠 · 인트로' },
+  hyperframes:               { cat: 'video',     icon: 'motion',   titleKo: 'Hyperframes 자막 모션',    flow: 'HTML → 미니멀 자막 카드' },
+  ffmpeg:                    { cat: 'video',     icon: 'video',    titleKo: 'FFmpeg 컷편집 · 변환',     flow: '원본 영상 → 무음 컷 · 인코딩' },
+  blender:                   { cat: 'build',     icon: 'blender',  titleKo: 'Blender 3D 스튜디오',      flow: '3D 모델 → 조명 · 카메라 렌더' },
+  'yt-dlp':                  { cat: 'marketing', icon: 'marketer', titleKo: 'yt-dlp 자막 · 참고영상',   flow: '유튜브 링크 → 자막 · 벤치마크' },
+  whisper:                   { cat: 'video',     icon: 'audio',    titleKo: 'Whisper 음성 → 자막',      flow: '음성 · 영상 → 한국어 SRT' },
+  'orca-computer':           { cat: 'build',     icon: 'auto',     titleKo: 'Orca 맥 · 아이폰 조작',    flow: '화면 트리 → 앱 · 미러링 제어' },
+  playwright:                { cat: 'build',     icon: 'auto',     titleKo: 'Playwright 웹 자동화',     flow: '웹 앱 → E2E 테스트 · 캡처' },
+  firecrawl:                 { cat: 'research',  icon: 'research', titleKo: 'Firecrawl 웹 수집',        flow: '웹사이트 → AI 마크다운' },
+  'reverse-engineer-anything': { cat: 'research', icon: 'research', titleKo: 'REA 앱 · 웹 구조 분석',  flow: '앱 · 번들 → API · 구조 해부' },
+};
+
+function skillVisualInfo(item = {}) {
+  const key = String(item.key || item.preset || item.name || '').toLowerCase();
+  const hit = SKILL_VISUAL_MAP[key];
+  if (hit) {
+    return {
+      ...hit,
+      flow: (item.inputSpec && item.outputSpec) ? `${item.inputSpec} → ${item.outputSpec}` : hit.flow,
+    };
+  }
+  const hay = `${item.name || ''} ${item.roleLabel || ''} ${item.hint || ''} ${item.when || ''} ${item.note || ''}`.toLowerCase();
+  let cat = 'build';
+  let icon = 'scroll';
+  if (/영상|모션|숏츠|컷|편집|video|motion|remotion|ffmpeg/.test(hay)) { cat = 'video'; icon = 'video'; }
+  else if (/음성|자막|whisper|오디오|녹취/.test(hay)) { cat = 'video'; icon = 'audio'; }
+  else if (/마케팅|홍보|sns|인스타|유튜브|댓글|트위터|스레드|marketer/.test(hay)) { cat = 'marketing'; icon = 'marketer'; }
+  else if (/해부|리서치|조사|분석|크롤링|수집|reverse|firecrawl|rea/.test(hay)) { cat = 'research'; icon = 'research'; }
+  else if (/슬라이드|발표|slides/.test(hay)) { cat = 'build'; icon = 'slides'; }
+  else if (/blender|블렌더/.test(hay)) { cat = 'build'; icon = 'blender'; }
+  else if (/three|3d/.test(hay)) { cat = 'build'; icon = 'three'; }
+  else if (/자동화|브라우저|playwright|orca|컴퓨터/.test(hay)) { cat = 'build'; icon = 'auto'; }
+  return {
+    cat,
+    icon,
+    titleKo: item.roleLabel ? `${item.roleLabel}` : (item.name || '커스텀 스킬'),
+    flow: (item.inputSpec && item.outputSpec) ? `${item.inputSpec} → ${item.outputSpec}` : '',
+  };
+}
+
+function buildSkillArsenal({ catalog = [], isSelected, onToggle, compact = false, defaultCat = 'all' }) {
+  let activeCat = defaultCat;
+  let query = '';
+  let onlyReady = false;
+
+  const root = h('div', { class: `ars-root${compact ? ' is-compact' : ''}` });
+  const loadoutBar = h('div', { class: 'ars-loadout' });
+  const tabsBar = h('div', { class: 'ars-tabs', role: 'tablist' });
+  const searchIn = h('input', {
+    class: 'in sm ars-search',
+    placeholder: '스킬 검색 (예: 2강, 쇼츠, 댓글, 사업 해부, 3D, ffmpeg...)',
+    'aria-label': '스킬 도감 검색',
+  });
+  const readyBtn = h('button', { type: 'button', class: 'ars-ready-btn' }, '사용 가능만');
+  const gridWrap = h('div', { class: 'ars-grid' });
+
+  const matchCat = (c, catKey) => {
+    if (catKey === 'all') return true;
+    if (catKey === 'connect') return Boolean(c.connectAiPack);
+    return skillVisualInfo(c).cat === catKey;
+  };
+
+  const renderArsenal = () => {
+    const selectedItems = catalog.filter((c) => isSelected(c));
+    loadoutBar.replaceChildren(
+      h('span', { class: 'ars-loadout-lbl' }, `⚡ 장착 슬롯 (${selectedItems.length})`),
+      selectedItems.length
+        ? h('div', { class: 'ars-loadout-chips' }, selectedItems.map((c) => {
+          const v = skillVisualInfo(c);
+          return h('button', {
+            type: 'button', class: 'ars-slot-chip', title: `${c.name} 장착 해제`,
+            onclick: () => onToggle(c, renderArsenal),
+          }, skillPixelIconSvg(v.icon, 14), h('span', null, v.titleKo.split('·')[0].trim()), h('i', { class: 'ars-slot-x' }, '×'));
+        }))
+        : h('span', { class: 'ars-loadout-empty' }, '아래 비급 카드를 클릭해 장착하세요 · 스킬이 수십 개 늘어나도 카테고리와 검색으로 바로 찾습니다'));
+
+    tabsBar.replaceChildren(...SKILL_CATEGORIES.map((cat) => {
+      const cnt = catalog.filter((c) => matchCat(c, cat.key) && (!onlyReady || c.published !== false)).length;
+      return h('button', {
+        type: 'button',
+        class: `ars-tab${activeCat === cat.key ? ' on' : ''}`,
+        onclick: () => { activeCat = cat.key; renderArsenal(); },
+      }, cat.label, h('span', { class: 'ars-tab-cnt' }, String(cnt)));
+    }));
+
+    readyBtn.className = `ars-ready-btn${onlyReady ? ' on' : ''}`;
+    readyBtn.textContent = onlyReady ? '● 사용 가능만' : '사용 가능만';
+
+    const q = query.trim().toLowerCase();
+    const visible = catalog.filter((c) => {
+      if (!matchCat(c, activeCat)) return false;
+      if (onlyReady && c.published === false) return false;
+      if (!q) return true;
+      const v = skillVisualInfo(c);
+      const subText = (c.subSkills || []).map((s) => (typeof s === 'string' ? s : `${s.name} ${s.note || ''}`)).join(' ');
+      const hay = `${c.name} ${c.roleLabel || ''} ${v.titleKo} ${v.flow} ${c.hint || ''} ${c.when || ''} ${subText}`.toLowerCase();
+      return hay.includes(q);
+    });
+
+    if (!visible.length) {
+      gridWrap.replaceChildren(h('div', { class: 'ars-empty' }, '조건에 맞는 스킬이 없어요. 검색어를 지우거나 다른 카테고리를 눌러 보세요.'));
+      return;
+    }
+
+    gridWrap.replaceChildren(...visible.map((c) => {
+      const on = isSelected(c);
+      const upcoming = c.published === false;
+      const v = skillVisualInfo(c);
+      const subNames = (c.subSkills || []).map((s) => (typeof s === 'string' ? s : s.name)).filter(Boolean);
+      return h('button', {
+        type: 'button',
+        class: `ars-card${on ? ' on' : ''}${upcoming ? ' is-upcoming' : ''}${c.connectAiPack ? ' is-official' : ''}`,
+        onclick: () => onToggle(c, renderArsenal),
+      },
+      h('div', { class: 'ars-card-top' },
+        h('div', { class: `ars-ic-box ic-${v.icon}` }, skillPixelIconSvg(v.icon, 24)),
+        h('div', { class: 'ars-titles' },
+          h('div', { class: 'ars-title-ko' }, v.titleKo),
+          h('div', { class: 'ars-slug' }, c.name)),
+        h('span', { class: `ars-state${on ? ' on' : ''}${upcoming ? ' locked' : ''}` },
+          on ? '✓ 장착됨' : (upcoming ? '🔒 준비 중' : '+ 장착'))),
+      h('div', { class: 'ars-desc' }, c.hint || ''),
+      v.flow ? h('div', { class: 'ars-flow' }, v.flow) : null,
+      subNames.length
+        ? h('div', { class: 'ars-subs' }, subNames.slice(0, 3).map((sn) => h('span', { class: 'ars-sub-tag' }, sn)))
+        : null);
+    }));
+  };
+
+  searchIn.addEventListener('input', (ev) => { query = ev.target.value; renderArsenal(); });
+  readyBtn.addEventListener('click', () => { onlyReady = !onlyReady; renderArsenal(); });
+
+  root.replaceChildren(
+    loadoutBar,
+    h('div', { class: 'ars-controls' },
+      tabsBar,
+      h('div', { class: 'ars-search-row' }, searchIn, readyBtn)),
+    gridWrap);
+  renderArsenal();
+  return { el: root, refresh: renderArsenal };
+}
+
 function openEmployeeSkillsModal(empOrId) {
   const empId = typeof empOrId === 'string' ? empOrId : empOrId?.id;
   if (!empId) return;
@@ -337,12 +553,14 @@ function openEmployeeSkillsModal(empOrId) {
           sk.publishNote ? h('div', { class: 'sk-spec-row' }, h('span', { class: 'sk-spec-k' }, '공개 상태'), h('span', { class: 'sk-spec-v' }, sk.publishNote)) : null,
         ].filter(Boolean);
 
+        const vis = skillVisualInfo(sk);
         return h('div', { class: `skill-row${sk.primary && !isUpcoming ? ' is-primary' : ''}${isUpcoming ? ' is-upcoming' : ''}` },
           h('div', { class: 'skill-row-main' },
             h('div', { class: 'skill-row-top' },
+              h('span', { class: `ars-ic-box sm ic-${vis.icon}` }, skillPixelIconSvg(vis.icon, 18)),
               sk.primary && !isUpcoming ? h('span', { class: 'skill-primary-tag' }, '★ 주요') : null,
-              h('b', null, sk.name),
-              sk.roleLabel ? h('span', { class: 'ops-model-tag' }, sk.roleLabel) : null,
+              h('b', null, sk.roleLabel || vis.titleKo || sk.name),
+              h('span', { class: 'skill-slug-mini' }, sk.name),
               statusBadge,
               sk.addedBy === 'ai' ? h('span', { class: 'skill-ai-tag', title: 'AI 직원이 작업 중 스스로 등록한 도구' }, 'AI 자동 등록') : null,
               sk.repo ? h('a', { class: 'skill-repo-badge', href: sk.repo, target: '_blank', rel: 'noopener noreferrer', title: sk.repo }, `GitHub ↗`) : null),
@@ -437,26 +655,16 @@ function openEmployeeSkillsModal(empOrId) {
     const officeOss = (S.data.resources || []).filter((r) => r.kind === '오픈소스' && r.status !== '꺼짐'
       && !catalog.some((c) => c.key === r.preset || c.name.toLowerCase() === String(r.name || '').toLowerCase()));
 
-    const presetKids = [
-      h('div', { class: 'skill-preset-grid' }, catalog.map((c) => {
-        const on = equippedKeys.has(c.key) || (c.repo && equippedRepos.has(c.repo.toLowerCase())) || equippedNames.has(c.name.toLowerCase());
-        const subNames = (c.subSkills || []).map((s) => (typeof s === 'string' ? s : s.name)).filter(Boolean);
-        return h('button', {
-          type: 'button',
-          class: `skill-preset-btn${on ? ' on' : ''}${c.published === false ? ' upcoming' : ''}`,
-          onclick: () => once(`preset-sk-${c.key}`, async () => {
-            const r = await act('POST', `/api/ui/employees/${empId}/skills`, { presetKey: c.key, primary: true }, on ? `${c.name} 스킬을 최신으로 맞췄어요` : `${shortName(empId)}에게 ${c.name} 스킬${c.published === false ? ' (준비 중)' : ''}을 장착했어요`);
-            if (r) renderBody();
-          }),
-        },
-        h('div', { class: 'skill-preset-top' },
-          h('b', null, c.name),
-          h('span', { class: `skill-preset-st${on ? ' on' : ''}` }, on ? '장착됨 ✓' : (c.published === false ? '+ 준비 중 담기' : '+ 장착'))),
-        c.roleLabel ? h('span', { class: 'skill-preset-role' }, `${c.roleLabel}${c.publishNote ? ` · ${c.publishNote}` : ''}`) : null,
-        h('span', { class: 'skill-preset-hint' }, c.hint),
-        subNames.length ? h('span', { class: 'skill-preset-repo' }, `세부: ${subNames.slice(0, 3).join(' · ')}`) : null);
-      })),
-    ];
+    const arsenal = buildSkillArsenal({
+      catalog,
+      isSelected: (c) => equippedKeys.has(c.key) || (c.repo && equippedRepos.has(c.repo.toLowerCase())) || equippedNames.has(c.name.toLowerCase()),
+      onToggle: (c) => once(`preset-sk-${c.key}`, async () => {
+        const already = equippedKeys.has(c.key) || (c.repo && equippedRepos.has(c.repo.toLowerCase())) || equippedNames.has(c.name.toLowerCase());
+        const r = await act('POST', `/api/ui/employees/${empId}/skills`, { presetKey: c.key, primary: true }, already ? `${c.name} 스킬을 최신으로 맞췄어요` : `${shortName(empId)}에게 ${c.name} 스킬${c.published === false ? ' (준비 중)' : ''}을 장착했어요`);
+        if (r) renderBody();
+      }),
+    });
+    const presetKids = [arsenal.el];
     if (officeOss.length) {
       presetKids.push(h('div', { class: 'skill-sec-sub' },
         h('div', { class: 'skill-sec-h' }, '내 사무실에 등록된 오픈소스 연결'),
@@ -2644,9 +2852,10 @@ function openSwarmMissionModal(defaultKey = null) {
 function openJoseonCodexModal() {
   const dlg = document.getElementById('dlg');
   dlg.className = 'wide';
-  const presets = (S.options?.avatarPresets || []).filter((p) => p.pack === 'joseon');
+  const presets = (S.options?.avatarPresets || []).filter((p) => p.pack === 'joseon' || p.pack === 'k-crew');
   const groups = [
     ['HQ · FOUNDER & MASCOT (세종 · 소헌왕후 · 솜이 · 수문장)', ['som', 'sejong', 'queen', 'sumunjang']],
+    ['K-GUARDIAN PIXEL · 한국 수호신 픽셀 8종 (해태 · 도깨비 · 까치 · 호랑이 · 청룡 · 달토끼 · 장승 · 봉황)', ['haetae', 'dokkaebi', 'kkachi', 'horangi', 'cheongnyong', 'dalto', 'jangseung', 'bonghwang']],
     ['DEV · 개발 (장영실 · 천문 아씨)', ['jangyeongsil', 'cheomseong']],
     ['PLAN · 기획 (집현전 선비 · 문인 아씨)', ['seonbi', 'munin']],
     ['DESIGN · 디자인 (김홍도 · 신사임당 · 안견 · 신윤복 · 추사)', ['hwawon', 'saimdang', 'angyeon', 'yunbok', 'chusa']],
@@ -2701,8 +2910,8 @@ function openJoseonCodexModal() {
   setDlg(dlg,
     h('div', { class: 'row codex-top' },
       h('div', null,
-        h('div', { class: 'swarm-kicker' }, 'CONNECT AI LAB · SIGNATURE DROP'),
-        h('h3', { class: 'coord-dlg-h' }, 'K-Heritage Pixel Edition (21)')),
+        h('div', { class: 'swarm-kicker' }, 'CONNECT AI LAB · K-HERITAGE PIXEL'),
+        h('h3', { class: 'coord-dlg-h' }, '한국 픽셀 크루 도감 (29종)')),
       stateBar),
     h('p', { class: 'small muted codex-desc' }, '캐릭터를 클릭하면 해당 팀으로 새 AI 직원을 추가합니다 (솜이·세종·왕후는 Coordinator, 허준·대장금은 헬스 담당으로 전환).'),
     body,
@@ -2940,17 +3149,14 @@ function joseonSwarmPanel() {
       title: '장영실·세종대왕 등 야학·집현전 캐릭터 말투("에헴!") ON/OFF',
       onclick: () => once('toggle-voice', () => act('PATCH', '/api/ui/settings', { joseonVoice: !voiceOn }, !voiceOn ? '에헴! 집현전·야학 캐릭터 말투를 켰어요' : '기본 실무 말투로 바꿨어요')),
     }, voiceOn ? '에헴 말투 ON' : '에헴 말투 OFF'),
-    h('button', { type: 'button', class: 'swarm-btn', onclick: openJoseonCodexModal }, '크루 에디션'),
+    h('button', { type: 'button', class: 'swarm-btn', onclick: openJoseonCodexModal }, '크루 도감 (29)'),
     !isJoseonMode
       ? h('button', {
         type: 'button', class: 'swarm-btn',
-        title: '전체 AI 직원에게 K-Heritage 16비트 픽셀 에디션을 적용합니다',
-        onclick: () => once('dress-joseon', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, 'K-Heritage Pixel 에디션을 적용했어요')),
-      }, 'K-픽셀')
-      : h('button', {
-        type: 'button', class: 'swarm-btn',
-        onclick: () => once('dress-k3d', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'k-crew', avatarStyle: 'studio' }, 'K-Guardian 3D로 전환했어요')),
-      }, '3D 스튜디오'));
+        title: '전체 AI 직원에게 한국 16비트 픽셀 크루를 적용합니다',
+        onclick: () => once('dress-joseon', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, '한국 픽셀 크루를 적용했어요')),
+      }, 'K-픽셀 적용')
+      : null);
 
   const isEmpLinked = (e) => {
     if (!e || e.runMode === 'off') return false;
@@ -4171,7 +4377,7 @@ function openAvatarModal(e, opts = {}) {
           type: 'button', class: `avatar-opt${!customImg && pickedKey === p.key ? ' on' : ''}`,
           onclick: () => {
             pickedKey = p.key;
-            if (p.pack === 'joseon') {
+            if (p.pack === 'joseon' || p.pack === 'k-crew') {
               pickedStyle = 'pixel';
               if (p.team && teams.some((t) => t.key === p.team)) { pickedTeam = p.team; teamSel.value = p.team; }
             }
@@ -4179,7 +4385,7 @@ function openAvatarModal(e, opts = {}) {
             renderBody();
             renderPreview();
           },
-        }, avatarEl(fake, { size: 46, stateOverride: p.pack === 'joseon' ? 'working' : 'idle', styleOverride: p.pack === 'joseon' ? 'pixel' : pickedStyle }), h('b', null, p.name), h('span', { class: 'small muted' }, p.hint));
+        }, avatarEl(fake, { size: 46, stateOverride: (p.pack === 'joseon' || p.pack === 'k-crew') ? 'working' : 'idle', styleOverride: (p.pack === 'joseon' || p.pack === 'k-crew') ? 'pixel' : pickedStyle }), h('b', null, p.name), h('span', { class: 'small muted' }, p.hint));
       }));
       bodyWrap.replaceChildren(
         grid,
@@ -5398,16 +5604,19 @@ function openAddEmployee(opts = {}) {
   const allPresets = S.options.avatarPresets || [];
   const teams = S.options.teams || [];
   const savedCustom = d.settings?.customAvatars || [];
-  const ossCatalog = (S.options?.ossCatalog || []).slice(0, 6);
+  const ossCatalog = [...(S.options?.ossCatalog || [])];
 
   const nameIn = h('input', { class: 'bot-name-in', 'aria-label': 'AI 직원 이름', placeholder: '이름 (예: 문어봇 · 영상편집 팀장 · 마케터)' });
   const bioIn = h('textarea', {
     class: 'in bot-bio-in', rows: 3, 'aria-label': '역할 및 업무 설명',
     placeholder: '이 직원이 누구고 어떤 일을 하나요?\n예: 유튜브 쇼츠와 모션그래픽을 Remotion으로 제작하는 영상편집 전담 AI',
   });
-  const ghSkillIn = h('input', { class: 'in sm', 'aria-label': 'GitHub 스킬 주소 (선택)', placeholder: 'GitHub 스킬 주소 붙여넣기 (선택 · 예: https://github.com/remotion-dev/remotion)' });
+  const ghSkillIn = h('input', { class: 'in sm', 'aria-label': 'GitHub 스킬 주소 (선택)', placeholder: '+ 커스텀 GitHub·npx 스킬 주소 직접 추가 (선택 · 예: https://github.com/remotion-dev/remotion)' });
+  const teamOpts = teams.filter((t) => t.key !== 'exec');
+  if (!teamOpts.some((t) => t.key === pickedTeam)) pickedTeam = teamOpts[0]?.key || 'dev';
   const teamSel = h('select', { class: 'in sm bot-team-sel', 'aria-label': '소속 팀' },
-    teams.filter((t) => t.key !== 'exec').map((t) => h('option', { value: t.key, selected: t.key === pickedTeam }, t.name)));
+    teamOpts.map((t) => h('option', { value: t.key, selected: t.key === pickedTeam }, t.name)));
+  teamSel.value = pickedTeam;
   teamSel.addEventListener('change', () => { pickedTeam = teamSel.value; });
 
   const macSel = h('select', { class: 'in', 'aria-label': '실행 컴퓨터', onchange: (ev) => { pickedMac = ev.target.value; } },
@@ -5433,13 +5642,12 @@ function openAddEmployee(opts = {}) {
     },
   });
   const agentPanel = h('div', { class: 'bot-agent-panel hidden' });
-  const skillChipsWrap = h('div', { class: 'picker' });
+  const skillChipsWrap = h('div', { class: 'bot-arsenal-wrap' });
 
   const renderAvButton = () => {
-    const isJ = pickedPack === 'joseon';
-    const fake = { id: 'new-emp', name: nameIn.value.trim() || '새 AI 직원', avatar: pickedAvatar, avatarStyle: isJ ? 'pixel' : 'studio', avatarImage: customImg };
+    const fake = { id: 'new-emp', name: nameIn.value.trim() || '새 AI 직원', avatar: pickedAvatar, avatarStyle: 'pixel', avatarImage: customImg };
     avBtnWrap.replaceChildren(
-      avatarEl(fake, { size: 54, stateOverride: isJ ? 'working' : 'idle', styleOverride: isJ ? 'pixel' : 'studio' }),
+      avatarEl(fake, { size: 54, stateOverride: 'working', styleOverride: 'pixel' }),
       h('span', { class: 'bot-av-edit', 'aria-hidden': 'true' }, '✎'));
   };
 
@@ -5447,16 +5655,18 @@ function openAddEmployee(opts = {}) {
     renderAvButton();
     avDrawer.classList.toggle('hidden', !avOpen);
     if (!avOpen) { avDrawer.replaceChildren(); return; }
-    const isJ = pickedPack === 'joseon';
-    const presets = allPresets.filter((p) => p.pack === pickedPack);
+    const koreanAll = allPresets.filter((p) => p.pack === 'joseon' || p.pack === 'k-crew');
+    const presets = pickedPack === 'all-kr'
+      ? koreanAll
+      : allPresets.filter((p) => p.pack === pickedPack);
     avDrawer.replaceChildren(
       h('div', { class: 'picker bot-av-packs' },
-        [['joseon', 'K-Heritage Pixel (21)'], ['k-crew', 'K-Guardian 3D']].map(([pk, pl]) => h('button', {
+        [['joseon', '조선 집현전 픽셀 (21)'], ['k-crew', '한국 수호신 픽셀 (8)'], ['all-kr', `전체 한국 픽셀 (${koreanAll.length})`]].map(([pk, pl]) => h('button', {
           type: 'button', class: `chip sm${pickedPack === pk ? ' on' : ''}`,
           onclick: () => {
             pickedPack = pk;
-            const first = allPresets.find((p) => p.pack === pk);
-            if (first) pickedAvatar = first.key;
+            const list = pk === 'all-kr' ? koreanAll : allPresets.filter((p) => p.pack === pk);
+            if (list.length && !list.some((p) => p.key === pickedAvatar)) pickedAvatar = list[0].key;
             customImg = '';
             renderAvDrawer();
           },
@@ -5466,17 +5676,17 @@ function openAddEmployee(opts = {}) {
           type: 'button', class: `add-av-btn${!customImg && pickedAvatar === p.key ? ' on' : ''}`, title: `${p.name} — ${p.hint}`,
           onclick: () => {
             pickedAvatar = p.key;
-            if (p.team && teams.some((t) => t.key === p.team)) { pickedTeam = p.team; teamSel.value = p.team; }
+            if (p.team && teamOpts.some((t) => t.key === p.team)) { pickedTeam = p.team; teamSel.value = p.team; }
             customImg = '';
             renderAvDrawer();
           },
         },
-        isJ ? C.avatarSvg(p.key, { size: 32, state: 'working', style: 'pixel' }) : h('img', { src: `/mascots/${p.key}.jpg`, alt: p.name, width: 32, height: 32 }),
-        h('span', null, p.name.split(' ')[0]))),
+        C.avatarSvg(p.key, { size: 34, state: 'working', style: 'pixel' }),
+        h('span', null, p.name.replace(/\s*\([^)]*\)/, '').replace(/^(민화|꼬마|아기|단원|혜원|추사|어의|의녀|궁궐|집현전|착호)\s+/, '').split(' ')[0]))),
         ...savedCustom.slice(0, 4).map((c) => h('button', {
           type: 'button', class: `add-av-btn${customImg === c.image ? ' on' : ''}`, title: c.name,
           onclick: () => { customImg = c.image; renderAvDrawer(); },
-        }, h('img', { src: c.image, alt: c.name, width: 32, height: 32 }), h('span', null, c.name))),
+        }, h('img', { src: c.image, alt: c.name, width: 34, height: 34 }), h('span', null, c.name))),
         h('button', { type: 'button', class: 'add-av-btn add-up', onclick: () => fileIn.click() },
           h('b', { class: 'bot-up-plus' }, '+'), h('span', null, '내 이미지'))));
   };
@@ -5576,19 +5786,20 @@ function openAddEmployee(opts = {}) {
     agentPanel.replaceChildren(...kids);
   };
 
-  const renderSkillChips = () => {
-    skillChipsWrap.replaceChildren(...ossCatalog.map((c) => {
-      const on = pickedSkills.has(c.key);
-      return h('button', {
-        type: 'button', class: `chip sm${on ? ' on' : ''}`,
-        onclick: () => { if (on) pickedSkills.delete(c.key); else pickedSkills.add(c.key); renderSkillChips(); },
-      }, `${on ? '✓ ' : '+ '}${c.name}`);
-    }));
-  };
+  const skillArsenal = buildSkillArsenal({
+    catalog: ossCatalog,
+    compact: true,
+    isSelected: (c) => pickedSkills.has(c.key),
+    onToggle: (c, rerender) => {
+      if (pickedSkills.has(c.key)) pickedSkills.delete(c.key);
+      else pickedSkills.add(c.key);
+      rerender();
+    },
+  });
+  skillChipsWrap.replaceChildren(skillArsenal.el);
 
   renderAvButton();
   renderAgentTrigger();
-  renderSkillChips();
 
   const closeAdd = () => { dlg.className = ''; dlg.close(); render(); };
   const submitBot = () => once('add-emp', async () => {
@@ -5598,7 +5809,7 @@ function openAddEmployee(opts = {}) {
     const roleLine = bio ? bio.split('\n')[0].slice(0, 120) : '';
     const skillsPayload = [...pickedSkills].map((k) => {
       const p = (S.options?.ossCatalog || []).find((c) => c.key === k);
-      return p ? { preset: p.key, name: p.name, repo: p.repo, command: p.command, when: p.when, note: p.hint } : null;
+      return p ? { presetKey: p.key, preset: p.key, name: p.name, repo: p.repo, command: p.command, when: p.when, note: p.hint, published: p.published !== false } : null;
     }).filter(Boolean);
     const rawGh = ghSkillIn.value.trim();
     if (rawGh) skillsPayload.push({ sourceInput: rawGh, repo: /^(https?:\/\/|github:|[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$)/i.test(rawGh) ? rawGh : '' });
@@ -5615,7 +5826,7 @@ function openAddEmployee(opts = {}) {
       machineId: pickedMac || undefined,
       team: pickedTeam,
       avatar: pickedAvatar,
-      avatarStyle: pickedPack === 'joseon' ? 'pixel' : 'studio',
+      avatarStyle: 'pixel',
       avatarName: nm,
       avatarImage: customImg,
       skills: skillsPayload,
@@ -5642,7 +5853,9 @@ function openAddEmployee(opts = {}) {
       h('div', { class: 'field' }, h('span', null, 'Agent (두뇌 · 모델)'), agentTrigger)),
     agentPanel,
     h('div', { class: 'bot-skill-box' },
-      h('div', { class: 'bot-skill-lbl' }, '스킬 · GitHub 오픈소스 바로 장착 (선택)'),
+      h('div', { class: 'bot-skill-head' },
+        h('span', { class: 'bot-skill-lbl' }, '스킬 비급 도감 · 원하는 능력 장착'),
+        h('span', { class: 'bot-skill-sub' }, `총 ${ossCatalog.length}종 · 카테고리·검색 지원`)),
       skillChipsWrap,
       ghSkillIn),
     h('div', { class: 'bar' },
@@ -5686,7 +5899,7 @@ function pageStaff() {
           }
         }),
       }, '✦ CONNECT AI 스킬 7종'),
-      h('button', { class: 'btn sm', onclick: openJoseonCodexModal }, '크루 에디션 (21)'),
+      h('button', { class: 'btn sm', onclick: openJoseonCodexModal }, '크루 도감 (29)'),
       h('button', { class: 'btn sm', onclick: () => once('staff-joseon', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, 'K-Heritage Pixel 에디션을 적용했어요')) }, 'K-픽셀 적용'),
       h('button', { class: 'btn sm', onclick: () => { location.hash = '#pocket'; } }, '폰 라이브 뷰'),
       h('button', { class: 'btn sm', onclick: openConnectModal }, 'AI 도구 연결 (MCP · 스킬)'),
