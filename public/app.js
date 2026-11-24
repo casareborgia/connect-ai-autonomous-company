@@ -315,6 +315,116 @@ function skillVisualInfo(item = {}) {
   };
 }
 
+function allSelectableSkills() {
+  const catalog = Array.isArray(S.options?.ossCatalog) ? S.options.ossCatalog : [];
+  const out = [];
+  const seen = new Set();
+  const pushItem = (raw) => {
+    const key = String(raw.key || raw.preset || raw.name || '').trim();
+    if (!key) return;
+    const low = key.toLowerCase();
+    if (seen.has(low)) return;
+    seen.add(low);
+    const v = skillVisualInfo(raw);
+    out.push({
+      key,
+      name: raw.name || key,
+      shortTitle: v.titleKo.split('·')[0].trim(),
+      titleKo: v.titleKo,
+      icon: v.icon,
+      cat: v.cat,
+      flow: v.flow || '',
+      connectAiPack: Boolean(raw.connectAiPack),
+      published: raw.published !== false,
+      when: raw.when || '',
+      note: raw.note || raw.hint || '',
+    });
+  };
+  for (const c of catalog) pushItem(c);
+  for (const e of (S.data?.employees || [])) {
+    for (const sk of (e.skills || [])) {
+      if (sk.published === false || sk.doctorStatus === 'upcoming') continue;
+      pushItem({ ...sk, key: sk.preset || sk.name });
+    }
+  }
+  return out.sort((a, b) => {
+    const ra = a.published ? 1 : 0;
+    const rb = b.published ? 1 : 0;
+    if (ra !== rb) return rb - ra;
+    const ca = a.connectAiPack ? 1 : 0;
+    const cb = b.connectAiPack ? 1 : 0;
+    if (ca !== cb) return cb - ca;
+    return 0;
+  });
+}
+
+function skillChipMeta(key) {
+  const low = String(key || '').toLowerCase();
+  const hit = allSelectableSkills().find((s) => s.key.toLowerCase() === low || s.name.toLowerCase() === low);
+  if (hit) return hit;
+  const v = skillVisualInfo({ name: key });
+  return { key, name: key, shortTitle: v.titleKo.split('·')[0].trim(), titleKo: v.titleKo, icon: v.icon };
+}
+
+function suggestSkillsForText(txt) {
+  const s = String(txt || '').toLowerCase();
+  if (!s.trim()) return [];
+  const hits = [];
+  const add = (k) => { if (!hits.includes(k)) hits.push(k); };
+  if (/인스타|instagram|댓글|답글|스레드|threads|유튜브|youtube|트위터|x\.com|마케팅|홍보|업로드|크로스포스팅|벤치마크|sns|포스팅/.test(s)) add('connect-ai-marketer');
+  if (/영상|쇼츠|shorts|릴스|reels|모션|편집|자막|비디오|mp4|컷편집|촬영/.test(s)) { add('connect-ai-video-motion'); add('connect-ai-motion'); }
+  if (/자막|음성|녹취|whisper|srt/.test(s)) add('whisper');
+  if (/인코딩|무음|ffmpeg|컷|압축/.test(s)) add('ffmpeg');
+  if (/사업|해부|경쟁사|수익화|비즈니스|reverse|rebiz/.test(s)) add('reversebusiness');
+  if (/슬라이드|발표|강의|ppt|덱/.test(s)) add('connect-ai-slides-web');
+  if (/3d|블렌더|blender/.test(s)) add('connect-ai-blender');
+  if (/three\.?js|인터랙티브|웹\s*3d/.test(s)) add('connect-ai-three');
+  if (/브라우저|웹\s*테스트|playwright|자동화\s*테스트/.test(s)) add('playwright');
+  if (/맥\s*조작|아이폰|미러링|orca|데스크톱/.test(s)) add('orca-computer');
+  if (/크롤링|웹\s*수집|스크래핑|firecrawl/.test(s)) add('firecrawl');
+  return hits;
+}
+
+function suggestAccountForText(txt) {
+  const s = String(txt || '').toLowerCase();
+  const accs = (S.data?.resources || []).filter((r) => r.kind === '계정' && r.status !== '꺼짐');
+  if (!s.trim() || !accs.length) return null;
+  const rules = [
+    ['instagram', /인스타|instagram|릴스|dm/],
+    ['youtube', /유튜브|youtube|쇼츠|커뮤니티/],
+    ['threads', /스레드|threads/],
+    ['x', /\bx\b|트위터|twitter|x\.com/],
+    ['gmail', /지메일|gmail|이메일|메일|영수증/],
+  ];
+  for (const [plat, re] of rules) {
+    if (!re.test(s)) continue;
+    const hit = accs.find((a) => String(a.platform || '').toLowerCase() === plat || String(a.name || '').toLowerCase().includes(plat) || re.test(String(a.name || '').toLowerCase()));
+    if (hit) return hit.id;
+  }
+  return null;
+}
+
+function blueprintPillsRow(item) {
+  const skillKeys = Array.isArray(item.skills) ? item.skills : [];
+  const kbIds = Array.isArray(item.knowledgeIds) ? item.knowledgeIds : [];
+  const acc = item.account ? res(item.account) : null;
+  const kbs = kbIds.map((id) => (S.data?.knowledge || []).find((k) => k.id === id)).filter(Boolean);
+  if (!skillKeys.length && !kbs.length && !acc) return null;
+  return h('div', { class: 'auto-bp-pills' },
+    ...skillKeys.map((k) => {
+      const m = skillChipMeta(k);
+      return h('span', { class: 'bp-pill bp-skill', title: `지정 스킬: ${m.titleKo} (${m.name})` },
+        skillPixelIconSvg(m.icon, 13),
+        h('span', null, m.shortTitle));
+    }),
+    ...kbs.map((kb) => h('span', { class: 'bp-pill bp-kb', title: `지정 지식 [${kb.category}]: ${kb.title}` },
+      h('span', { class: 'bp-pill-ic' }, '📚'),
+      h('span', null, kb.title))),
+    acc ? h('span', { class: 'bp-pill bp-acc', title: `연결 계정: ${acc.name}` },
+      h('span', { class: 'bp-pill-ic' }, '🌐'),
+      h('span', null, acc.name.split(' · ')[0])) : null);
+}
+
 function buildSkillArsenal({ catalog = [], isSelected, onToggle, compact = false, defaultCat = 'all' }) {
   let activeCat = defaultCat;
   let query = '';
@@ -1200,6 +1310,13 @@ async function openPromptPreview(kind, id, flushFn = null) {
     if (p.linked?.office) badges.push(h('span', { class: 'tag' }, p.linked.office));
     if (p.linked?.browser) badges.push(h('span', { class: 'tag' }, p.linked.account?.spaceName ? `${p.linked.browser} (${p.linked.account.spaceName})` : p.linked.browser));
     if (p.linked?.account) badges.push(h('span', { class: 'tag' }, p.linked.account.name.split(' · ')[0].split(' (')[0]));
+    for (const sk of p.linked?.skills || []) {
+      const m = skillChipMeta(sk.key || sk.name);
+      badges.push(h('span', { class: 'tag bp-prev-sk' }, skillPixelIconSvg(m.icon, 13), `스킬: ${m.shortTitle}`));
+    }
+    for (const kb of p.linked?.knowledge || []) {
+      badges.push(h('span', { class: `tag${kb.pinned ? ' bp-prev-kb' : ''}` }, `${kb.pinned ? '★ 지식: ' : '지식: '}${kb.title}`));
+    }
     for (const dName of p.linked?.designs || []) badges.push(h('span', { class: 'tag' }, `디자인: ${dName}`));
     for (const tObj of p.linked?.tools || []) badges.push(h('span', { class: 'tag' }, tObj.name));
     if (p.linked?.estCost) badges.push(h('span', { class: 'tag' }, `예상 ${won(p.linked.estCost)}`));
@@ -1786,6 +1903,13 @@ function promptInsertDrawer(ta, key) {
 
 function linkedSummaryLine(item) {
   const parts = [];
+  for (const sk of item.skills || []) {
+    parts.push(`스킬: ${skillChipMeta(sk).shortTitle}`);
+  }
+  for (const kid of item.knowledgeIds || []) {
+    const kb = (S.data?.knowledge || []).find((k) => k.id === kid);
+    if (kb) parts.push(`지식: ${kb.title}`);
+  }
   const acc = item.account ? res(item.account) : null;
   const br = (item.browser ? res(item.browser) : null) || (acc ? ((acc.browser ? res(acc.browser) : null) || defaultBrowser()) : null);
   if (br && br.kind === '브라우저') parts.push(acc?.spaceName ? `${br.name} (${acc.spaceName})` : br.name);
@@ -1799,7 +1923,7 @@ function linkedSummaryLine(item) {
   const cost = Number(item.estCost) > 0 ? Number(item.estCost) : 0;
   if (cost) parts.push(`예상 ${won(cost)}`);
   if (!parts.length) return null;
-  return h('div', { class: 'p-linked small muted' }, h('b', null, '자동 연결됨'), ' · ', parts.join(' · '));
+  return h('div', { class: 'p-linked small muted' }, h('b', null, '자동·지정 연결됨'), ' · ', parts.join(' · '));
 }
 
 function taskDetail(t, e) {
@@ -1840,6 +1964,33 @@ function taskDetail(t, e) {
   f.note.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); save(); } });
 
   const insDrawer = promptInsertDrawer(f.note, `t-${t.id}`);
+  const allSkills = allSelectableSkills().filter((sk) => sk.published);
+  const skillPicker = allSkills.length ? h('div', { class: 'd-tools' }, h('span', { class: 'small muted' }, '지정 스킬'),
+    h('div', { class: 'picker' }, allSkills.slice(0, 12).map((sk) => {
+      const has = (t.skills || []).includes(sk.key);
+      return h('button', {
+        type: 'button', class: `chip sm bp-chip${has ? ' on' : ''}`,
+        title: `${sk.titleKo}${sk.flow ? ` · ${sk.flow}` : ''}`,
+        onclick: () => {
+          const next = has ? (t.skills || []).filter((x) => x !== sk.key) : [...(t.skills || []), sk.key];
+          act('PATCH', `/api/ui/tasks/${t.id}`, { skills: next }, has ? `${sk.shortTitle} 스킬 해제했어요` : `${sk.shortTitle} 스킬 지정했어요`);
+        },
+      }, skillPixelIconSvg(sk.icon, 13), sk.shortTitle);
+    }))) : null;
+  const kbList = Array.isArray(S.data.knowledge) ? S.data.knowledge : [];
+  const knowledgePicker = h('div', { class: 'd-tools' }, h('span', { class: 'small muted' }, '참고 지식'),
+    h('div', { class: 'picker' },
+      kbList.length ? kbList.map((kb) => {
+        const has = (t.knowledgeIds || []).includes(kb.id);
+        return h('button', {
+          type: 'button', class: `chip sm bp-chip${has ? ' on' : ''}`,
+          title: `[${kb.category}] ${kb.content.slice(0, 140)}`,
+          onclick: () => {
+            const next = has ? (t.knowledgeIds || []).filter((x) => x !== kb.id) : [...(t.knowledgeIds || []), kb.id];
+            act('PATCH', `/api/ui/tasks/${t.id}`, { knowledgeIds: next }, has ? `${kb.title} 지식 해제했어요` : `${kb.title} 지식 연결했어요`);
+          },
+        }, `📚 ${kb.title}`);
+      }) : h('span', { class: 'small muted' }, '내 지식 탭에서 브랜드 톤·규칙을 추가하면 여기서 바로 꽂을 수 있어요')));
   const accountPicker = accList.length ? h('div', { class: 'd-tools' }, h('span', { class: 'small muted' }, '연결 계정'),
     h('div', { class: 'picker' },
       h('button', { type: 'button', class: `chip sm${!t.account ? ' on' : ''}`, onclick: () => act('PATCH', `/api/ui/tasks/${t.id}`, { account: null }) }, '자동'),
@@ -1933,7 +2084,7 @@ function taskDetail(t, e) {
           h('label', { class: 'chk-l', style: 'align-self:center' },
             h('input', { type: 'checkbox', checked: Boolean(t.localOnly), onchange: (ev) => act('PATCH', `/api/ui/tasks/${t.id}`, { localOnly: ev.target.checked }, ev.target.checked ? '로컬 전용으로 잠갔어요 (외부 클라우드 AI 우회 금지)' : '로컬 전용을 해제했어요') }),
             '로컬 전용 (외부 AI 우회 금지)')),
-        accountPicker, browserPicker, designPicker, ossPicker,
+        skillPicker, knowledgePicker, accountPicker, browserPicker, designPicker, ossPicker,
         stepsEditor('tasks', t))),
     t.reasonBy && /로컬 AI/.test(t.reasonBy) ? h('div', { class: 'small muted', style: 'margin-top:8px' }, `배분을 다시 본 것: ${t.reasonBy.replace(/ \(규칙 유지\)/, '')}`) : null,
     officeBox(t, e),
@@ -4996,6 +5147,7 @@ const AUTOMATION_TEMPLATES = [
     time: '09:00',
     days: [2, 5],
     assignee: 'auto',
+    skills: ['connect-ai-marketer'],
     instruction: 'connect-ai-marketer와 Ego Lite로 국내외 AI·테크 경쟁 유튜브 채널 최신 급상승 영상 5개의 제목·썸네일·첫 5초 훅 구조를 벤치마크하고, 내 다음 영상용 제목 5안과 훅 3안을 정리하세요.',
   },
   {
@@ -5008,6 +5160,7 @@ const AUTOMATION_TEMPLATES = [
     time: '08:00',
     days: [1, 2, 3, 4, 5],
     assignee: 'auto',
+    skills: ['connect-ai-video-motion', 'connect-ai-motion'],
     instruction: '신규 촬영본 폴더를 확인하고 connect-ai-video-motion 기준으로 1) 몸 인식 모션그래픽 배치 포인트, 2) 무음·군더더기 컷 편집 구간, 3) 9:16 쇼츠·1:1 클립 구간과 썸네일 카피 시안을 준비하세요. 최종 업로드는 대표 승인 전 정지하세요.',
   },
   {
@@ -5020,6 +5173,7 @@ const AUTOMATION_TEMPLATES = [
     time: '20:00',
     days: [0, 1, 2, 3, 4, 5, 6],
     assignee: 'auto',
+    skills: ['connect-ai-marketer'],
     instruction: 'Ego Lite에서 최근 유튜브 영상 댓글을 읽고 반복 질문 Top 5, 공감 포인트, 다음 쇼츠·롱폼 영상으로 다루면 좋은 주제 3가지를 표로 정리하세요. 답글은 초안만 작성하세요.',
   },
   // 인스타 · X · 스레드 (SNS)
@@ -5033,6 +5187,7 @@ const AUTOMATION_TEMPLATES = [
     time: '',
     days: [0, 1, 2, 3, 4, 5, 6],
     assignee: 'auto',
+    skills: ['connect-ai-marketer'],
     instruction: 'Ego Lite와 connect-ai-marketer로 새 인스타그램 댓글과 문의를 확인하세요. 내 지식 베이스의 브랜드 톤에 맞춰 자연스러운 답글 초안만 작성하고, 실제 게시나 DM 발송은 절대 하지 말고 대표 승인 대기로 남기세요.',
   },
   {
@@ -5045,6 +5200,7 @@ const AUTOMATION_TEMPLATES = [
     time: '',
     days: [0, 1, 2, 3, 4, 5, 6],
     assignee: 'auto',
+    skills: ['connect-ai-marketer'],
     instruction: 'connect-ai-marketer와 Ego Lite로 X.com 및 Threads에서 AI 에이전트·자동화·클로드·코덱스 관련 급상승 글 5건을 스캔해 핵심 인사이트 3줄과 내가 반응·인용할 글 초안 2개를 작성하세요.',
   },
   {
@@ -5057,6 +5213,7 @@ const AUTOMATION_TEMPLATES = [
     time: '14:00',
     days: [0, 1, 2, 3, 4, 5, 6],
     assignee: 'auto',
+    skills: ['connect-ai-marketer'],
     instruction: '최근 완료된 유튜브 기획·대본 또는 브리핑 1건을 골라 1) 인스타그램 캡션+해시태그, 2) 스레드 3연속 타래, 3) X.com 요약 스레드, 4) 네이버 블로그 핵심 정리 초안을 브랜드 톤에 맞춰 작성하세요. 실제 게시는 하지 말고 초안만 보고하세요.',
   },
   // 일상 · 라이프 (Daily Life)
@@ -5119,6 +5276,7 @@ const AUTOMATION_TEMPLATES = [
     time: '09:00',
     days: [1, 4],
     assignee: 'auto',
+    skills: ['reversebusiness'],
     instruction: '주목할 신규 AI 서비스·크리에이터 사례 2~3건을 reversebusiness 관점(타깃·유입·가격·수익화·차별화·겹침 검사)으로 해부해 비교 표와 우리 제품 적용 아이디어 3가지를 정리하세요.',
   },
   {
@@ -5140,13 +5298,21 @@ function openNewAutomationModal(preset = null) {
   const d = S.data;
   const ivList = S.options.intervalMins || [5, 15, 30, 60, 120, 180, 360];
   let pickedAssignee = preset?.assignee || 'auto';
+  const pickedSkills = new Set(Array.isArray(preset?.skills) ? preset.skills : []);
+  const pickedKbIds = new Set(Array.isArray(preset?.knowledgeIds) ? preset.knowledgeIds : []);
+  let pickedAccount = preset?.account || '';
+  let showAllSkills = false;
+  let showQuickKb = false;
   const initSched = preset?.intervalMin ? String(preset.intervalMin) : 'time';
   const initTime = preset?.intervalMin ? '' : (preset?.time || '09:00');
+  const skillPool = allSelectableSkills();
+  const accList = (d.resources || []).filter((r) => r.kind === '계정' && r.status !== '꺼짐');
+  const kbCats = S.options.knowledgeCategories || ['브랜드', '비즈니스', '업무 규칙', '참고 자료', 'AI 학습 메모'];
 
   const titleIn = h('input', {
     class: 'in auto-m-title',
     value: preset?.title || '',
-    placeholder: '예: 30분마다 인스타 댓글 답글 초안, 2시간마다 물 마시기 알람',
+    placeholder: '예: 인스타그램 최신 컨텐츠 댓글 해당 언어로 답글 작성, 쇼츠 영상 모션 편집',
     'aria-label': '오토메이션 이름',
   });
   const schedSel = h('select', { class: 'in', 'aria-label': '반복 주기' },
@@ -5170,8 +5336,8 @@ function openNewAutomationModal(preset = null) {
   const days = dayPicker(preset?.days || [0, 1, 2, 3, 4, 5, 6]);
   const promptIn = h('textarea', {
     class: 'in auto-m-prompt',
-    rows: 4,
-    placeholder: 'AI가 실행할 지시서를 자유롭게 적어 주세요.\n예: Ego Lite 이메일 스페이스에서 새 메일을 확인하고 중요 건만 요약해 초안을 저장해줘',
+    rows: 2,
+    placeholder: 'AI가 실행할 지시서를 자유롭게 적어 주세요.\n예: Ego Lite에서 인스타그램 최신 게시물 댓글을 읽고 작성자 언어에 맞춰 2문장 이내로 답글 초안을 작성해줘',
     'aria-label': '프롬프트 지시서',
   }, preset?.instruction || '');
   const promptField = h('div', { class: 'auto-m-field' },
@@ -5180,21 +5346,212 @@ function openNewAutomationModal(preset = null) {
   const alarmHint = h('div', { class: 'auto-m-hint is-hidden' },
     '대표 알람으로 등록됩니다. 지정한 요일·시각에 이 맥 알림과 사운드가 울립니다.');
 
+  const blueprintBar = h('div', { class: 'auto-bp-summary' });
   const assigneeRow = h('div', { class: 'auto-m-chips', role: 'group', 'aria-label': '담당 선택' });
+  const skillHeadMeta = h('div', { class: 'auto-sec-meta' });
+  const skillRow = h('div', { class: 'auto-m-chips auto-skill-chips', role: 'group', 'aria-label': '사용할 스킬 선택' });
+  const kbHeadMeta = h('div', { class: 'auto-sec-meta' });
+  const kbRow = h('div', { class: 'auto-m-chips auto-kb-chips', role: 'group', 'aria-label': '참고할 내 지식 선택' });
+  const quickKbWrap = h('div', { class: 'auto-qkb-box is-hidden' });
+  const accRow = h('div', { class: 'auto-m-chips', role: 'group', 'aria-label': '연결 계정 선택' });
+
+  const qkbCat = h('select', { class: 'in sm auto-qkb-cat', 'aria-label': '지식 분류' },
+    kbCats.map((c) => h('option', { value: c, selected: c === '업무 규칙' }, c)));
+  const qkbTitle = h('input', { class: 'in sm auto-qkb-title', placeholder: '지식 제목 (예: 인스타 다국어 댓글 규칙, 쇼츠 훅 공식)', 'aria-label': '새 지식 제목' });
+  const qkbContent = h('textarea', {
+    class: 'in auto-qkb-body', rows: 3,
+    placeholder: 'AI가 반드시 지켜야 할 톤·규칙·참고 자료를 적어 주세요.\n예: 영어 댓글엔 영어로, 일본어 댓글엔 일본어로 2문장 이내 친근하게 답글. 과장 금지.',
+    'aria-label': '새 지식 내용',
+  });
+  const saveQuickKb = async () => {
+    const t = qkbTitle.value.trim();
+    const c = qkbContent.value.trim();
+    if (!t) { qkbTitle.focus(); toast('지식 제목을 입력해 주세요'); return; }
+    if (!c) { qkbContent.focus(); toast('지식 내용을 입력해 주세요'); return; }
+    const created = await once('auto-modal-add-kb', () => api('POST', '/api/ui/knowledge', {
+      title: t, category: qkbCat.value, content: c, tags: [], scope: 'all',
+    }));
+    if (created && created.id) {
+      if (!Array.isArray(S.data.knowledge)) S.data.knowledge = [];
+      if (!S.data.knowledge.some((k) => k.id === created.id)) S.data.knowledge.unshift(created);
+      pickedKbIds.add(created.id);
+      qkbTitle.value = '';
+      qkbContent.value = '';
+      showQuickKb = false;
+      quickKbWrap.classList.add('is-hidden');
+      SND()?.play('ok');
+      toast(`"${created.title}" 지식을 만들고 바로 연결했어요`);
+      renderKnowledgeChips();
+      renderSummary();
+    }
+  };
+  quickKbWrap.replaceChildren(
+    h('div', { class: 'auto-qkb-row' }, qkbCat, qkbTitle),
+    qkbContent,
+    h('div', { class: 'auto-qkb-foot' },
+      h('span', { class: 'small muted' }, '저장하면 내 지식 베이스에 보관되고 이 오토메이션에 즉시 연결됩니다'),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn sm', onclick: () => { showQuickKb = false; quickKbWrap.classList.add('is-hidden'); renderKnowledgeChips(); } }, '취소'),
+        h('button', { type: 'button', class: 'btn sm dark', onclick: saveQuickKb }, '저장하고 바로 연결'))));
+
+  const currentHintText = () => `${titleIn.value} ${promptIn.value}`;
+
+  const renderSummary = () => {
+    if (pickedAssignee === 'jay') {
+      blueprintBar.classList.add('is-hidden');
+      return;
+    }
+    blueprintBar.classList.remove('is-hidden');
+    const whoLabel = pickedAssignee === 'auto' ? '자동 배분' : shortName(pickedAssignee);
+    const skArr = [...pickedSkills].map((k) => skillChipMeta(k).shortTitle);
+    const skText = skArr.length ? (skArr.length <= 2 ? skArr.join(' · ') : `${skArr[0]} 외 ${skArr.length - 1}개`) : '자동 매칭';
+    const kbArr = [...pickedKbIds].map((id) => (S.data.knowledge || []).find((k) => k.id === id)?.title).filter(Boolean);
+    const kbText = kbArr.length ? (kbArr.length === 1 ? kbArr[0] : `${kbArr[0]} 외 ${kbArr.length - 1}건`) : '공용 지식 자동 참고';
+    const accObj = pickedAccount ? accList.find((a) => a.id === pickedAccount) : null;
+    const accText = accObj ? accObj.name.split(' · ')[0] : '자동 감지';
+    blueprintBar.replaceChildren(
+      h('span', { class: 'auto-bp-kicker' }, 'BLUEPRINT'),
+      h('div', { class: 'auto-bp-items' },
+        h('span', { class: 'auto-bp-seg' }, h('b', null, '직원'), ' ', whoLabel),
+        h('span', { class: 'auto-bp-sep', 'aria-hidden': 'true' }, '×'),
+        h('span', { class: `auto-bp-seg${skArr.length ? ' is-pinned' : ''}` }, h('b', null, '스킬'), ' ', skText),
+        h('span', { class: 'auto-bp-sep', 'aria-hidden': 'true' }, '×'),
+        h('span', { class: `auto-bp-seg${kbArr.length ? ' is-pinned' : ''}` }, h('b', null, '지식'), ' ', kbText),
+        accList.length ? h('span', { class: 'auto-bp-sep', 'aria-hidden': 'true' }, '×') : null,
+        accList.length ? h('span', { class: `auto-bp-seg${accObj ? ' is-pinned' : ''}` }, h('b', null, '계정'), ' ', accText) : null));
+  };
+
+  const renderSkillChips = () => {
+    const recKeys = suggestSkillsForText(currentHintText());
+    const recSet = new Set(recKeys);
+    const readyList = skillPool.filter((s) => s.published);
+    const baseList = showAllSkills
+      ? skillPool
+      : readyList.filter((s) => s.connectAiPack || pickedSkills.has(s.key) || recSet.has(s.key) || ['ffmpeg', 'whisper', 'playwright', 'orca-computer', 'firecrawl'].includes(s.key));
+    const displayList = baseList.length ? baseList : readyList.slice(0, 10);
+    const hiddenCount = Math.max(0, skillPool.length - displayList.length);
+    const unpickedRecs = recKeys.filter((k) => !pickedSkills.has(k) && skillPool.some((s) => s.key === k));
+
+    skillHeadMeta.replaceChildren(...[
+      pickedSkills.size ? h('span', { class: 'auto-cnt-pill is-on' }, `${pickedSkills.size}개 지정`) : h('span', { class: 'auto-cnt-pill' }, '자동 매칭'),
+      unpickedRecs.length ? h('button', {
+        type: 'button', class: 'auto-rec-btn',
+        onclick: () => { for (const k of unpickedRecs) pickedSkills.add(k); renderSkillChips(); renderSummary(); },
+      }, `✨ 추천 적용 (${unpickedRecs.map((k) => skillChipMeta(k).shortTitle).join(' · ')})`) : null,
+      hiddenCount > 0 || showAllSkills ? h('button', {
+        type: 'button', class: 'btn link auto-more-btn',
+        onclick: () => { showAllSkills = !showAllSkills; renderSkillChips(); },
+      }, showAllSkills ? '핵심만 보기' : `전체 도감 (+${hiddenCount})`) : null,
+    ].filter(Boolean));
+
+    skillRow.replaceChildren(...displayList.map((sk) => {
+      const on = pickedSkills.has(sk.key);
+      const isRec = recSet.has(sk.key);
+      return h('button', {
+        type: 'button',
+        class: `chip bp-chip${on ? ' on' : ''}${isRec && !on ? ' is-rec' : ''}${!sk.published ? ' is-soon' : ''}`,
+        'aria-pressed': on ? 'true' : 'false',
+        title: `${sk.titleKo}${sk.flow ? ` · ${sk.flow}` : ''}${!sk.published ? ' (준비 중)' : ''}`,
+        onclick: () => {
+          if (on) pickedSkills.delete(sk.key); else pickedSkills.add(sk.key);
+          renderSkillChips();
+          renderSummary();
+        },
+      },
+      skillPixelIconSvg(sk.icon, 15),
+      h('span', null, sk.shortTitle),
+      isRec && !on ? h('span', { class: 'bp-rec-dot' }, '추천') : null);
+    }));
+  };
+
+  const renderKnowledgeChips = () => {
+    const kbs = Array.isArray(S.data.knowledge) ? S.data.knowledge : [];
+    kbHeadMeta.replaceChildren(
+      pickedKbIds.size ? h('span', { class: 'auto-cnt-pill is-on' }, `${pickedKbIds.size}건 필수 주입`) : h('span', { class: 'auto-cnt-pill' }, '공용 자동 참고'),
+      h('button', {
+        type: 'button', class: `btn sm auto-qkb-toggle${showQuickKb ? ' dark' : ''}`,
+        onclick: () => {
+          showQuickKb = !showQuickKb;
+          quickKbWrap.classList.toggle('is-hidden', !showQuickKb);
+          renderKnowledgeChips();
+          if (showQuickKb) setTimeout(() => qkbTitle.focus(), 20);
+        },
+      }, showQuickKb ? '입력 닫기' : '+ 새 지식 바로 추가'));
+
+    if (!kbs.length) {
+      kbRow.replaceChildren(h('div', { class: 'small muted auto-kb-empty' }, '저장된 지식이 아직 없어요. 오른쪽 "+ 새 지식 바로 추가"로 브랜드 톤·댓글 규칙·영상 공식을 바로 넣으세요.'));
+      return;
+    }
+    kbRow.replaceChildren(...kbs.map((kb) => {
+      const on = pickedKbIds.has(kb.id);
+      return h('button', {
+        type: 'button',
+        class: `chip bp-chip bp-kb-chip${on ? ' on' : ''}`,
+        'aria-pressed': on ? 'true' : 'false',
+        title: `[${kb.category}] ${kb.content.slice(0, 180)}`,
+        onclick: () => {
+          if (on) pickedKbIds.delete(kb.id); else pickedKbIds.add(kb.id);
+          renderKnowledgeChips();
+          renderSummary();
+        },
+      },
+      h('span', { class: 'bp-kb-cat' }, kb.category),
+      h('span', null, kb.title));
+    }));
+  };
+
+  const renderAccountChips = () => {
+    if (!accList.length) return;
+    const recAccId = suggestAccountForText(currentHintText());
+    accRow.replaceChildren(
+      h('button', {
+        type: 'button', class: `chip${!pickedAccount ? ' on' : ''}`,
+        'aria-pressed': !pickedAccount ? 'true' : 'false',
+        onclick: () => { pickedAccount = ''; renderAccountChips(); renderSummary(); },
+      }, '자동 감지'),
+      ...accList.map((a) => {
+        const on = pickedAccount === a.id;
+        const isRec = !pickedAccount && recAccId === a.id;
+        return h('button', {
+          type: 'button', class: `chip bp-chip${on ? ' on' : ''}${isRec ? ' is-rec' : ''}`,
+          'aria-pressed': on ? 'true' : 'false',
+          onclick: () => { pickedAccount = on ? '' : a.id; renderAccountChips(); renderSummary(); },
+        }, a.name.split(' · ')[0], isRec ? h('span', { class: 'bp-rec-dot' }, '추천') : null);
+      }));
+  };
+
+  const aiPillarsWrap = h('div', { class: `auto-bp-stack${pickedAssignee === 'jay' ? ' is-hidden' : ''}` },
+    h('div', { class: 'auto-bp-sec' },
+      h('div', { class: 'auto-sec-head' },
+        h('label', { class: 'auto-m-lbl' }, '② 사용할 스킬 (무엇을 할 줄 아는가)'),
+        skillHeadMeta),
+      skillRow),
+    h('div', { class: 'auto-bp-sec' },
+      h('div', { class: 'auto-sec-head' },
+        h('label', { class: 'auto-m-lbl' }, '③ 참고할 내 지식 (우리 브랜드 톤 · 규칙 · 기준)'),
+        kbHeadMeta),
+      kbRow,
+      quickKbWrap),
+    accList.length ? h('div', { class: 'auto-bp-sec' },
+      h('div', { class: 'auto-sec-head' },
+        h('label', { class: 'auto-m-lbl' }, '④ 연결 계정 (선택 · 어느 채널에서 일할까)')),
+      accRow) : null);
+
   const renderAssigneeChips = () => {
     const opts = [
-      { id: 'auto', label: '✦ 자동 배분', live: false },
-      { id: 'jay', label: '나 (대표 알람)', live: false },
-      ...d.employees.map((e) => ({ id: e.id, label: shortName(e.id), live: canRun(e) && e.runMode !== 'off' })),
+      { id: 'auto', label: '✦ 자동 배분', empObj: null, live: false },
+      { id: 'jay', label: '나 (대표 알람)', empObj: null, live: false },
+      ...d.employees.map((e) => ({ id: e.id, label: shortName(e.id), empObj: e, live: canRun(e) && e.runMode !== 'off' })),
     ];
     assigneeRow.replaceChildren(...opts.map((o) => h('button', {
       type: 'button',
-      class: `chip${pickedAssignee === o.id ? ' on' : ''}`,
+      class: `chip bp-who-chip${pickedAssignee === o.id ? ' on' : ''}`,
       'aria-pressed': pickedAssignee === o.id ? 'true' : 'false',
       onclick: () => {
         pickedAssignee = o.id;
         const isHuman = pickedAssignee === 'jay';
         promptField.classList.toggle('is-hidden', isHuman);
+        aiPillarsWrap.classList.toggle('is-hidden', isHuman);
         alarmHint.classList.toggle('is-hidden', !isHuman);
         if (isHuman && schedSel.value !== 'time') {
           schedSel.value = 'time';
@@ -5202,10 +5559,27 @@ function openNewAutomationModal(preset = null) {
           timeWrap.classList.remove('is-hidden');
         }
         renderAssigneeChips();
+        renderSummary();
       },
-    }, o.live ? h('i', { class: 'auto-eng-dot', title: '실행 연결됨' }) : null, o.label)));
+    },
+    o.empObj ? avatarEl(o.empObj, { size: 18, onDark: pickedAssignee === o.id }) : null,
+    o.live ? h('i', { class: 'auto-eng-dot', title: '실행 연결됨' }) : null,
+    o.label)));
   };
+
+  const syncSuggestions = () => {
+    renderSkillChips();
+    renderAccountChips();
+    renderSummary();
+  };
+  titleIn.addEventListener('input', syncSuggestions);
+  promptIn.addEventListener('input', syncSuggestions);
+
   renderAssigneeChips();
+  renderSkillChips();
+  renderKnowledgeChips();
+  renderAccountChips();
+  renderSummary();
 
   const submitBtn = h('button', { type: 'button', class: 'btn dark' }, '만들기 ⌘↵');
   const submit = async () => {
@@ -5213,22 +5587,26 @@ function openNewAutomationModal(preset = null) {
     if (!v) { titleIn.focus(); toast('오토메이션 이름을 입력해 주세요'); return; }
     const iv = schedSel.value === 'time' ? null : Number(schedSel.value);
     const tm = iv ? '' : timeIn.value;
+    const isHuman = pickedAssignee === 'jay';
     const body = {
       title: v,
       time: tm,
       intervalMin: iv,
       days: days.getDays(),
       assignee: pickedAssignee,
-      instruction: pickedAssignee === 'jay' ? '' : promptIn.value.trim(),
+      instruction: isHuman ? '' : promptIn.value.trim(),
+      skills: isHuman ? [] : [...pickedSkills],
+      knowledgeIds: isHuman ? [] : [...pickedKbIds],
+      ...(pickedAccount && !isHuman ? { account: pickedAccount } : {}),
     };
     const r = await once('modal-add-routine', () => act('POST', '/api/ui/routines', body));
     if (r) {
       closeDlg();
       ui.autoTab = 'list';
-      const comp = r.resource && res(r.resource) ? ` · ${res(r.resource).name}` : '';
-      toast(pickedAssignee === 'auto'
-        ? (r.reason ? `${shortName(r.assignee)} 오토메이션 등록 · ${r.reason}` : '오토메이션을 추가했어요')
-        : `${shortName(r.assignee)} 오토메이션을 추가했어요${comp}`);
+      const skCnt = (r.skills || []).length;
+      const kbCnt = (r.knowledgeIds || []).length;
+      const extra = [skCnt ? `스킬 ${skCnt}` : '', kbCnt ? `지식 ${kbCnt}` : ''].filter(Boolean).join(' · ');
+      toast(`${shortName(r.assignee)} 오토메이션을 추가했어요${extra ? ` (${extra})` : ''}`);
       render();
     }
   };
@@ -5243,30 +5621,33 @@ function openNewAutomationModal(preset = null) {
   titleIn.addEventListener('keydown', onKey);
   promptIn.addEventListener('keydown', onKey);
 
-  dlg.className = 'auto-dlg';
+  dlg.className = 'wide auto-dlg arsenal-dlg';
   setDlg(dlg,
     h('div', { class: 'auto-m-top' },
       h('div', { class: 'auto-m-head' },
         preset?.kicker ? h('span', { class: 'auto-tpl-kicker' }, preset.kicker) : null,
-        h('h3', { class: 'auto-m-title-h' }, preset ? '템플릿으로 오토메이션 만들기' : '새 오토메이션')),
+        h('h3', { class: 'auto-m-title-h' }, preset ? '템플릿으로 오토메이션 만들기' : '새 오토메이션'),
+        h('p', { class: 'small muted auto-m-sub' }, '어떤 AI 직원이 · 어떤 스킬로 · 어떤 내 지식을 참고해 실행할지 한 번에 조립합니다.')),
       h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: closeDlg }, '×')),
     h('div', { class: 'auto-m-body' },
       h('div', { class: 'auto-m-field' },
         h('label', { class: 'auto-m-lbl' }, '이름'),
         titleIn),
-      h('div', { class: 'auto-m-grid2' },
-        h('div', { class: 'auto-m-field' },
+      h('div', { class: 'auto-m-sched-row' },
+        h('div', { class: 'auto-m-field auto-m-sched-col' },
           h('label', { class: 'auto-m-lbl' }, '반복 주기'),
           schedSel),
-        timeWrap),
+        timeWrap,
+        h('div', { class: 'auto-m-field auto-m-days-col' },
+          h('label', { class: 'auto-m-lbl' }, '실행 요일'),
+          days)),
       h('div', { class: 'auto-m-field' },
-        h('label', { class: 'auto-m-lbl' }, '실행 요일'),
-        days),
-      h('div', { class: 'auto-m-field' },
-        h('label', { class: 'auto-m-lbl' }, '담당 AI / 알람'),
+        h('label', { class: 'auto-m-lbl' }, '① 담당 AI 직원 / 알람'),
         assigneeRow),
+      aiPillarsWrap,
       promptField,
-      alarmHint),
+      alarmHint,
+      blueprintBar),
     h('div', { class: 'auto-m-foot' },
       h('span', { class: 'small muted' }, '결제 · 업로드 · 게시 · 삭제는 대표 승인 전 자동 정지'),
       h('div', { class: 'row' },
@@ -5349,6 +5730,8 @@ function pageDaily() {
     const stepSummary = (r.steps || []).length ? `${r.steps.length}단계 협업${stepOffices.length ? ` (${stepOffices.join(' · ')})` : ''}` : '';
     const foldLabel = human ? '편집 · 8주 기록' : [
       r.instruction ? '프롬프트 (지시서)' : '프롬프트 쓰기',
+      (r.skills || []).length ? `스킬 ${(r.skills || []).length}` : '',
+      (r.knowledgeIds || []).length ? `지식 ${(r.knowledgeIds || []).length}` : '',
       (r.steps || []).length ? `팀 분업 ${(r.steps || []).length}단계` : '',
       r.nextAssignee ? `끝나면 → ${shortName(r.nextAssignee)}` : '',
       '8주 기록',
@@ -5357,7 +5740,47 @@ function pageDaily() {
       type: 'button', class: `who-chip${r.assignee === 'jay' ? '' : r.assignee ? ' ai' : ' none'}`,
       'aria-expanded': picking ? 'true' : 'false', title: '눌러서 담당 바꾸기',
       onclick: () => { ui.rtPicking = picking ? null : r.id; render(); },
-    }, shortName(r.assignee));
+    }, e ? avatarEl(e, { size: 17, onDark: true }) : null, shortName(r.assignee));
+
+    const rSkillPool = !human ? allSelectableSkills().filter((sk) => sk.published) : [];
+    const rKbList = !human && Array.isArray(d.knowledge) ? d.knowledge : [];
+    const rAccList = !human ? (d.resources || []).filter((x) => x.kind === '계정' && x.status !== '꺼짐') : [];
+    const rBlueprintEditor = !human ? h('div', { class: 'rt-bp-editor' },
+      rSkillPool.length ? h('div', { class: 'd-tools' },
+        h('span', { class: 'small muted' }, '지정 스킬'),
+        h('div', { class: 'picker' }, rSkillPool.slice(0, 12).map((sk) => {
+          const has = (r.skills || []).includes(sk.key);
+          return h('button', {
+            type: 'button', class: `chip sm bp-chip${has ? ' on' : ''}`,
+            title: `${sk.titleKo}${sk.flow ? ` · ${sk.flow}` : ''}`,
+            onclick: () => {
+              const next = has ? (r.skills || []).filter((x) => x !== sk.key) : [...(r.skills || []), sk.key];
+              act('PATCH', `/api/ui/routines/${r.id}`, { skills: next }, has ? `${sk.shortTitle} 스킬 해제했어요` : `${sk.shortTitle} 스킬 지정했어요`);
+            },
+          }, skillPixelIconSvg(sk.icon, 13), sk.shortTitle);
+        }))) : null,
+      h('div', { class: 'd-tools' },
+        h('span', { class: 'small muted' }, '참고 지식'),
+        h('div', { class: 'picker' },
+          rKbList.length ? rKbList.map((kb) => {
+            const has = (r.knowledgeIds || []).includes(kb.id);
+            return h('button', {
+              type: 'button', class: `chip sm bp-chip bp-kb-chip${has ? ' on' : ''}`,
+              title: `[${kb.category}] ${kb.content.slice(0, 140)}`,
+              onclick: () => {
+                const next = has ? (r.knowledgeIds || []).filter((x) => x !== kb.id) : [...(r.knowledgeIds || []), kb.id];
+                act('PATCH', `/api/ui/routines/${r.id}`, { knowledgeIds: next }, has ? `${kb.title} 지식 해제했어요` : `${kb.title} 지식 연결했어요`);
+              },
+            }, h('span', { class: 'bp-kb-cat' }, kb.category), kb.title);
+          }) : h('span', { class: 'small muted' }, '내 지식 탭에서 문서를 추가하면 여기서 1클릭 연결할 수 있어요'))),
+      rAccList.length ? h('div', { class: 'd-tools' },
+        h('span', { class: 'small muted' }, '연결 계정'),
+        h('div', { class: 'picker' },
+          h('button', { type: 'button', class: `chip sm${!r.account ? ' on' : ''}`, onclick: () => act('PATCH', `/api/ui/routines/${r.id}`, { account: null }, '계정을 자동 감지로 바꿨어요') }, '자동'),
+          ...rAccList.map((a) => h('button', {
+            type: 'button', class: `chip sm${r.account === a.id ? ' on' : ''}`,
+            onclick: () => act('PATCH', `/api/ui/routines/${r.id}`, { account: a.id }, `${a.name} 연결했어요`),
+          }, a.name.split(' · ')[0])))) : null) : null;
 
     const runNowBtn = h('button', {
       type: 'button', class: 'btn sm auto-run-btn',
@@ -5393,7 +5816,8 @@ function pageDaily() {
             h('span', { class: `auto-kind-pill${human ? ' alarm' : ''}` }, human ? '알람' : r.intervalMin ? '주기' : 'AI'),
             h('span', null, r.title),
             latestRun ? h('span', { class: `stat-pill ${latestRun.status} auto-st-pill` }, latestRun.status === '완료' ? '최근 완료' : latestRun.status) : null),
-          h('div', { class: 'small muted auto-item-meta' }, [daysText(r.days), schedText, r.where, stepSummary, ...toolNames].filter(Boolean).join(' · '))),
+          h('div', { class: 'small muted auto-item-meta' }, [daysText(r.days), schedText, r.where, stepSummary, ...toolNames].filter(Boolean).join(' · ')),
+          !human ? blueprintPillsRow(r) : null),
         h('div', { class: 'r-ctl' },
           whoBtn,
           runNowBtn,
@@ -5407,6 +5831,7 @@ function pageDaily() {
         h('div', { class: 'r-fold' },
           h('div', { class: 'r-sched-row' }, rTitle, rSched, rTime, rCost),
           h('div', { class: 'r-sched-row' }, h('span', { class: 'small muted' }, '요일'), rDays),
+          rBlueprintEditor,
           !human ? h('div', { class: 'p-wrap' },
             h('div', { class: 'p-toolbar' },
               h('div', { class: 'row' }, insDrawer.btn, dirtyEl),

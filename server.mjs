@@ -139,8 +139,10 @@ function migrate(d) {
   }
   d.tasks.forEach((t, i) => {
     if (typeof t.order !== 'number') t.order = i + 1;
-    for (const [k, v] of Object.entries({ resource: null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: null, intervalMin: null, stepMode: 'serial', sharedFolder: '', steps: [], gate: null, gateApprovedAt: null, reason: '', reasonBy: '', noMatch: false, handedAt: null, assignSource: 'jay', routineId: null, jobId: null, runStartedAt: null, lastRunAt: null, completedAt: null, completedBy: null, resultSummary: '', failoverTrail: [], queued: false, queueReason: '', retryAfter: null, localOnly: false, history: [], officeRun: false, officeJob: null, remote: null, relayedAt: null })) if (t[k] === undefined) t[k] = v;
+    for (const [k, v] of Object.entries({ resource: null, account: null, browser: null, design: null, tools: [], skills: [], knowledgeIds: [], manualLinks: {}, estCost: null, intervalMin: null, stepMode: 'serial', sharedFolder: '', steps: [], gate: null, gateApprovedAt: null, reason: '', reasonBy: '', noMatch: false, handedAt: null, assignSource: 'jay', routineId: null, jobId: null, runStartedAt: null, lastRunAt: null, completedAt: null, completedBy: null, resultSummary: '', failoverTrail: [], queued: false, queueReason: '', retryAfter: null, localOnly: false, history: [], officeRun: false, officeJob: null, remote: null, relayedAt: null })) if (t[k] === undefined) t[k] = v;
     if (!Array.isArray(t.steps)) t.steps = [];
+    if (!Array.isArray(t.skills)) t.skills = [];
+    if (!Array.isArray(t.knowledgeIds)) t.knowledgeIds = [];
   });
   for (const r of d.routines) {
     if (r.account === undefined) r.account = null;
@@ -151,6 +153,8 @@ function migrate(d) {
     if (r.intervalMin === undefined) r.intervalMin = null;
     if (r.lastIntervalAt === undefined) r.lastIntervalAt = null;
     if (!Array.isArray(r.tools)) r.tools = [];
+    if (!Array.isArray(r.skills)) r.skills = [];
+    if (!Array.isArray(r.knowledgeIds)) r.knowledgeIds = [];
     if (r.nextAssignee === undefined) r.nextAssignee = null;
     if (!STEP_MODES.includes(r.stepMode)) r.stepMode = 'serial';
     if (r.sharedFolder === undefined) r.sharedFolder = '';
@@ -469,6 +473,54 @@ function toolRefs(d, v) {
   return [...new Set(v.map(String))].filter((id) => d.resources.some((r) => r.id === id && r.kind === '오픈소스')).slice(0, 6);
 }
 
+function skillKeyRefs(v) {
+  if (!Array.isArray(v)) return [];
+  return [...new Set(v.map((x) => text(x, 80)).filter(Boolean))].slice(0, 12);
+}
+
+function knowledgeRefs(d, v) {
+  if (!Array.isArray(v)) return [];
+  const valid = new Set((d.knowledge || []).map((k) => k.id));
+  return [...new Set(v.map(String))].filter((id) => valid.has(id)).slice(0, 10);
+}
+
+function resolvePinnedSkills(d, keys = []) {
+  const out = [];
+  const seen = new Set();
+  const empSkillPool = [];
+  for (const e of (d.employees || [])) {
+    for (const sk of (e.skills || [])) empSkillPool.push(sk);
+  }
+  for (const raw of (Array.isArray(keys) ? keys : [])) {
+    const k = String(raw || '').trim();
+    if (!k) continue;
+    const low = k.toLowerCase();
+    if (seen.has(low)) continue;
+    const fromEmp = empSkillPool.find((s) =>
+      String(s.preset || '').toLowerCase() === low
+      || String(s.id || '').toLowerCase() === low
+      || String(s.name || '').toLowerCase() === low);
+    const fromCat = OSS_CATALOG.find((c) =>
+      String(c.key || '').toLowerCase() === low
+      || String(c.name || '').toLowerCase() === low);
+    if (fromEmp) {
+      seen.add(low);
+      if (fromEmp.preset) seen.add(String(fromEmp.preset).toLowerCase());
+      if (fromEmp.name) seen.add(String(fromEmp.name).toLowerCase());
+      out.push({ ...fromCat, ...fromEmp, key: fromEmp.preset || fromCat?.key || fromEmp.name });
+    } else if (fromCat) {
+      seen.add(low);
+      seen.add(String(fromCat.key).toLowerCase());
+      seen.add(String(fromCat.name).toLowerCase());
+      out.push({ ...fromCat, preset: fromCat.key });
+    } else {
+      seen.add(low);
+      out.push({ key: k, name: k });
+    }
+  }
+  return out;
+}
+
 function syncRoutineLog(d, t) {
   if (!t?.routineId) return;
   const r = d.routines.find((x) => x.id === t.routineId);
@@ -488,6 +540,7 @@ function syncRoutineLog(d, t) {
           id: nextId(d, 't'), order: 0, title: followTitle, kind: next === 'jay' ? 'human' : 'ai', assignee: next,
           date: t.date, time: null, status: '대기', note: `${nameOf(d, t.assignee)} 완료 후 자동 넘김`,
           resource: null, account: r.account || t.account || null, browser: r.browser || null, design: r.design || t.design || null, tools: [...(r.tools || [])],
+          skills: [...(r.skills || t.skills || [])], knowledgeIds: [...(r.knowledgeIds || t.knowledgeIds || [])],
           manualLinks: {}, estCost: null, intervalMin: null, stepMode: 'serial', sharedFolder: r.sharedFolder || t.sharedFolder || '', steps: [],
           gate: detectGate(`${followTitle} ${t.note || ''}`), gateApprovedAt: null,
           reason: `${nameOf(d, t.assignee)} 완료 후 이어받음`, reasonBy: '루틴 릴레이', noMatch: false,
@@ -590,6 +643,8 @@ function syncTodayTasksFromRoutine(d, r) {
     t.intervalMin = r.intervalMin || null;
     t.note = r.instruction || r.where || '';
     t.design = r.design || null;
+    t.skills = [...(r.skills || [])];
+    t.knowledgeIds = [...(r.knowledgeIds || [])];
     t.estCost = r.estCost ?? null;
     t.stepMode = r.stepMode === 'parallel' ? 'parallel' : 'serial';
     t.sharedFolder = r.sharedFolder || '';
@@ -793,38 +848,60 @@ function assertAccountAllowed(d, t, extraText = '') {
   if (pol?.blocked) throw new HttpError(403, pol.message);
 }
 
-function pickKnowledgeForTask(d, emp, fullText) {
+function resolveTaskKnowledge(d, emp, fullText, explicitIds = []) {
   const list = Array.isArray(d.knowledge) ? d.knowledge : [];
   if (!list.length) return [];
-  const empId = emp?.id || '';
-  const eligible = list.filter((k) => !k.scope || k.scope === 'all' || (empId && k.scope === empId));
-  if (!eligible.length) return [];
-  const low = String(fullText || '').toLowerCase();
-  const tt = tokens(low);
-  const scored = eligible.map((k) => {
-    let score = 0;
-    if (k.category === '브랜드' || k.category === '업무 규칙') score += 4;
-    if (empId && k.scope === empId) score += 3;
-    const hay = `${k.title} ${(k.tags || []).join(' ')}`.toLowerCase();
-    for (const w of tt) {
-      if (w.length >= 2 && hay.includes(w)) score += 3;
-    }
-    for (const tag of (k.tags || [])) {
-      const tl = String(tag).toLowerCase();
-      if (tl.length >= 2 && low.includes(tl)) score += 4;
-    }
-    return { k, score };
-  }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
-  const out = [];
+  const pinnedIds = [...new Set((Array.isArray(explicitIds) ? explicitIds : []).map(String))];
+  const byId = new Map(list.map((k) => [k.id, k]));
+  const seen = new Set();
+  const resolved = [];
   let chars = 0;
-  for (const { k } of scored) {
-    if (out.length >= 5) break;
-    const chunk = `[${k.category}] ${k.title}: ${k.content.slice(0, 420)}`;
-    if (chars + chunk.length > 1800 && out.length > 0) break;
-    out.push(chunk);
+
+  // 1) 대표가 이 오토메이션/작업에 직접 꽂은 필수 지식은 키워드 무관 최우선 주입
+  for (const id of pinnedIds) {
+    const k = byId.get(id);
+    if (!k || seen.has(k.id)) continue;
+    seen.add(k.id);
+    const chunk = `★ [필수 지식 · ${k.category}] ${k.title}: ${k.content.slice(0, 800)}`;
+    if (chars + chunk.length > 3400 && resolved.length > 0) break;
+    resolved.push({ k, pinned: true, chunk });
     chars += chunk.length;
   }
-  return out;
+
+  // 2) 나머지 회사 공용 지식은 키워드·태그 자동 매칭으로 보강
+  const empId = emp?.id || '';
+  const eligible = list.filter((k) => !seen.has(k.id) && (!k.scope || k.scope === 'all' || (empId && k.scope === empId)));
+  if (eligible.length) {
+    const low = String(fullText || '').toLowerCase();
+    const tt = tokens(low);
+    const scored = eligible.map((k) => {
+      let score = 0;
+      if (k.category === '브랜드' || k.category === '업무 규칙') score += 4;
+      if (empId && k.scope === empId) score += 3;
+      const hay = `${k.title} ${(k.tags || []).join(' ')}`.toLowerCase();
+      for (const w of tt) {
+        if (w.length >= 2 && hay.includes(w)) score += 3;
+      }
+      for (const tag of (k.tags || [])) {
+        const tl = String(tag).toLowerCase();
+        if (tl.length >= 2 && low.includes(tl)) score += 4;
+      }
+      return { k, score };
+    }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
+    const maxTotal = Math.max(5, pinnedIds.length + 3);
+    for (const { k } of scored) {
+      if (resolved.length >= maxTotal) break;
+      const chunk = `[${k.category}] ${k.title}: ${k.content.slice(0, 420)}`;
+      if (chars + chunk.length > (pinnedIds.length ? 3600 : 1800) && resolved.length > 0) break;
+      resolved.push({ k, pinned: false, chunk });
+      chars += chunk.length;
+    }
+  }
+  return resolved;
+}
+
+function pickKnowledgeForTask(d, emp, fullText, explicitIds = []) {
+  return resolveTaskKnowledge(d, emp, fullText, explicitIds).map((x) => x.chunk);
 }
 
 function taskPromptCommon(d, emp, t) {
@@ -836,10 +913,14 @@ function taskPromptCommon(d, emp, t) {
   const instTrim = String(routine?.instruction || '').trim();
   const showInst = Boolean(instTrim && instTrim !== noteTrim);
   const fullText = `${t.title} ${noteTrim} ${instTrim}`;
+  const pinnedSkillKeys = [...new Set([...(t.skills || []), ...(routine?.skills || [])])];
+  const pinnedSkills = resolvePinnedSkills(d, pinnedSkillKeys);
+  const pinnedSkillTokens = new Set(pinnedSkills.flatMap((s) => [s.key, s.preset, s.name, s.repo].filter(Boolean).map((x) => String(x).toLowerCase())));
+  const isPinnedSkill = (s) => [s.key, s.preset, s.name, s.repo].filter(Boolean).some((x) => pinnedSkillTokens.has(String(x).toLowerCase()));
   const empSkills = (Array.isArray(emp?.skills) ? emp.skills : []).filter((s) => s.published !== false && s.doctorStatus !== 'upcoming');
-  const matchedEmpSkills = matchEmployeeSkills(fullText, { ...emp, skills: empSkills }, tokens);
+  const matchedEmpSkills = matchEmployeeSkills(fullText, { ...emp, skills: empSkills }, tokens).filter((s) => !isPinnedSkill(s));
   const matchedIds = new Set(matchedEmpSkills.map((s) => s.id));
-  const otherEmpSkills = empSkills.filter((s) => !matchedIds.has(s.id)).sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
+  const otherEmpSkills = empSkills.filter((s) => !matchedIds.has(s.id) && !isPinnedSkill(s)).sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
   // 멤버십 한도 우회 등으로 다른 AI 직원이 대신 맡았을 때도 회사에 등록된 공개 매칭 스킬 지침을 자동 공유한다
   const ownSkillKeys = new Set(empSkills.map((s) => (s.preset || s.name || '').toLowerCase()).filter(Boolean));
   const sharedTeamSkills = [];
@@ -848,12 +929,12 @@ function taskPromptCommon(d, emp, t) {
     if (!peer || peer.id === emp?.id) continue;
     for (const sk of matchEmployeeSkills(fullText, peer, tokens)) {
       const k = (sk.preset || sk.name || '').toLowerCase();
-      if (!k || ownSkillKeys.has(k) || seenShared.has(k)) continue;
+      if (!k || ownSkillKeys.has(k) || seenShared.has(k) || isPinnedSkill(sk)) continue;
       seenShared.add(k);
       sharedTeamSkills.push(sk);
     }
   }
-  const empSkillRepos = new Set([...empSkills, ...sharedTeamSkills].map((s) => (s.repo || s.name || '').toLowerCase()).filter(Boolean));
+  const empSkillRepos = new Set([...pinnedSkills, ...empSkills, ...sharedTeamSkills].map((s) => (s.repo || s.name || '').toLowerCase()).filter(Boolean));
   const extraOss = oss.filter((x) => !empSkillRepos.has((x.repo || x.name || '').toLowerCase()));
   const fmtSkill = (x) => {
     const subs = Array.isArray(x.subSkills) && x.subSkills.length
@@ -868,7 +949,10 @@ function taskPromptCommon(d, emp, t) {
     const hostLine = x.computeHint ? ` · 실행 컴퓨터: ${x.computeHint}` : '';
     return `- ${x.primary ? '★ [주요] ' : ''}${x.name}${x.roleLabel ? ` (${x.roleLabel})` : ''}${x.command ? ` · 명령: ${x.command}` : ''}${x.repo ? ` · GitHub: ${x.repo}` : ''}${statusLine}${ioLine}${hostLine}${subs}${x.when ? ` · 트리거: ${x.when}` : ''}${x.note ? ` · ${x.note}` : ''}`;
   };
-  const kbLines = pickKnowledgeForTask(d, emp, fullText);
+  const explicitKbIds = [...new Set([...(t.knowledgeIds || []), ...(routine?.knowledgeIds || [])])];
+  const resolvedKb = resolveTaskKnowledge(d, emp, fullText, explicitKbIds);
+  const kbLines = resolvedKb.map((x) => x.chunk);
+  const hasPinnedKb = resolvedKb.some((x) => x.pinned);
   const autoEgoLine = !browser && /(ego\s*lite|egolite|에고\s*라이트|ego-browser)/i.test(fullText) && findBin('ego-browser', 'AIHQ_EGO_BIN')
     ? '쓸 브라우저: Ego Lite (명령: ego-browser nodejs · 웹 확인 후 task.finish({ keep: [] })로 스페이스를 닫으세요)'
     : '';
@@ -890,11 +974,12 @@ function taskPromptCommon(d, emp, t) {
     approvedGateBlock,
     designBlock,
     stepsPromptBlock(d, t, emp?.id || null),
+    pinnedSkills.length ? `이 오토메이션/작업에 대표가 지정한 필수 스킬 (반드시 우선 활용):\n${pinnedSkills.map(fmtSkill).join('\n')}` : '',
     matchedEmpSkills.length ? `이 직원의 핵심 스킬 · GitHub 오픈소스 (우선 활용):\n${matchedEmpSkills.map(fmtSkill).join('\n')}` : '',
     sharedTeamSkills.length ? `회사 공용 매칭 스킬 (동료 스킬 참고 · 자동 우회/협업 활용):\n${sharedTeamSkills.slice(0, 4).map(fmtSkill).join('\n')}` : '',
     otherEmpSkills.length ? `보유 중인 기타 스킬:\n${otherEmpSkills.slice(0, 8).map(fmtSkill).join('\n')}` : '',
     extraOss.length ? `반드시 사용할 오픈소스 도구:\n${extraOss.map((x) => `- ${x.name}${x.command ? ` · 명령: ${x.command}` : ''}${x.repo ? ` · GitHub: ${x.repo}` : ''}${x.skillPath ? ` · 스킬: ${x.skillPath}` : ''}${x.note ? ` · ${x.note}` : ''}`).join('\n')}` : '',
-    kbLines.length ? `회사 공용 지식 (내 지식 베이스 · 참고 자료):\n${kbLines.join('\n')}` : '',
+    kbLines.length ? `${hasPinnedKb ? '대표가 지정한 필수 지식 · 회사 지식 베이스 (반드시 준수)' : '회사 공용 지식 (내 지식 베이스 · 참고 자료)'}:\n${kbLines.join('\n')}` : '',
     showInst ? `루틴 지시서:\n${instTrim}` : '',
   ].filter(Boolean);
 }
@@ -1656,12 +1741,18 @@ route('POST', '/api/ui/health/token', async () => {
 
 function buildPromptPreview(d, t) {
   const emp = d.employees.find((e) => e.id === t.assignee) || null;
+  const routine = t.routineId ? d.routines.find((r) => r.id === t.routineId) : null;
   const info = taskToolsInfo(d, t);
   const res = t.resource ? d.resources.find((r) => r.id === t.resource) : null;
   const mode = !emp ? 'human' : (CLI_ENGINES.includes(emp.engine) && canRun(emp)) ? 'cli' : (emp.engine === 'local' && canRun(emp)) ? 'local' : 'handout';
   const prompt = !emp
     ? taskPromptCommon(d, null, t).join('\n')
     : mode === 'handout' ? handoutPrompt(d, emp, t) : (mode === 'local' ? `[시스템]\n${systemPrompt(emp, d.owner.name)}\n\n[작업 지시]\n${runPrompt(d, emp, t)}` : runPrompt(d, emp, t));
+  const pinnedSkillKeys = [...new Set([...(t.skills || []), ...(routine?.skills || [])])];
+  const pinnedSkills = resolvePinnedSkills(d, pinnedSkillKeys);
+  const explicitKbIds = [...new Set([...(t.knowledgeIds || []), ...(routine?.knowledgeIds || [])])];
+  const fullText = `${t.title} ${t.note || ''} ${routine?.instruction || ''}`;
+  const resolvedKb = resolveTaskKnowledge(d, emp, fullText, explicitKbIds);
   return {
     mode,
     empId: emp?.id || null,
@@ -1675,6 +1766,8 @@ function buildPromptPreview(d, t) {
       account: info.account ? { name: info.account.name, spaceName: info.account.spaceName || '', blocked: Boolean(info.policy?.blocked), message: info.policy?.message || '' } : null,
       designs: info.designs.map((x) => x.name),
       tools: info.oss.map((x) => ({ name: x.name, command: x.command || '', repo: x.repo || '' })),
+      skills: pinnedSkills.map((x) => ({ key: x.key || x.preset || x.name, name: x.name, roleLabel: x.roleLabel || '' })),
+      knowledge: resolvedKb.map((x) => ({ id: x.k.id, title: x.k.title, category: x.k.category, pinned: x.pinned })),
       gate: t.gate || null,
       gateApproved: Boolean(t.gateApprovedAt),
       estCost: sumEstCost(t),
@@ -1696,7 +1789,8 @@ route('GET', '/api/ui/routines/:id/prompt-preview', async ({ params }) => {
     id: r.id, title: r.title, time: r.time, intervalMin: r.intervalMin || null,
     note: r.instruction || r.where || '', assignee: r.assignee, resource: r.resource || null,
     account: r.account || null, browser: r.browser || null, design: r.design || null,
-    tools: [...(r.tools || [])], estCost: r.estCost ?? null, stepMode: r.stepMode || 'serial',
+    tools: [...(r.tools || [])], skills: [...(r.skills || [])], knowledgeIds: [...(r.knowledgeIds || [])],
+    estCost: r.estCost ?? null, stepMode: r.stepMode || 'serial',
     sharedFolder: r.sharedFolder || '', steps: cloneRoutineSteps(r.steps || []),
     gate: r.gate || null, gateApprovedAt: null, routineId: r.id,
   };
@@ -1765,7 +1859,9 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
     const parsedTime = explicitTime || (runAt ? hm(new Date(runAt)) : extractKoreanTime(title));
     const t = {
       id: nextId(d, 't'), order: 0, title, kind: 'human', assignee: 'jay', date: dateOrNull(body.date) || ymd(), time: parsedTime, runAt, isAlarm: isPersonalAlarm(title), alarmFiredAt: null,
-      status: '대기', note: text(body.note, 4000), resource: null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: costOrNull(body.estCost), intervalMin: null,
+      status: '대기', note: text(body.note, 4000), resource: null, account: null, browser: null, design: null, tools: [],
+      skills: skillKeyRefs(body.skills), knowledgeIds: knowledgeRefs(d, body.knowledgeIds),
+      manualLinks: {}, estCost: costOrNull(body.estCost), intervalMin: null,
       stepMode: STEP_MODES.includes(body.stepMode) ? body.stepMode : 'serial', sharedFolder: text(body.sharedFolder, 400), steps: [],
       gate: null, gateApprovedAt: null, reason: '', assignSource: 'jay',
       queued: false, queueReason: '', retryAfter: null, localOnly: Boolean(body.localOnly),
@@ -1804,7 +1900,18 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
       applyAssign(t, { assignee: picked, resource: chosenRes, account: accId, browser: brId, design: desId, tools: tIds, gate: g, reason: reasonTxt }, 'jay');
       if (picked && !g) d.settings.assignMemory = learnAssignMemory(d.settings.assignMemory, title, picked);
     } else {
-      const s = ruleAssign(title, t.note, d.employees, d.resources, d.settings?.assignMemory);
+      const skillHint = t.skills.length ? ` ${t.skills.join(' ')}` : '';
+      const s = ruleAssign(title, `${t.note}${skillHint}`, d.employees, d.resources, d.settings?.assignMemory);
+      if (body.account !== undefined) {
+        const accId = accountRef(d, body.account);
+        s.account = accId;
+        if (accId) {
+          const accObj = d.resources.find((x) => x.id === accId);
+          const prefBr = accObj ? resolveAccountBrowser(accObj, d.resources)?.id || null : null;
+          if (prefBr && !s.browser) s.browser = prefBr;
+          t.manualLinks = { ...(t.manualLinks || {}), account: true };
+        }
+      }
       const sEmp = s.assignee && s.assignee !== 'jay' ? d.employees.find((e) => e.id === s.assignee) || null : null;
       if (sEmp && d.settings?.autoOptimize !== false) {
         const opt = pickOptimalMachine(d, t, sEmp, { localStat, offices, workingList, preferredResId: s.resource || null });
@@ -1861,6 +1968,8 @@ route('PATCH', '/api/ui/tasks/:id', async ({ params, body }) => store.mutate((d)
   if (body.design !== undefined) t.design = designRef(d, body.design);
   if (body.estCost !== undefined) t.estCost = costOrNull(body.estCost);
   if (body.tools !== undefined) t.tools = toolRefs(d, body.tools);
+  if (body.skills !== undefined) t.skills = skillKeyRefs(body.skills);
+  if (body.knowledgeIds !== undefined) t.knowledgeIds = knowledgeRefs(d, body.knowledgeIds);
   // 프롬프트(제목/지시 메모)가 바뀌거나 수동 연결이 변경되면 자동 연결 항목을 정확히 동기화 (지워진 언급도 정리)
   const full = `${t.title} ${t.note || ''}`;
   if (full !== before || body.account !== undefined || body.browser !== undefined || body.design !== undefined || body.tools !== undefined) {
@@ -1973,6 +2082,7 @@ route('POST', '/api/ui/tasks/:id/to-routine', async ({ params }) => store.mutate
     id: nextId(d, 'r'), title: t.title, where: '', days: [0, 1, 2, 3, 4, 5, 6], time: t.intervalMin ? null : (t.time || null),
     intervalMin: t.intervalMin || null, lastIntervalAt: null,
     assignee: t.assignee, resource: t.resource || null, account: t.account || null, browser: t.browser || null, design: t.design || null, tools: [...(t.tools || [])],
+    skills: [...(t.skills || [])], knowledgeIds: [...(t.knowledgeIds || [])],
     manualLinks: { ...(t.manualLinks || {}) }, estCost: t.estCost ?? null,
     stepMode: t.stepMode === 'parallel' ? 'parallel' : 'serial', sharedFolder: t.sharedFolder || '', steps: cloneRoutineSteps(t.steps),
     nextAssignee: null, alarm: t.assignee === 'jay', enabled: true, instruction: t.note || '',
@@ -2422,7 +2532,9 @@ route('POST', '/api/ui/routines', async ({ body }) => {
     const r = {
       id: nextId(d, 'r'), title, where: text(body.where, 100), days: daysOf(body.days), time: timeOrNull(body.time),
       intervalMin: intervalOrNull(body.intervalMin), lastIntervalAt: null,
-      assignee: 'jay', resource: null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: costOrNull(body.estCost),
+      assignee: 'jay', resource: null, account: null, browser: null, design: null, tools: [],
+      skills: skillKeyRefs(body.skills), knowledgeIds: knowledgeRefs(d, body.knowledgeIds),
+      manualLinks: {}, estCost: costOrNull(body.estCost),
       stepMode: STEP_MODES.includes(body.stepMode) ? body.stepMode : 'serial', sharedFolder: text(body.sharedFolder, 400), steps: [],
       nextAssignee: null, alarm: true, enabled: true, instruction: text(body.instruction, 8000), gate: null, feature: null, log: {}, reason: '', assignSource: 'jay',
     };
@@ -2460,8 +2572,39 @@ route('POST', '/api/ui/routines', async ({ body }) => {
       };
       if (picked && !g) d.settings.assignMemory = learnAssignMemory(d.settings.assignMemory, title, picked);
     } else {
-      const s = ruleAssign(title, r.instruction, d.employees, d.resources, d.settings?.assignMemory);
-      Object.assign(r, { assignee: s.assignee, resource: s.resource, account: s.account || null, browser: s.browser || null, design: s.design || null, tools: s.tools || [], reason: s.reason, reasonBy: s.engine, noMatch: Boolean(s.noMatch), gate: s.gate, assignSource: 'rule' });
+      const skillHint = r.skills.length ? ` ${r.skills.join(' ')}` : '';
+      const s = ruleAssign(title, `${r.instruction}${skillHint}`, d.employees, d.resources, d.settings?.assignMemory);
+      if (body.account !== undefined) {
+        const accId = accountRef(d, body.account);
+        s.account = accId;
+        if (accId) {
+          const accObj = d.resources.find((x) => x.id === accId);
+          const prefBr = accObj ? resolveAccountBrowser(accObj, d.resources)?.id || null : null;
+          if (prefBr && !s.browser) s.browser = prefBr;
+          r.manualLinks = { ...(r.manualLinks || {}), account: true };
+        }
+      }
+      // 대표가 자동 배분 + AI 스킬을 명시적으로 장착한 경우(결제·금지 제외), 사람 알람으로 내리지 않고 스킬 보유 AI 직원에게 배정(승인 게이트는 그대로 유지)
+      let assignSrc = 'rule';
+      if (r.skills.length && s.assignee === 'jay' && s.gate !== '결제' && !s.accountBlocked) {
+        const pinLow = new Set(r.skills.map((k) => String(k).toLowerCase()));
+        const skillOwner = d.employees.find((e) => (e.skills || []).some((sk) => pinLow.has(String(sk.preset || sk.name || '').toLowerCase())))
+          || d.employees.find((e) => e.id === d.settings?.mainAi)
+          || d.employees.find((e) => CLI_ENGINES.includes(e.engine) && e.runMode !== 'off')
+          || d.employees[0];
+        if (skillOwner) {
+          s.assignee = skillOwner.id;
+          const opt = pickOptimalMachine(d, { title, note: r.instruction }, skillOwner, { localStat, offices, workingList });
+          if (opt.resource) s.resource = opt.resource.id;
+          if (!s.browser && s.account) {
+            const accObj = d.resources.find((x) => x.id === s.account);
+            s.browser = (accObj ? resolveAccountBrowser(accObj, d.resources)?.id : null) || pickBrowser(`${title} ${r.instruction}`, d.resources, null)?.id || null;
+          }
+          s.reason = `지정 스킬 기반 AI 배분 → ${skillOwner.name}${s.gate ? ` (${s.gate} 승인 대기)` : ''}`;
+          assignSrc = 'jay';
+        }
+      }
+      Object.assign(r, { assignee: s.assignee, resource: s.resource, account: s.account || null, browser: s.browser || null, design: s.design || null, tools: s.tools || [], reason: s.reason, reasonBy: s.engine, noMatch: Boolean(s.noMatch), gate: s.gate, assignSource: assignSrc });
     }
     d.routines.push(r);
     ensureRoutineTasks(d);
@@ -2528,6 +2671,8 @@ route('PATCH', '/api/ui/routines/:id', async ({ params, body }) => store.mutate(
   if (body.design !== undefined) r.design = designRef(d, body.design);
   if (body.estCost !== undefined) r.estCost = costOrNull(body.estCost);
   if (body.tools !== undefined) r.tools = toolRefs(d, body.tools);
+  if (body.skills !== undefined) r.skills = skillKeyRefs(body.skills);
+  if (body.knowledgeIds !== undefined) r.knowledgeIds = knowledgeRefs(d, body.knowledgeIds);
   const full = `${r.title} ${r.instruction || ''}`;
   if (full !== rBefore || body.account !== undefined || body.browser !== undefined || body.design !== undefined || body.tools !== undefined) {
     syncPromptLinks(d, r, full, body);
@@ -2636,6 +2781,8 @@ route('POST', '/api/ui/routines/:id/run-now', async ({ params }) => {
         browser: (first && first.browser) || r.browser || null,
         design: (first && first.design) || r.design || null,
         tools: first && first.tools?.length ? [...first.tools] : [...(r.tools || [])],
+        skills: [...(r.skills || [])],
+        knowledgeIds: [...(r.knowledgeIds || [])],
         estCost: r.estCost ?? null,
         intervalMin: r.intervalMin || null,
         stepMode, sharedFolder: r.sharedFolder || '', steps,
@@ -2652,6 +2799,8 @@ route('POST', '/api/ui/routines/:id/run-now', async ({ params }) => {
       t.handedAt = null;
       t.relayedAt = null;
       t.time = hm(now);
+      t.skills = [...(r.skills || [])];
+      t.knowledgeIds = [...(r.knowledgeIds || [])];
       if (steps.length) t.steps = steps;
       t.reason = '오토메이션 다시 실행';
     }
@@ -3016,6 +3165,12 @@ route('DELETE', '/api/ui/knowledge/:id', async ({ params }) => store.mutate((d) 
   const before = (d.knowledge || []).length;
   d.knowledge = (d.knowledge || []).filter((x) => x.id !== params.id);
   if (d.knowledge.length === before) throw new HttpError(404, '지식 문서를 찾을 수 없어요.');
+  for (const r of d.routines || []) {
+    if (Array.isArray(r.knowledgeIds)) r.knowledgeIds = r.knowledgeIds.filter((x) => x !== params.id);
+  }
+  for (const t of d.tasks || []) {
+    if (Array.isArray(t.knowledgeIds)) t.knowledgeIds = t.knowledgeIds.filter((x) => x !== params.id);
+  }
   return { ok: true };
 }), UI);
 

@@ -268,6 +268,67 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     assert.equal(probeRes.status, 200);
     assert.equal(typeof probeRes.body.ego.installed, 'boolean');
     assert.equal(typeof probeRes.body.ego.connected, 'boolean');
+
+    // 9) 오토메이션 · 할 일에 명시적으로 꽂은 지정 스킬(skills) + 지정 지식(knowledgeIds) 100% 프롬프트 주입 및 전파 검증
+    const secretRuleKb = await srv.ui('POST', '/api/ui/knowledge', {
+      title: '다국어 응답 기준서',
+      category: '참고 자료',
+      content: '스페인어·영어·일본어 등 작성자 언어 그대로 2문장 이내 친근하게 답하고 과장 금지. 마무리에 CONNECT AI LAB 서명 생략.',
+      tags: ['다국어'],
+      scope: 'all',
+    });
+    assert.equal(secretRuleKb.status, 200);
+    const kbId = secretRuleKb.body.id;
+
+    // 제목에 '다국어' 단어가 전혀 없어도 knowledgeIds로 명시 연결하면 반드시 최우선 주입되어야 함
+    const pinnedRt = await srv.ui('POST', '/api/ui/routines', {
+      title: '인스타그램 최신 컨텐츠 댓글 작성',
+      intervalMin: 60,
+      days: [0, 1, 2, 3, 4, 5, 6],
+      assignee: 'auto',
+      skills: ['connect-ai-marketer', 'connect-ai-video-motion'],
+      knowledgeIds: [kbId],
+      instruction: '최신 게시물 댓글에 자연스럽게 답글 초안을 준비하세요.',
+    });
+    assert.equal(pinnedRt.status, 200);
+    assert.deepEqual(pinnedRt.body.skills, ['connect-ai-marketer', 'connect-ai-video-motion']);
+    assert.deepEqual(pinnedRt.body.knowledgeIds, [kbId]);
+
+    const rtPrev = await srv.ui('GET', `/api/ui/routines/${pinnedRt.body.id}/prompt-preview`);
+    assert.equal(rtPrev.status, 200);
+    assert.match(rtPrev.body.prompt, /대표가 지정한 필수 스킬/);
+    assert.match(rtPrev.body.prompt, /connect-ai-marketer/);
+    assert.match(rtPrev.body.prompt, /connect-ai-video-motion/);
+    assert.match(rtPrev.body.prompt, /★ \[필수 지식 · 참고 자료\] 다국어 응답 기준서/);
+    assert.match(rtPrev.body.prompt, /스페인어·영어·일본어/);
+    assert.ok(rtPrev.body.linked.skills.some((s) => s.key === 'connect-ai-marketer'));
+    assert.ok(rtPrev.body.linked.knowledge.some((k) => k.id === kbId && k.pinned === true));
+
+    // 루틴에서 오늘 자동 생성된 할 일(task)도 skills·knowledgeIds를 그대로 상속받아야 함
+    const stAfterRt = await srv.ui('GET', '/api/state');
+    const spawned = stAfterRt.body.data.tasks.find((t) => t.routineId === pinnedRt.body.id);
+    assert.ok(spawned, '오토메이션에서 오늘 할 일이 생성되어야 함');
+    assert.deepEqual(spawned.skills, ['connect-ai-marketer', 'connect-ai-video-motion']);
+    assert.deepEqual(spawned.knowledgeIds, [kbId]);
+    const taskPrev = await srv.ui('GET', `/api/ui/tasks/${spawned.id}/prompt-preview`);
+    assert.equal(taskPrev.status, 200);
+    assert.match(taskPrev.body.prompt, /★ \[필수 지식 · 참고 자료\] 다국어 응답 기준서/);
+    assert.match(taskPrev.body.prompt, /connect-ai-marketer/);
+
+    // 루틴에서 지정 스킬 수정 시 오늘 할 일에도 동기화, 지식 삭제 시 참조 정리
+    const patchedRt = await srv.ui('PATCH', `/api/ui/routines/${pinnedRt.body.id}`, {
+      skills: ['connect-ai-marketer'],
+    });
+    assert.equal(patchedRt.status, 200);
+    assert.deepEqual(patchedRt.body.skills, ['connect-ai-marketer']);
+    const delKb = await srv.ui('DELETE', `/api/ui/knowledge/${kbId}`);
+    assert.equal(delKb.status, 200);
+    const stAfterDel = await srv.ui('GET', '/api/state');
+    const rtAfterDel = stAfterDel.body.data.routines.find((r) => r.id === pinnedRt.body.id);
+    const tAfterDel = stAfterDel.body.data.tasks.find((t) => t.id === spawned.id);
+    assert.deepEqual(rtAfterDel.knowledgeIds, []);
+    assert.deepEqual(tAfterDel.knowledgeIds, []);
+    assert.deepEqual(tAfterDel.skills, ['connect-ai-marketer']);
   } finally {
     await srv.close();
   }

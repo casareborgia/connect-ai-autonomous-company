@@ -1476,36 +1476,153 @@ body.onboarding .shell { grid-template-columns: 1fr; }
 .auto-run-actor { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--ink); }
 .auto-run-ts { font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
-/* New Automation Modal */
-dialog.auto-dlg { width: min(560px, calc(100vw - 24px)); }
+/* New Automation Modal (4-Pillar AI × Skill × Knowledge × Account Blueprint Builder) */
+dialog.auto-dlg { width: min(740px, calc(100vw - 24px)); max-width: 740px; padding: 18px 20px; max-height: calc(100vh - 28px); }
 .auto-m-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.auto-m-head { display: flex; flex-direction: column; gap: 3px; }
-.auto-m-title-h { margin: 0; font-size: 17px; font-weight: 700; color: var(--ink); letter-spacing: -.01em; }
+.auto-m-head { display: flex; flex-direction: column; gap: 2px; }
+.auto-m-title-h { margin: 0; font-size: 17px; font-weight: 700; color: var(--ink); letter-spacing: -.015em; }
+.auto-m-sub { margin: 1px 0 0; line-height: 1.35; }
 .auto-m-x {
-  width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent;
+  width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent;
   color: var(--ink-3); font-size: 20px; line-height: 1; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; flex: none;
 }
 .auto-m-x:hover { background: var(--fill); color: var(--ink); }
-.auto-m-body { display: flex; flex-direction: column; gap: 13px; margin-top: 14px; }
-.auto-m-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.auto-m-lbl { font-size: 12px; font-weight: 600; color: var(--ink-2); }
-.auto-m-title { height: 42px; font-size: 14.5px; font-weight: 600; }
+.auto-m-body { display: flex; flex-direction: column; gap: 8px; margin-top: 9px; }
+.auto-m-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.auto-m-lbl { font-size: 12px; font-weight: 700; color: var(--ink); letter-spacing: -.01em; }
+.auto-m-title { height: 38px; font-size: 14px; font-weight: 600; }
 .auto-m-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.auto-m-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.auto-m-sched-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.auto-m-sched-col { flex: 0 0 185px; }
+.auto-m-days-col { flex: 1 1 230px; }
+.auto-m-chips { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .auto-eng-dot {
   width: 6px; height: 6px; border-radius: 50%; background: var(--ok);
-  display: inline-block; margin-right: 5px; vertical-align: middle;
+  display: inline-block; margin-right: 4px; vertical-align: middle; flex: none;
 }
-.auto-m-prompt { min-height: 92px; padding: 10px 12px; resize: vertical; line-height: 1.5; }
+.auto-m-prompt { min-height: 52px; padding: 8px 11px; resize: vertical; line-height: 1.4; }
 .auto-m-hint {
   font-size: 12.5px; color: var(--ink-2); padding: 10px 12px; border-radius: 10px;
   background: var(--fill); border: 1px solid var(--line);
 }
 .auto-m-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
-  margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line);
+  margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line);
 }
+
+/* 4-Pillar Blueprint Sections inside Modal & Routine Cards */
+.auto-bp-stack {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 9px 11px; border-radius: 12px;
+  background: linear-gradient(180deg, #fafaf9 0%, #f5f4f0 100%);
+  border: 1px solid var(--line);
+}
+.auto-bp-sec { display: flex; flex-direction: column; gap: 5px; }
+.auto-bp-sec + .auto-bp-sec { padding-top: 7px; border-top: 1px dashed var(--line-2); }
+.auto-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.auto-sec-meta { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.auto-cnt-pill {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 99px;
+  font-size: 11px; font-weight: 600; background: #fff; color: var(--ink-3);
+  border: 1px solid var(--line-2);
+}
+.auto-cnt-pill.is-on {
+  background: #0a0a0c; color: #f6e2b4; border-color: rgba(212, 163, 89, 0.7);
+}
+.auto-rec-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 9px; border-radius: 99px; cursor: pointer; font: inherit;
+  font-size: 11px; font-weight: 700;
+  background: rgba(212, 163, 89, 0.16); color: #7a5418;
+  border: 1px solid rgba(212, 163, 89, 0.55);
+  transition: background .12s ease, transform .12s ease;
+}
+.auto-rec-btn:hover { background: rgba(212, 163, 89, 0.28); transform: translateY(-0.5px); }
+.auto-more-btn { font-size: 11.5px; padding: 0 2px; }
+.auto-qkb-toggle { height: 26px; padding: 0 9px; font-size: 11.5px; }
+
+.bp-who-chip { display: inline-flex; align-items: center; gap: 6px; }
+.bp-chip { display: inline-flex; align-items: center; gap: 5px; }
+.bp-chip.is-rec {
+  border-color: rgba(212, 163, 89, 0.78);
+  background: linear-gradient(180deg, #fffdf7 0%, #fbf3e0 100%);
+  color: #5c3d0c;
+}
+.bp-chip.is-soon { opacity: .62; }
+.bp-chip.on {
+  background: #0a0a0c; color: #fff; border-color: #d4a359;
+  box-shadow: 0 2px 8px rgba(10, 10, 12, 0.14);
+}
+.bp-rec-dot {
+  font-size: 9.5px; font-weight: 800; padding: 1px 5px; border-radius: 99px;
+  background: #d4a359; color: #0a0a0c; letter-spacing: .02em;
+}
+.bp-kb-cat {
+  font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 5px;
+  background: rgba(10, 10, 12, 0.07); color: var(--ink-2);
+}
+.bp-kb-chip.on .bp-kb-cat {
+  background: rgba(212, 163, 89, 0.24); color: #f6e2b4;
+}
+.auto-kb-empty { padding: 4px 2px; line-height: 1.45; }
+
+/* Inline Quick Knowledge Creator inside Modal */
+.auto-qkb-box {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 11px 12px; border-radius: 10px;
+  background: #fff; border: 1px solid rgba(212, 163, 89, 0.65);
+  box-shadow: 0 4px 14px rgba(10, 10, 12, 0.06);
+}
+.auto-qkb-row { display: flex; align-items: center; gap: 8px; }
+select.in.sm.auto-qkb-cat { width: 124px; flex: 0 0 124px; }
+input.in.sm.auto-qkb-title { flex: 1 1 auto; width: auto; min-width: 0; }
+.auto-qkb-body { min-height: 60px; padding: 8px 10px; resize: vertical; font-size: 12.5px; line-height: 1.45; }
+.auto-qkb-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+
+/* Matte Jet Black × Champagne Gold Live Blueprint Summary Strip */
+.auto-bp-summary {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 13px; border-radius: 11px;
+  background: #0a0a0c; color: #d8dbe2;
+  border: 1px solid rgba(212, 163, 89, 0.45);
+}
+.auto-bp-kicker {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .12em;
+  color: #d4a359; padding: 2px 7px; border-radius: 5px;
+  background: rgba(212, 163, 89, 0.14); flex: none;
+}
+.auto-bp-items { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 12px; }
+.auto-bp-seg { color: #cbd2de; }
+.auto-bp-seg b { color: #8c95a6; font-weight: 600; margin-right: 2px; }
+.auto-bp-seg.is-pinned { color: #f9ebc8; font-weight: 600; }
+.auto-bp-seg.is-pinned b { color: #d4a359; }
+.auto-bp-sep { color: rgba(212, 163, 89, 0.45); font-weight: 700; }
+
+/* Blueprint Pills directly on #daily Routine Cards + Prompt Preview */
+.auto-bp-pills { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+.bp-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; line-height: 1.35;
+}
+.bp-pill.bp-skill {
+  background: #0a0a0c; color: #f6e2b4; border: 1px solid rgba(212, 163, 89, 0.55);
+}
+.bp-pill.bp-kb {
+  background: rgba(212, 163, 89, 0.14); color: #6b4912; border: 1px solid rgba(212, 163, 89, 0.42);
+}
+.bp-pill.bp-acc {
+  background: var(--fill); color: var(--ink-2); border: 1px solid var(--line-2);
+}
+.bp-pill-ic { font-size: 10.5px; line-height: 1; }
+.rt-bp-editor {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px; border-radius: 10px;
+  background: var(--fill); border: 1px solid var(--line);
+}
+.who-chip { display: inline-flex; align-items: center; gap: 5px; }
+.tag.bp-prev-sk { display: inline-flex; align-items: center; gap: 4px; background: #0a0a0c; color: #f6e2b4; border-color: rgba(212, 163, 89, 0.6); }
+.tag.bp-prev-kb { background: rgba(212, 163, 89, 0.18); color: #6b4912; border-color: rgba(212, 163, 89, 0.55); font-weight: 600; }
 
 /* Primary/Sub-Skills hierarchy + AI self-registered badge + Ego Lite live probe + Knowledge Base */
 .skill-pill.is-primary { border-color: rgba(212, 163, 89, 0.72); background: rgba(212, 163, 89, 0.12); }
