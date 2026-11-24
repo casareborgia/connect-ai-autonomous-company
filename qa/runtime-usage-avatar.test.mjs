@@ -144,6 +144,7 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
       AIHQ_SEED: 'example',
       AIHQ_NO_OPEN: '1',
       AIHQ_DISPATCH: '0',
+      AIHQ_TEST_RAM_PCT: '40',
       AIHQ_LLM_MODEL: '',
       AIHQ_HANG_MS: '1000', // 1초 무응답 시 먹통 감지
       AIHQ_NO_CAFFEINATE: '1',

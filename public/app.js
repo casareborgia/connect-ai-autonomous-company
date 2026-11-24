@@ -40,7 +40,14 @@ function isEditingPageInput() {
   if (ui.composing) return true;
   const el = document.activeElement;
   if (!el || !el.closest('#page')) return false;
-  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) && el.type !== 'checkbox';
+  if (el.tagName === 'SELECT') return true;
+  if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+    if (el.type === 'checkbox' || el.type === 'radio') return false;
+    // 빈 입력칸(Enter 전송 직후 커서만 남은 상태)은 실시간 완료·알람 화면 갱신을 막지 않는다
+    if (!String(el.value || '').trim()) return false;
+    return true;
+  }
+  return false;
 }
 
 // 같은 요청을 두 번 보내지 않는다 (엔터 두 번, 빠른 두 번 클릭)
@@ -504,12 +511,26 @@ function renderLiveWorker() {
   box.classList.add('show');
 }
 
+const recentStartCards = new Map();
+function markStartCardShown(taskId) {
+  if (!taskId) return;
+  const now = Date.now();
+  recentStartCards.set(taskId, now);
+  for (const [k, ts] of recentStartCards) if (now - ts > 10000) recentStartCards.delete(k);
+}
+function wasStartCardRecent(taskId) {
+  const ts = taskId ? recentStartCards.get(taskId) : 0;
+  return Boolean(ts && Date.now() - ts < 8000);
+}
+
 function detectLiveEvents(prev, next) {
   if (!prev || !next?.data) return;
   const prevWork = new Set((prev.working || []).map((w) => `${w.emp}:${w.taskId}`));
   for (const w of next.working || []) {
     if (!prevWork.has(`${w.emp}:${w.taskId}`)) {
+      if (wasStartCardRecent(w.taskId)) continue;
       const t = next.data.tasks.find((x) => x.id === w.taskId);
+      markStartCardShown(w.taskId);
       pushLiveCard({
         kind: 'connect',
         title: `${shortName(w.emp)} 작업 연결 · 시작`,
@@ -668,6 +689,7 @@ async function load({ background = false } = {}) {
   if (prev && !unchanged) detectLiveEvents(prev, next);
   renderLiveWorker();
   if (unchanged) return;
+  if (background && !S?.data?.settings?.onboarded) return;
   if (background && isEditingPageInput()) {
     ui.pendingRender = true;
     renderNav();
@@ -1029,12 +1051,13 @@ function taskRow(t, { draggable = true, overdue = false } = {}) {
           onclick: (ev) => {
             ev.stopPropagation();
             once(`qrun-${t.id}`, async () => {
-              const r = await act('POST', `/api/ui/tasks/${t.id}/run`, {});
+              const forceRun = Boolean(t.queued);
+              const r = await act('POST', `/api/ui/tasks/${t.id}/run`, forceRun ? { force: true } : {});
               if (r?.queued) toast(`⏳ 대기열: ${r.reason || '여유 생기면 자동 시작해요'}`);
               else if (r) toast(`${shortName(r.empId || e.id)}이(가) 작업을 시작했어요`);
             });
           },
-        }, t.status === '막힘' ? '재시도' : '실행')
+        }, t.queued ? '지금 바로 실행' : t.status === '막힘' ? '재시도' : '실행')
         : (e.engine === 'web' ? h('span', { class: 'tag dash', title: '웹 전용 AI — 눌러서 설치된 AI로 바로 실행하거나 지시문 복사' }, '웹 복사') : null))
     : null;
   const right = h('div', { class: 'right' },
@@ -1967,27 +1990,36 @@ function addBar() {
       const isHuman = r.assignee === 'jay';
       const isAlarm = Boolean(r.isAlarm);
       const unlinked = !isHuman && r.assigneeRunnable === false && !r.gate;
+      const queued = Boolean(r.autoQueued && !r.autoStarted);
       const host = !isHuman && r.mainMachineName ? ` · ${r.mainMachineName}` : '';
       const schedTag = r.delaySec ? ` · ${r.delaySec}초 뒤 자동 실행` : (!r.autoStarted && r.time && !r.gate ? ` · ${fmtKoTime(r.time)} 예약` : '');
       const aiLabel = r.mainAiId ? shortName(r.mainAiId) : (r.mainAiName || '메인 AI');
+      const assigneeLabel = shortName(r.assignee);
+      if (r.autoStarted && r.id) markStartCardShown(r.id);
       pushLiveCard({
-        kind: r.gate ? 'approve' : unlinked ? 'handoff' : 'connect',
-        kicker: `CONNECT AI · ${multi ? '멀티 팀 자동 배분' : isAlarm ? '알람 예약' : isHuman ? '대표 일정 분류' : unlinked ? '미연결 AI 배정' : '자동 배분'}`,
+        kind: r.gate ? 'approve' : (unlinked || queued) ? 'handoff' : 'connect',
+        kicker: `CONNECT AI · ${multi ? '멀티 팀 자동 배분' : isAlarm ? '알람 예약' : isHuman ? '대표 일정 분류' : queued ? 'RAM 보호 대기열' : unlinked ? '미연결 AI 배정' : '자동 배분'}`,
         title: multi
           ? `${koSubject(aiLabel)} ${r.steps.length}단계로 팀에 배분했어요`
           : isAlarm
             ? `⏰ 알람을 예약했어요${r.delaySec ? ` (${r.delaySec}초 뒤)` : r.time ? ` (${fmtKoTime(r.time)})` : ''}`
             : isHuman
               ? '대표님이 직접 할 일로 분류했어요'
-              : unlinked
-                ? `${shortName(r.assignee)} 배정 (미연결 · 수동 확인 필요)`
-                : `${aiLabel} → ${shortName(r.assignee)} 배정 완료`,
+              : queued
+                ? `${assigneeLabel} 배정 · RAM 보호 대기열`
+                : unlinked
+                  ? `${assigneeLabel} 배정 (미연결 · 수동 확인 필요)`
+                  : aiLabel === assigneeLabel
+                    ? `${assigneeLabel}${r.autoStarted ? ' 즉시 실행 시작' : ' 배정 완료'}`
+                    : `${aiLabel} → ${assigneeLabel} 배정 완료`,
         body: isHuman
           ? (r.reason || '몸이나 현장이 필요한 일')
-          : `${r.stepSummary || shortName(r.assignee)}${host}${r.autoStarted ? ' · 즉시 실행 시작' : r.gate ? ` · ${r.gate} 승인 대기` : unlinked ? ' · AI 직원에서 연결하거나 복사 실행해 주세요' : schedTag}`,
+          : queued
+            ? (r.queueReason || `${assigneeLabel}${host} · RAM 여유 생기면 자동 시작 (목록에서 "지금 바로 실행" 가능)`)
+            : `${r.stepSummary || shortName(r.assignee)}${host}${r.autoStarted ? ' · 즉시 실행 시작' : r.gate ? ` · ${r.gate} 승인 대기` : unlinked ? ' · AI 직원에서 연결하거나 복사 실행해 주세요' : schedTag}`,
         empId: r.assignee !== 'jay' ? r.assignee : null,
         taskId: r.id,
-        actionLabel: isHuman ? '일정 보기 →' : '배분 내역 보기 →',
+        actionLabel: isHuman ? '일정 보기 →' : queued ? '대기열 열기 →' : '배분 내역 보기 →',
       });
       if (multi) { ui.open = r.id; render(); }
       document.querySelector('[data-k="add-title"]')?.focus();

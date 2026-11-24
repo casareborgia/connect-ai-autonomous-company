@@ -922,7 +922,7 @@ async function currentLocalStat(fresh = false) {
   return st;
 }
 
-async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
+async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = false } = {}) {
   const tried = triedEmps instanceof Set ? triedEmps : new Set();
   let d = store.data;
   let t = getTask(d, taskId);
@@ -991,7 +991,7 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
     preferredResId: t.resource || null, requireRunnableHost: true,
   });
 
-  if (opt.queued && autoOpt) {
+  if (opt.queued && autoOpt && !force) {
     // 로컬 모델 실행 중 RAM 과부하 → 민감 작업이 아니면 클라우드 AI로 우회해 컴퓨터 멈춤 방지
     if (emp.engine === 'local' && !isSensitiveLocalTask(t, emp)) {
       const cloudFb = pickFallbackEmployee(d, emp.id, {
@@ -1181,6 +1181,13 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null } = {}) {
         syncRoutineLog(x, tt);
         const empLabel = emp.avatarName || emp.name;
         notifyOwner(x, `CONNECT AI HQ · ${empLabel} ${ok ? '완료' : '확인 필요'}`, `${tt.title}${ok ? '' : ' (실행 중단)'}`);
+      }
+    } else if (ok && tt.status === '완료') {
+      // AI 직원이 실행 중 hq.mjs task done 으로 먼저 완료 처리했더라도 최종 출력에서 결과 요약을 채워 둔다
+      if (!tt.completedAt) tt.completedAt = nowIso();
+      if (!tt.completedBy) tt.completedBy = emp.id;
+      if (!tt.resultSummary && outText && outText !== '(출력 없음)') {
+        tt.resultSummary = summarizeText(outText, 240);
       }
     }
   });
@@ -1618,6 +1625,7 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
   // 담당 AI 직원이 '자동 실행(auto)' 상태이고 위험 게이트·미래 시각이 없으면 추가 즉시 최적 컴퓨터에서 자동 착수
   let autoStarted = false;
   let autoQueued = false;
+  let queueReason = '';
   const dNow = store.data;
   const targetEmp = t.assignee && t.assignee !== 'jay' ? dNow.employees.find((e) => e.id === t.assignee) : null;
   const targetRes = t.resource ? dNow.resources.find((r) => r.id === t.resource) : null;
@@ -1637,11 +1645,12 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
       const sr = await startRun(t.id, 'auto');
       autoStarted = Boolean(sr?.started);
       autoQueued = Boolean(sr?.queued);
+      if (sr?.queued && sr?.reason) queueReason = sr.reason;
     } catch (e) {
       console.log(`[즉시 자동 착수 건너뜀] ${t.id} ${e.message}`);
     }
   }
-  return { ...t, autoStarted, autoQueued };
+  return { ...t, autoStarted, autoQueued, queueReason };
 }, UI);
 
 route('PATCH', '/api/ui/tasks/:id', async ({ params, body }) => store.mutate((d) => {
@@ -1886,7 +1895,7 @@ route('POST', '/api/ui/tasks/:id/run', async ({ params, body }) => {
       }
     });
   }
-  return startRun(params.id, 'jay');
+  return startRun(params.id, 'jay', { force: Boolean(body?.force) });
 }, UI);
 
 route('POST', '/api/ui/tasks/:id/messages', async ({ params, body }) => {
@@ -2998,6 +3007,7 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
 
   let autoStarted = false;
   let autoQueued = false;
+  let queueReason = '';
   const dNow = store.data;
   const targetEmp = t.assignee && t.assignee !== 'jay' ? dNow.employees.find((e) => e.id === t.assignee) : null;
   const targetRes = t.resource ? dNow.resources.find((r) => r.id === t.resource) : null;
@@ -3016,12 +3026,13 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       const sr = await startRun(t.id, 'auto');
       autoStarted = Boolean(sr?.started);
       autoQueued = Boolean(sr?.queued);
+      if (sr?.queued && sr?.reason) queueReason = sr.reason;
     } catch (e) {
       console.log(`[자동 배분 즉시 착수 건너뜀] ${t.id} ${e.message}`);
     }
   }
   const assigneeRunnable = Boolean(targetEmp && targetEmp.runMode !== 'off' && canRun(targetEmp));
-  return { ...t, delegated: true, ...meta, delaySec: delaySec || null, assigneeRunnable, autoStarted, autoQueued };
+  return { ...t, delegated: true, ...meta, delaySec: delaySec || null, assigneeRunnable, autoStarted, autoQueued, queueReason };
 }, UI);
 
 route('POST', '/api/ui/employees', async ({ body }) => {
