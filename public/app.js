@@ -6,7 +6,7 @@
 const C = window.Charts;
 let S = null;
 const ui = {
-  route: 'home', param: '', open: null, picking: null, rtPicking: null, editingEmp: null, openAccount: null, resTab: 'all',
+  route: 'home', param: '', open: null, picking: null, rtPicking: null, editingEmp: null, openAccount: null, resTab: 'machines',
   taskPick: 'auto', rtPick: 'auto', rtSched: 'time', homeFilter: 'all', doneOpen: false, insertOpen: {}, empDraftEngine: {},
   autoTab: 'list', autoQuery: '', autoFilter: 'all', autoRunsFilter: 'all',
   kbCat: 'all', kbQuery: '',
@@ -201,6 +201,173 @@ function skillPillsEl(empObj, { onDark = false, max = 6 } = {}) {
     }),
     more > 0 ? h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id, { tab: 'equipped' }) }, `+${more}`) : null,
     h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id, { tab: 'arsenal' }) }, '+ 스킬 도감'));
+}
+
+function empKnowledgeDocs(empObj) {
+  const allKb = Array.isArray(S.data?.knowledge) ? S.data.knowledge : [];
+  const pinnedIds = Array.isArray(empObj?.knowledgeIds) ? empObj.knowledgeIds : [];
+  const pinned = pinnedIds.map((id) => allKb.find((k) => k.id === id)).filter(Boolean);
+  const scoped = allKb.filter((k) => k.scope === empObj?.id && !pinnedIds.includes(k.id));
+  return { pinned, scoped, all: [...pinned, ...scoped] };
+}
+
+function empKbPillsEl(empObj, { max = 4 } = {}) {
+  const { pinned, scoped, all } = empKnowledgeDocs(empObj);
+  if (!all.length) {
+    return h('button', {
+      type: 'button', class: 'input-me',
+      onclick: () => openEmployeeKnowledgeModal(empObj.id),
+    }, '+ 참고 지식 연결');
+  }
+  const shown = all.slice(0, max);
+  const more = all.length - shown.length;
+  return h('div', { class: 'emp-kb-pills' },
+    shown.map((kb) => {
+      const isScoped = scoped.some((x) => x.id === kb.id) && !pinned.some((x) => x.id === kb.id);
+      return h('button', {
+        type: 'button',
+        class: `emp-kb-pill${isScoped ? ' is-scoped' : ''}`,
+        title: `[${kb.category}] ${kb.title}\n${String(kb.content || '').slice(0, 140)}`,
+        onclick: () => openEmployeeKnowledgeModal(empObj.id),
+      },
+      h('span', { class: 'emp-kb-ic', 'aria-hidden': 'true' }, '📚'),
+      h('span', { class: 'emp-kb-nm' }, kb.title),
+      isScoped ? h('span', { class: 'emp-kb-sub' }, '전용') : null);
+    }),
+    more > 0 ? h('button', { type: 'button', class: 'skill-pill-add', onclick: () => openEmployeeKnowledgeModal(empObj.id) }, `+${more}`) : null,
+    h('button', { type: 'button', class: 'skill-pill-add', onclick: () => openEmployeeKnowledgeModal(empObj.id) }, '+ 지식 연결'));
+}
+
+function openEmployeeKnowledgeModal(empOrId) {
+  const empId = typeof empOrId === 'string' ? empOrId : empOrId?.id;
+  const e = emp(empId);
+  if (!e) return;
+  const dlg = document.getElementById('dlg');
+  dlg.className = 'auto-dlg';
+
+  const selectedIds = new Set(Array.isArray(e.knowledgeIds) ? e.knowledgeIds : []);
+  let query = '';
+  let addOpen = (S.data?.knowledge || []).length === 0;
+
+  const listWrap = h('div', { class: 'kb-pick-list' });
+  const countEl = h('span', { class: 'small muted' });
+  const newDrawer = h('div', { class: 'kb-inline-add' });
+
+  const renderList = () => {
+    const allKb = Array.isArray(S.data?.knowledge) ? S.data.knowledge : [];
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? allKb.filter((k) => `${k.title} ${k.category} ${(k.tags || []).join(' ')} ${k.content}`.toLowerCase().includes(q))
+      : allKb;
+    countEl.textContent = `필수 연결 ${selectedIds.size}건 · 전체 지식 ${allKb.length}건`;
+    if (!filtered.length) {
+      listWrap.replaceChildren(h('div', { class: 'small muted', style: 'padding:14px 4px' },
+        allKb.length ? '검색어와 일치하는 지식이 없어요.' : '아직 등록된 내 지식이 없어요. 아래에서 첫 지식을 바로 추가해 연결하세요.'));
+      return;
+    }
+    listWrap.replaceChildren(...filtered.map((kb) => {
+      const on = selectedIds.has(kb.id);
+      const isScoped = kb.scope === e.id;
+      return h('button', {
+        type: 'button',
+        class: `kb-pick-item${on ? ' is-on' : ''}`,
+        'aria-pressed': on ? 'true' : 'false',
+        onclick: () => {
+          if (selectedIds.has(kb.id)) selectedIds.delete(kb.id);
+          else selectedIds.add(kb.id);
+          renderList();
+        },
+      },
+      h('div', { class: 'kb-pick-top' },
+        h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
+          h('span', { class: `kb-cat-pill${kb.category === '브랜드' || kb.category === '업무 규칙' ? ' is-core' : ''}` }, kb.category),
+          h('b', { class: 'kb-pick-title' }, kb.title),
+          isScoped ? h('span', { class: 'tag' }, '이 직원 전용') : null),
+        h('span', { class: `kb-pick-chk${on ? ' is-on' : ''}` }, on ? '✓ 연결됨' : '+ 선택')),
+      h('div', { class: 'kb-pick-preview' }, String(kb.content || '').slice(0, 120)));
+    }));
+  };
+
+  const cats = S.options?.knowledgeCategories || ['브랜드', '비즈니스', '업무 규칙', '참고 자료', 'AI 학습 메모'];
+  const newTitle = h('input', { class: 'in sm', placeholder: '새 지식 제목 (예: 유튜브 숏폼 대본 공식, 코딩 스타일 가이드)', 'aria-label': '새 지식 제목' });
+  const newCat = h('select', { class: 'in sm', 'aria-label': '카테고리' }, cats.map((c) => h('option', { value: c }, c)));
+  const newOnlyEmp = h('input', { type: 'checkbox' });
+  const newContent = h('textarea', { class: 'in sm', rows: 3, placeholder: '이 에이전트가 일할 때 꼭 알아야 할 규칙, 말투, URL, 참고 노하우를 적어 주세요.', 'aria-label': '새 지식 내용' });
+
+  const renderNewDrawer = () => {
+    newDrawer.classList.toggle('hidden', !addOpen);
+  };
+
+  const createAndAttach = () => once(`emp-kb-new-${e.id}`, async () => {
+    const t = newTitle.value.trim();
+    const c = newContent.value.trim();
+    if (!t) { newTitle.focus(); toast('지식 제목을 입력해 주세요'); return; }
+    if (!c) { newContent.focus(); toast('지식 내용을 입력해 주세요'); return; }
+    const created = await api('POST', '/api/ui/knowledge', {
+      title: t,
+      category: newCat.value,
+      scope: newOnlyEmp.checked ? e.id : 'all',
+      content: c,
+    });
+    if (created && created.id) {
+      if (!Array.isArray(S.data.knowledge)) S.data.knowledge = [];
+      if (!S.data.knowledge.some((k) => k.id === created.id)) S.data.knowledge.unshift(created);
+      selectedIds.add(created.id);
+      newTitle.value = '';
+      newContent.value = '';
+      newOnlyEmp.checked = false;
+      addOpen = false;
+      renderNewDrawer();
+      renderList();
+      toast(`"${t}" 지식을 만들고 연결 후보에 추가했어요`);
+    }
+  });
+
+  newDrawer.replaceChildren(
+    h('div', { class: 'kb-inline-h' }, '새 지식 바로 만들고 이 직원에게 연결'),
+    h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' },
+      h('div', { style: 'flex:1;min-width:190px' }, newTitle),
+      newCat),
+    newContent,
+    h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;margin-top:6px' },
+      h('label', { class: 'chk-l small' }, newOnlyEmp, `${shortName(e.id)} 전용 지식으로 저장`),
+      h('button', { type: 'button', class: 'btn sm dark', onclick: createAndAttach }, '+ 지식 저장하고 연결')));
+  renderNewDrawer();
+
+  const searchIn = h('input', {
+    class: 'in sm', type: 'search', placeholder: '내 지식 검색 (제목 · 태그 · 내용)...', 'aria-label': '지식 검색',
+    oninput: (ev) => { query = ev.target.value; renderList(); },
+  });
+
+  const save = () => once(`emp-kb-save-${e.id}`, async () => {
+    const resSave = await act('PATCH', `/api/ui/employees/${e.id}`, { knowledgeIds: [...selectedIds] }, `${shortName(e.id)} 참고 지식 ${selectedIds.size}건을 저장했어요`);
+    if (resSave) { closeDlg(); render(); }
+  });
+
+  renderList();
+
+  setDlg(dlg,
+    h('div', { class: 'auto-m-top' },
+      h('div', { class: 'auto-m-head' },
+        h('span', { class: 'auto-tpl-kicker' }, 'CONNECT AI · AGENT KNOWLEDGE'),
+        h('h3', { class: 'auto-m-title-h' }, `${shortName(e.id)} · 참고 지식 설정`)),
+      h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: closeDlg }, '×')),
+    h('div', { class: 'auto-m-body' },
+      h('p', { class: 'small muted', style: 'margin:0' }, `여기서 선택한 지식은 ${shortName(e.id)}에게 일을 맡길 때마다 프롬프트에 필수 참고 지식으로 자동 주입됩니다.`),
+      h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:8px' },
+        h('div', { style: 'flex:1;min-width:180px' }, searchIn),
+        h('button', {
+          type: 'button', class: 'btn sm gold',
+          onclick: () => { addOpen = !addOpen; renderNewDrawer(); if (addOpen) setTimeout(() => newTitle.focus(), 20); },
+        }, addOpen ? '새 지식 닫기' : '+ 새 지식 바로 추가')),
+      newDrawer,
+      listWrap),
+    h('div', { class: 'auto-m-foot' },
+      countEl,
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn', onclick: closeDlg }, '취소'),
+        h('button', { type: 'button', class: 'btn dark', onclick: save }, '저장'))));
+  dlg.showModal();
 }
 
 // ───── 조선 비급서 · RPG 스킬 도감 (시각적 16비트 픽셀 아이콘 · 카테고리 · 검색 · 장착 슬롯) ─────
@@ -410,8 +577,10 @@ function blueprintPillsRow(item) {
   const skillKeys = Array.isArray(item.skills) ? item.skills : [];
   const kbIds = Array.isArray(item.knowledgeIds) ? item.knowledgeIds : [];
   const acc = item.account ? res(item.account) : null;
+  const mac = item.resource ? res(item.resource) : null;
+  const showMac = Boolean(mac && mac.kind === '기계');
   const kbs = kbIds.map((id) => (S.data?.knowledge || []).find((k) => k.id === id)).filter(Boolean);
-  if (!skillKeys.length && !kbs.length && !acc && !item.autoApprove) return null;
+  if (!skillKeys.length && !kbs.length && !acc && !item.autoApprove && !showMac) return null;
   return h('div', { class: 'auto-bp-pills' },
     item.autoApprove ? h('span', { class: 'bp-pill bp-auto', title: '게시·댓글·업로드는 대표 확인 없이 바로 실행합니다 (결제·삭제는 보호)' }, '⚡ 바로 실행') : null,
     ...skillKeys.map((k) => {
@@ -425,7 +594,10 @@ function blueprintPillsRow(item) {
       h('span', null, kb.title))),
     acc ? h('span', { class: 'bp-pill bp-acc', title: `연결 계정: ${acc.name}` },
       h('span', { class: 'bp-pill-ic' }, '🌐'),
-      h('span', null, acc.name.split(' · ')[0])) : null);
+      h('span', null, acc.name.split(' · ')[0])) : null,
+    showMac ? h('span', { class: 'bp-pill bp-mac', title: `지정 컴퓨터: ${mac.name}` },
+      h('span', { class: 'bp-pill-ic' }, '💻'),
+      h('span', null, mac.name)) : null);
 }
 
 function buildSkillArsenal({ catalog = [], isSelected, onToggle, compact = false, defaultCat = 'all' }) {
@@ -1468,7 +1640,7 @@ function render() {
   ui.lastThread = ui.open;
 }
 
-const NAV = [['home', '오늘 할 일'], ['dashboard', '대시보드'], ['daily', '오토메이션'], ['staff', 'AI 직원'], ['resources', 'AI 사무실']];
+const NAV = [['home', '오늘 할 일'], ['dashboard', '대시보드'], ['daily', '오토메이션'], ['staff', 'AI 직원'], ['resources', '내 자원']];
 function hiddenOn() { return (window.HIDDEN || []).filter((x) => features()[x.flag]); }
 
 function pageFor(route) {
@@ -4174,7 +4346,7 @@ function buildTopologyModel() {
     const lvl = mh?.level || (m.status === '꺼짐' ? 'down' : 'ok');
     const fb = m.fallbackTo && res(m.fallbackTo) ? res(m.fallbackTo).name : null;
     return {
-      key: `res:${m.id}`, route: 'resources', resTab: 'office',
+      key: `res:${m.id}`, route: 'resources', resTab: 'machines',
       highlight: m.isThisMac || lvl === 'overload',
       cooling: lvl === 'down',
       dot: lvl === 'overload' ? 'over' : lvl === 'down' ? 'cool' : 'idle',
@@ -4184,7 +4356,7 @@ function buildTopologyModel() {
       ramPct,
       maxRamPct: m.maxRamPct || 85,
       sub: ramPct === null ? [m.sshAlias ? `ssh ${m.sshAlias}` : '대기', m.computerUse ? '화면 조작' : '', fb ? `바쁘면 → ${fb}` : ''].filter(Boolean).join(' · ') : '',
-      tooltip: `${m.name}${m.computerUse ? ' · 화면 조작(Computer Use) 켜짐' : ''} · RAM 상한 ${m.maxRamPct || 85}%${fb ? ` · 바쁘면 → ${fb}` : ''} · 클릭 시 AI 사무실로 이동`,
+      tooltip: `${m.name}${m.computerUse ? ' · 화면 조작(Computer Use) 켜짐' : ''} · RAM 상한 ${m.maxRamPct || 85}%${fb ? ` · 바쁘면 → ${fb}` : ''} · 클릭 시 내 자원으로 이동`,
     };
   });
   for (const ph of phones.slice(0, 2)) {
@@ -4199,7 +4371,7 @@ function buildTopologyModel() {
       sub: ph.phoneMode === 'mobile-ai'
         ? (ph.assignee ? `${shortName(ph.assignee)} 전담` : '모바일 AI 연결')
         : `${host ? host.name : '이 맥'} · ${ph.phoneMode === 'iphone-mirror' ? 'Computer Use 미러링' : 'adb · scrcpy'}`,
-      tooltip: `${ph.name} (${modeObj?.name || '스마트폰'}) · 클릭 시 AI 사무실로 이동`,
+      tooltip: `${ph.name} (${modeObj?.name || '스마트폰'}) · 클릭 시 내 자원으로 이동`,
     });
   }
   const defBr = browsers.find((b) => b.isDefault) || browsers[0] || null;
@@ -4208,14 +4380,14 @@ function buildTopologyModel() {
     title: defBr ? `${defBr.name} · 계정` : '브라우저 · 계정',
     badge: `${accounts.length}개`,
     sub: accounts.slice(0, 3).map((a) => a.name.split(' · ')[0].split(' (')[0]).join(', ') || '계정 연결 전',
-    tooltip: 'AI 사무실 (브라우저 · 계정)으로 이동',
+    tooltip: '내 자원 (브라우저 · 계정)으로 이동',
   });
   right.push({
     key: 'stack:tools', route: 'resources', resTab: 'tools',
     title: '오픈소스 · 디자인',
     badge: `${ossList.length + designs.length}개`,
     sub: [...designs.map((x) => x.name), ...ossList.map((x) => x.name)].slice(0, 2).join(' · ') || '도구 · 디자인 등록 전',
-    tooltip: 'AI 사무실 (오픈소스 · 디자인)으로 이동',
+    tooltip: '내 자원 (도구 · 디자인)으로 이동',
   });
 
   // 연결선 구성
@@ -5173,7 +5345,7 @@ function pageDashboard() {
     h('section', { class: 'dash-card' },
       h('div', { class: 'dash-card-h' },
         h('h2', null, 'AI 회사 라이브 구조도'),
-        h('span', { class: 'small muted' }, '대표 · 오토메이션 → AI 직원(대체 순위) → AI 사무실(컴퓨터 · 스마트폰 · 브라우저)')),
+        h('span', { class: 'small muted' }, '대표 · 오토메이션 → AI 직원(대체 순위) → 내 자원(컴퓨터 · 브라우저 · 지식)')),
       h('div', { class: 'topo-wrap' }, topoSvg)),
     h('section', { class: 'dash-card' },
       h('div', { class: 'dash-card-h' },
@@ -6426,6 +6598,7 @@ function pageDaily() {
     const rSkillPool = !human ? allSelectableSkills().filter((sk) => sk.published) : [];
     const rKbList = !human && Array.isArray(d.knowledge) ? d.knowledge : [];
     const rAccList = !human ? (d.resources || []).filter((x) => x.kind === '계정' && x.status !== '꺼짐') : [];
+    const rMacList = !human ? (d.resources || []).filter((x) => x.kind === '기계' && x.status !== '꺼짐') : [];
     const rBlueprintEditor = !human ? h('div', { class: 'rt-bp-editor' },
       rSkillPool.length ? h('div', { class: 'd-tools' },
         h('span', { class: 'small muted' }, '지정 스킬'),
@@ -6443,7 +6616,7 @@ function pageDaily() {
       h('div', { class: 'd-tools' },
         h('span', { class: 'small muted' }, '참고 지식'),
         h('div', { class: 'picker' },
-          rKbList.length ? rKbList.map((kb) => {
+          rKbList.map((kb) => {
             const has = (r.knowledgeIds || []).includes(kb.id);
             return h('button', {
               type: 'button', class: `chip sm bp-chip bp-kb-chip${has ? ' on' : ''}`,
@@ -6453,7 +6626,8 @@ function pageDaily() {
                 act('PATCH', `/api/ui/routines/${r.id}`, { knowledgeIds: next }, has ? `${kb.title} 지식 해제했어요` : `${kb.title} 지식 연결했어요`);
               },
             }, h('span', { class: 'bp-kb-cat' }, kb.category), kb.title);
-          }) : h('span', { class: 'small muted' }, '내 지식 탭에서 문서를 추가하면 여기서 1클릭 연결할 수 있어요'))),
+          }),
+          h('button', { type: 'button', class: 'chip sm', onclick: () => openKnowledgeModal() }, '+ 새 지식'))),
       rAccList.length ? h('div', { class: 'd-tools' },
         h('span', { class: 'small muted' }, '연결 계정'),
         h('div', { class: 'picker' },
@@ -6462,6 +6636,14 @@ function pageDaily() {
             type: 'button', class: `chip sm${r.account === a.id ? ' on' : ''}`,
             onclick: () => act('PATCH', `/api/ui/routines/${r.id}`, { account: a.id }, `${a.name} 연결했어요`),
           }, a.name.split(' · ')[0])))) : null,
+      rMacList.length ? h('div', { class: 'd-tools' },
+        h('span', { class: 'small muted' }, '실행 컴퓨터'),
+        h('div', { class: 'picker' },
+          h('button', { type: 'button', class: `chip sm${!r.resource ? ' on' : ''}`, onclick: () => act('PATCH', `/api/ui/routines/${r.id}`, { resource: null }, '컴퓨터를 자동 최적화로 바꿨어요') }, '자동 최적화'),
+          ...rMacList.map((m) => h('button', {
+            type: 'button', class: `chip sm${r.resource === m.id ? ' on' : ''}`,
+            onclick: () => act('PATCH', `/api/ui/routines/${r.id}`, { resource: m.id }, `${m.name}에서 실행하도록 지정했어요`),
+          }, m.name)))) : null,
       h('div', { class: 'rt-auto-ap-row' },
         h('label', { class: `switch auto-ap-sw${r.autoApprove ? ' is-on' : ''}` },
           h('input', {
@@ -6831,10 +7013,32 @@ function empCard(e) {
     }, RUN_LABEL[m])));
     const coolBtn = cooling
       ? h('button', { class: 'btn sm dark', onclick: () => once(`cd0-${e.id}`, () => act('POST', `/api/ui/employees/${e.id}/cooldown`, { minutes: 0 }, `${e.name} 휴식을 해제했어요`)) }, '휴식 해제')
-      : h('button', { class: 'btn sm', title: '멤버십 토큰이 다 썼을 때 대체 AI로 넘김', onclick: () => openCooldownModal(e) }, '한도 휴식');
+      : h('button', { class: 'btn sm', title: '멤버십 토큰이 다 썼을 때 대체 AI로 넘김', onclick: () => openCooldownModal(e) }, '휴식');
     const channels = accessChannelsOf(e);
     const workJob = S.working.find((w) => w.emp === e.id);
     const tInfo = empTeamInfo(e);
+    const kbInfo = empKnowledgeDocs(e);
+    const resNames = e.resources.map((id) => res(id)?.name).filter(Boolean);
+    const kvRows = [
+      h('dt', null, '역할'), h('dd', null, valOr(e.role, 'role')),
+      h('dt', null, '스킬 · GitHub'), h('dd', null, skillPillsEl(e, { max: 5 })),
+      h('dt', null, '참고 지식'), h('dd', null, empKbPillsEl(e, { max: 4 })),
+      h('dt', null, '담당 자원'), h('dd', null, resNames.length ? resNames.join(', ') : h('button', { class: 'input-me', onclick: () => openEdit('res') }, '자동 최적화 (내 자원)')),
+      h('dt', null, '막히면 대체'), h('dd', null, e.fallbackTo && emp(e.fallbackTo) ? `${shortName(e.fallbackTo)} (토큰 소진 시 자동 전환)` : h('button', { class: 'input-me', onclick: () => openEdit('fallbackTo') }, '자동 선택')),
+    ];
+    if (e.tools?.length) {
+      kvRows.push(h('dt', null, '도구'), h('dd', null, e.tools.join(', ')));
+    }
+    if (e.manual) {
+      kvRows.push(h('dt', null, '업무 매뉴얼'), h('dd', null, h('span', { class: 'clamp2' }, e.manual)));
+    }
+    if (e.salary !== null && e.salary !== undefined) {
+      kvRows.push(h('dt', null, '월급'), h('dd', null, e.salary === 0 ? '무료' : `월 ${won(e.salary)}`));
+    }
+    const workWhere = [e.runsOn, e.command].filter(Boolean).join(' · ');
+    if (workWhere) {
+      kvRows.push(h('dt', null, '실행 환경'), h('dd', null, workWhere));
+    }
     return h('div', { class: 'card' },
       h('div', { class: 'row', style: 'justify-content:space-between;align-items:flex-start' },
         h('div', { class: 'row', style: 'gap:12px;align-items:flex-start;min-width:0' },
@@ -6852,19 +7056,12 @@ function empCard(e) {
           : workJob ? h('span', { class: 'tag solid' }, '일하는 중') : today.length ? h('span', { class: 'tag' }, `오늘 ${today.length}`) : null),
       usageBarEl(e),
       channels.length ? h('div', { class: 'access-badges' }, channels.map((c) => h('span', { class: 'tag' }, c))) : null,
-      h('dl', { class: 'kv' },
-        h('dt', null, '역할'), h('dd', null, valOr(e.role, 'role')),
-        h('dt', null, '스킬 · GitHub'), h('dd', null, skillPillsEl(e, { max: 5 })),
-        h('dt', null, '도구'), h('dd', null, valOr(e.tools.join(', '), 'tools')),
-        h('dt', null, '업무 매뉴얼'), h('dd', null, e.manual ? h('span', { class: 'clamp2' }, e.manual) : valOr('', 'manual')),
-        h('dt', null, '막히면 대체'), h('dd', null, e.fallbackTo && emp(e.fallbackTo) ? `${shortName(e.fallbackTo)} (토큰 소진 시 자동 전환)` : h('button', { class: 'input-me', onclick: () => openEdit('fallbackTo') }, '자동 선택')),
-        h('dt', null, '월급'), h('dd', null, e.salary === null || e.salary === undefined ? valOr('', 'salary') : e.salary === 0 ? '무료' : `월 ${won(e.salary)}`),
-        h('dt', null, '리소스'), h('dd', null, e.resources.length ? e.resources.map((id) => res(id)?.name).filter(Boolean).join(', ') : valOr('', 'res')),
-        h('dt', null, '근무'), h('dd', null, [e.runsOn, e.command].filter(Boolean).join(' · ') || valOr('', 'runsOn'))),
+      h('dl', { class: 'kv' }, kvRows),
       h('div', { class: 'foot' },
         ['none', 'web'].includes(e.engine) ? h('span', { class: 'small muted' }, e.engine === 'web' ? '할 일에서 복사해서 맡겨요' : 'MCP, CLI 로 스스로 보고') : runSeg,
         h('div', { class: 'row' },
           h('button', { class: 'btn sm', onclick: () => openEmployeeSkillsModal(e.id) }, `스킬${e.skills?.length ? ` (${e.skills.length})` : ''}`),
+          h('button', { class: 'btn sm', onclick: () => openEmployeeKnowledgeModal(e.id) }, `지식${kbInfo.all.length ? ` (${kbInfo.all.length})` : ''}`),
           h('button', { class: 'btn sm', onclick: () => openAvatarModal(e) }, '캐릭터'),
           coolBtn,
           h('button', { class: 'btn sm', onclick: () => { ui.editingEmp = e.id; ui.empDraftEngine[e.id] = e.engine; render(); } }, '편집'))));
@@ -6874,6 +7071,8 @@ function empCard(e) {
   const k = (f) => `emp-${f}-${e.id}`;
   const assignableRes = S.data.resources.filter((r) => ['기계', '멤버십', '폴더'].includes(r.kind));
   const resBoxes = assignableRes.map((r) => h('label', { class: 'chk-l' }, h('input', { type: 'checkbox', value: r.id, checked: e.resources.includes(r.id), class: 'res-box', 'data-k': `emp-res-${e.id}-${r.id}` }), `${r.name}`));
+  const assignableKb = Array.isArray(S.data.knowledge) ? S.data.knowledge : [];
+  const kbBoxes = assignableKb.map((kb) => h('label', { class: 'chk-l' }, h('input', { type: 'checkbox', value: kb.id, checked: (e.knowledgeIds || []).includes(kb.id), class: 'kb-box', 'data-k': `emp-kb-${e.id}-${kb.id}` }), `[${kb.category}] ${kb.title}`));
   const f = {
     name: h('input', { class: 'in sm', value: e.name, 'data-k': k('name') }),
     avatarName: h('input', { class: 'in sm', value: e.avatarName || '', placeholder: '비우면 AI 이름 그대로 표시', maxlength: '40', 'data-k': k('avatarName') }),
@@ -6910,13 +7109,15 @@ function empCard(e) {
       model: f.engine.value === 'local' ? f.model.value : undefined, manual: f.manual.value,
       webUrl: f.engine.value === 'web' ? f.webUrl.value : undefined,
       resources: [...document.querySelectorAll('.res-box')].filter((x) => x.checked).map((x) => x.value),
+      knowledgeIds: [...document.querySelectorAll('.kb-box')].filter((x) => x.checked).map((x) => x.value),
     }, '저장했어요');
     if (r) { delete ui.empDraftEngine[e.id]; ui.editingEmp = null; render(); }
   };
   return h('div', { class: 'card wide' },
     h('h3', null, `${shortName(e.id)} 편집`, h('span', { class: 'emp-id' }, e.id)),
     h('div', { class: 'f-grid' }, fld('AI 서비스 이름', f.name), fld('캐릭터 이름 · 호칭 (선택)', f.avatarName), fld('소속 팀 (부서)', f.team), fld('역할', f.role), fld('도구', f.tools), fld('근무 위치', f.runsOn), fld('명령 방법', f.command), fld('월급 (월, 원)', f.salary), fld('막히면 대신할 AI (토큰 소진 시)', f.fallbackTo), fld('일 시키는 방법', f.engine), curEng === 'local' ? fld('로컬 모델', f.model) : null, curEng === 'web' ? fld('열 주소 (선택)', f.webUrl) : null),
-    assignableRes.length ? h('div', { style: 'margin-top:16px' }, h('div', { class: 'small', style: 'color:#555;margin-bottom:6px' }, '쓸 수 있는 사무실 · 멤버십 · 폴더'), h('div', { class: 'chk-wrap' }, resBoxes)) : null,
+    assignableRes.length ? h('div', { style: 'margin-top:16px' }, h('div', { class: 'small', style: 'color:#555;margin-bottom:6px' }, '쓸 수 있는 내 자원 (컴퓨터 · 멤버십 · 폴더)'), h('div', { class: 'chk-wrap' }, resBoxes)) : null,
+    assignableKb.length ? h('div', { style: 'margin-top:14px' }, h('div', { class: 'small', style: 'color:#555;margin-bottom:6px' }, '필수 참고 지식 (작업마다 프롬프트에 자동 포함)'), h('div', { class: 'chk-wrap' }, kbBoxes)) : null,
     h('div', { style: 'margin-top:16px' }, fld('업무 매뉴얼', f.manual), h('div', { class: 'warn' }, '비밀번호, 인증 코드, 카드 번호는 여기에 쓰지 마세요. 이 글은 AI에게 그대로 전달됩니다.')),
     CLI_ENGINES.includes(curEng) ? h('p', { class: 'small muted' }, S.runners[curEng] ? `실행을 누르면 ${ENGINE_LABEL[curEng]}를 workspaces/${e.id} 폴더에서 한 번 실행합니다. 권한을 건너뛰는 옵션은 쓰지 않아요.` : `이 컴퓨터에 ${ENGINE_LABEL[curEng]}가 없어요. 그래도 할 일에서 복사해서 맡기기로 같은 일을 시킬 수 있어요.`) : null,
     h('div', { class: 'row', style: 'justify-content:space-between;margin-top:16px' },
@@ -6975,6 +7176,8 @@ function openAddEmployee(opts = {}) {
   let avOpen = false;
   let agentOpen = false;
   const pickedSkills = new Set();
+  const pickedKbIds = new Set();
+  let quickKbOpen = false;
 
   const allPresets = S.options.avatarPresets || [];
   const teams = S.options.teams || [];
@@ -7173,6 +7376,53 @@ function openAddEmployee(opts = {}) {
   });
   skillChipsWrap.replaceChildren(skillArsenal.el);
 
+  const kbPickWrap = h('div', { class: 'picker' });
+  const quickKbTitle = h('input', { class: 'in sm', placeholder: '새 지식 제목 (예: 채널 말투 가이드)', 'aria-label': '새 지식 제목' });
+  const quickKbBody = h('textarea', { class: 'in sm', rows: 2, placeholder: '이 직원이 꼭 알고 일해야 할 규칙이나 자료', 'aria-label': '새 지식 내용' });
+  const quickKbBox = h('div', { class: 'kb-inline-add hidden' });
+  const renderBotKb = () => {
+    const kbs = Array.isArray(S.data?.knowledge) ? S.data.knowledge : [];
+    const items = kbs.map((kb) => {
+      const on = pickedKbIds.has(kb.id);
+      return h('button', {
+        type: 'button',
+        class: `chip sm bp-chip bp-kb-chip${on ? ' on' : ''}`,
+        onclick: () => {
+          if (pickedKbIds.has(kb.id)) pickedKbIds.delete(kb.id);
+          else pickedKbIds.add(kb.id);
+          renderBotKb();
+        },
+      }, h('span', { class: 'bp-kb-cat' }, kb.category), kb.title);
+    });
+    if (!items.length) items.push(h('span', { class: 'small muted' }, '등록된 지식이 없어요. 오른쪽 "+ 새 지식 추가"로 바로 만들 수 있어요.'));
+    kbPickWrap.replaceChildren(...items);
+    quickKbBox.classList.toggle('hidden', !quickKbOpen);
+  };
+  quickKbBox.replaceChildren(
+    quickKbTitle,
+    quickKbBody,
+    h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:6px' },
+      h('button', {
+        type: 'button', class: 'btn sm dark',
+        onclick: () => once('add-emp-kb', async () => {
+          const t = quickKbTitle.value.trim();
+          const c = quickKbBody.value.trim();
+          if (!t || !c) { toast('지식 제목과 내용을 입력해 주세요'); return; }
+          const created = await api('POST', '/api/ui/knowledge', { title: t, category: '업무 규칙', scope: 'all', content: c });
+          if (created && created.id) {
+            if (!Array.isArray(S.data.knowledge)) S.data.knowledge = [];
+            if (!S.data.knowledge.some((k) => k.id === created.id)) S.data.knowledge.unshift(created);
+            pickedKbIds.add(created.id);
+            quickKbTitle.value = '';
+            quickKbBody.value = '';
+            quickKbOpen = false;
+            renderBotKb();
+            toast(`"${t}" 지식을 만들고 선택했어요`);
+          }
+        }),
+      }, '+ 저장하고 선택')));
+  renderBotKb();
+
   renderAvButton();
   renderAgentTrigger();
 
@@ -7205,6 +7455,7 @@ function openAddEmployee(opts = {}) {
       avatarName: nm,
       avatarImage: customImg,
       skills: skillsPayload,
+      knowledgeIds: [...pickedKbIds],
     }, `${nm} 직원을 채용했어요`);
     if (r && r.reassigned?.task?.length) toast(`${nm} 채용 완료 · 담당 없던 일 ${r.reassigned.task.length}개 자동 배분`);
   });
@@ -7224,7 +7475,7 @@ function openAddEmployee(opts = {}) {
     avDrawer,
     bioIn,
     h('div', { class: 'grid2 bot-ca-grid' },
-      h('label', { class: 'field' }, 'Computer (실행 컴퓨터)', macSel),
+      h('label', { class: 'field' }, '실행 컴퓨터 (내 자원)', macSel),
       h('div', { class: 'field' }, h('span', null, 'Agent (두뇌 · 모델)'), agentTrigger)),
     agentPanel,
     h('div', { class: 'bot-skill-box' },
@@ -7233,6 +7484,15 @@ function openAddEmployee(opts = {}) {
         h('span', { class: 'bot-skill-sub' }, `총 ${ossCatalog.length}종 · 카테고리·검색 지원`)),
       skillChipsWrap,
       ghSkillIn),
+    h('div', { class: 'bot-skill-box bot-kb-box' },
+      h('div', { class: 'bot-skill-head' },
+        h('span', { class: 'bot-skill-lbl' }, '📚 참고할 내 지식 (선택)'),
+        h('button', {
+          type: 'button', class: 'btn sm',
+          onclick: () => { quickKbOpen = !quickKbOpen; renderBotKb(); if (quickKbOpen) setTimeout(() => quickKbTitle.focus(), 20); },
+        }, '+ 새 지식 추가')),
+      kbPickWrap,
+      quickKbBox),
     h('div', { class: 'bar' },
       h('button', { type: 'button', class: 'btn', onclick: closeAdd }, '취소'),
       h('button', { type: 'button', class: 'btn dark', onclick: submitBot }, '만들기 ⌘↵')));
@@ -7273,17 +7533,16 @@ function pageStaff() {
             });
           }
         }),
-      }, '✦ CONNECT AI 스킬 7종'),
+      }, '✦ 스킬 팩 7종'),
       h('button', { class: 'btn sm', onclick: openJoseonCodexModal }, '크루 도감 (29)'),
-      h('button', { class: 'btn sm', onclick: () => once('staff-joseon', () => act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, 'K-Heritage Pixel 에디션을 적용했어요')) }, 'K-픽셀 적용'),
-      h('button', { class: 'btn sm', onclick: () => { location.hash = '#pocket'; } }, '폰 라이브 뷰'),
-      h('button', { class: 'btn sm', onclick: openConnectModal }, 'AI 도구 연결 (MCP · 스킬)'),
-      h('button', { class: 'btn dark sm', onclick: () => openAddEmployee() }, '직원 추가'))),
+      h('button', { class: 'btn sm', onclick: openConnectModal }, 'AI 도구 연결'),
+      h('button', { class: 'btn dark sm', onclick: () => openAddEmployee() }, '+ 직원 추가'))),
     !d.employees.length ? h('div', { class: 'empty' }, '아직 직원이 없어요. 직원 추가를 눌러 지금 쓰는 AI를 고르세요.') : null,
     d.groups.length <= 1 ? h('div', { class: 'cards' }, d.employees.map(empCard)) : d.groups.filter((g) => d.employees.some((e) => e.group === g.id)).map((g, i) => {
       const list = d.employees.filter((e) => e.group === g.id);
+      const grpTitle = g.title === '내 사무실에서 근무' ? '클라우드 · 메인 AI 직원' : g.title === '내 컴퓨터 상주' ? '이 컴퓨터 로컬 AI' : g.title;
       return h('section', { class: 'grp' },
-        h('div', { class: 'grp-h' }, h('span', { class: 'n0' }, String(i + 1)), h('h2', null, g.title), h('span', null, g.subtitle), h('span', { class: 'n' }, `${list.length}명`)),
+        h('div', { class: 'grp-h' }, h('span', { class: 'n0' }, String(i + 1)), h('h2', null, grpTitle), h('span', null, g.subtitle), h('span', { class: 'n' }, `${list.length}명`)),
         g.detail ? h('div', { class: 'small muted', style: 'margin-top:4px' }, g.detail) : null,
         h('div', { class: 'cards' }, list.map(empCard)));
     }),
@@ -7313,6 +7572,27 @@ function resRow(r) {
   let extra = null;
   const mh = r.kind === '기계' ? S.machineHealth?.[r.id] : null;
   const otherMachines = r.kind === '기계' ? S.data.resources.filter((x) => x.kind === '기계' && x.id !== r.id) : [];
+  const workTagCatalog = S.options.machineWorkTags || [
+    { key: 'daily', label: '일상 · 브라우저 · SNS' },
+    { key: 'code', label: '코딩 · 문서 · 리서치' },
+    { key: 'video', label: '영상 · 쇼츠 · 모션' },
+    { key: '3d', label: '3D · 블렌더 · 렌더' },
+    { key: 'local', label: '로컬 AI (Ollama)' },
+  ];
+  const curTags = Array.isArray(r.workTags) ? r.workTags : [];
+  const workTagBar = r.kind === '기계' ? h('div', { class: 'res-tags-row' },
+    h('span', { class: 'small muted res-tags-lbl' }, '담당 작업'),
+    h('div', { class: 'picker' }, workTagCatalog.map((wt) => {
+      const on = curTags.includes(wt.key);
+      return h('button', {
+        type: 'button',
+        class: `chip sm bp-chip${on ? ' on' : ''}`,
+        onclick: () => {
+          const next = on ? curTags.filter((k) => k !== wt.key) : [...curTags, wt.key];
+          act('PATCH', `/api/ui/resources/${r.id}`, { workTags: next }, on ? `${r.name}: ${wt.label} 해제` : `${r.name}에 ${wt.label} 배정했어요`);
+        },
+      }, wt.label);
+    }))) : null;
   const optBar = r.kind === '기계' ? h('div', { class: 'opt-row' },
     h('span', { class: 'small muted' }, '최적화'),
     h('label', { class: 'switch', title: '이 컴퓨터에서 AI가 화면을 보며 앱·아이폰 미러링을 클릭·조작할 수 있게 허용' },
@@ -7339,19 +7619,22 @@ function resRow(r) {
     extra = h('div', null,
       ramLine,
       L ? h('div', { class: 'small muted', style: 'margin-top:4px' }, `이 컴퓨터 · ${L.chip} · 켜진 지 ${uptimeK(L.uptimeSec)} · 부하 ${L.load[0]}`) : h('div', { class: 'small muted', style: 'margin-top:4px' }, '이 컴퓨터 · 읽는 중'),
+      workTagBar,
       optBar);
   } else if (r.kind === '기계') {
-    const host = h('input', { class: 'in sm', value: r.hostname || '', placeholder: '호스트 이름 또는 IP', 'data-k': `host-${r.id}`, style: 'max-width:200px', 'aria-label': `${r.name} 호스트` });
+    const host = h('input', { class: 'in sm', value: r.hostname || '', placeholder: '호스트 이름 또는 IP (예: mac-studio.local)', 'data-k': `host-${r.id}`, style: 'max-width:210px', 'aria-label': `${r.name} 호스트` });
     const lc = r.lastCheck;
-    const alias = h('input', { class: 'in sm', value: r.sshAlias || '', placeholder: 'ssh 별칭 (예: office-1)', 'data-k': `alias-${r.id}`, style: 'max-width:150px', 'aria-label': `${r.name} ssh 별칭` });
+    const alias = h('input', { class: 'in sm', value: r.sshAlias || '', placeholder: 'ssh 별칭 (예: mac-studio)', 'data-k': `alias-${r.id}`, style: 'max-width:160px', 'aria-label': `${r.name} ssh 별칭` });
     const o = (S.offices || []).find((x) => x.id === r.id);
     const oLine = o ? (o.state === 'busy' ? `${o.name}에서 실행 중 · ${o.title || ''}${o.since ? ` · ${stamp(o.since)}부터` : ''}${o.log ? ` · ${o.log}` : ''}`
-      : o.state === 'down' ? `안 닿음 · ${o.reason}${o.retryAt ? ` · ${stamp(o.retryAt)}에 다시` : ''}` : `쉬는 중${o.checkedAt ? ` · ${stamp(o.checkedAt)} 확인` : ''}`) : null;
-    extra = h('div', null, ramLine, oLine ? h('div', { class: 'small office-line' }, oLine) : null, h('div', { class: 'row', style: 'margin-top:6px' }, host, alias,
-      h('button', { class: 'btn sm', onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { hostname: host.value, sshAlias: alias.value.trim() }, '저장했어요') }, '저장'),
-      h('button', { class: 'btn sm', disabled: !r.hostname && !r.sshAlias, onclick: () => act('POST', `/api/ui/resources/${r.id}/check`, {}, '확인했어요') }, '연결 확인'),
-      h('span', { class: 'small muted' }, lc ? `${lc.ok ? '닿음' : '안 닿음'} · ${lc.reason} · ${stamp(lc.checkedAt)}` : r.sshAlias ? '누를 때 ssh 로 한 번 확인 (키로만)' : r.hostname ? '누를 때 한 번만 확인 (로그인 안 함)' : ''),
-      h('button', { class: 'btn link', onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { isThisMac: true }, `이 컴퓨터로 지정했어요: ${r.name}`) }, '이 컴퓨터로 지정')),
+      : o.state === 'down' ? `안 닿음 · ${o.reason}${o.retryAt ? ` · ${stamp(o.retryAt)}에 다시` : ''}` : `연결됨 · 쉬는 중${o.checkedAt ? ` · ${stamp(o.checkedAt)} 확인` : ''}`) : null;
+    extra = h('div', null, ramLine, oLine ? h('div', { class: 'small office-line' }, oLine) : null,
+      workTagBar,
+      h('div', { class: 'row', style: 'margin-top:6px;flex-wrap:wrap' }, host, alias,
+        h('button', { class: 'btn sm dark', onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { hostname: host.value.trim(), sshAlias: alias.value.trim() }, '연결 정보를 저장했어요') }, '저장'),
+        h('button', { class: 'btn sm', disabled: !r.hostname && !r.sshAlias, onclick: () => act('POST', `/api/ui/resources/${r.id}/check`, {}, '연결을 확인했어요') }, '연결 확인'),
+        h('span', { class: 'small muted' }, lc ? `${lc.ok ? '닿음 ✓' : '안 닿음'} · ${lc.reason} · ${stamp(lc.checkedAt)}` : '같은 와이파이 맥 스튜디오의 원격 로그인(SSH)을 켜고 별칭을 넣으면 자동 배차됩니다'),
+        h('button', { class: 'btn link', onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { isThisMac: true }, `이 컴퓨터로 지정했어요: ${r.name}`) }, '이 컴퓨터로 지정')),
       optBar);
   } else if (r.kind === '폴더') {
     extra = h('div', { class: 'small muted mono' }, r.path || '');
@@ -7416,7 +7699,7 @@ function musePanel() {
   const line = !m.enabled ? '' : `${m.statusText || ''}${m.lastRunAt ? ` · ${stamp(m.lastRunAt)}` : ''}`;
   const hostPick = h('div', { class: 'picker', role: 'group', 'aria-label': 'Muse 를 읽을 곳' },
     h('button', { type: 'button', class: `chip${host === 'local' ? ' on' : ''}`, 'aria-pressed': host === 'local' ? 'true' : 'false', onclick: () => host !== 'local' && setHost('local') }, '이 컴퓨터'),
-    h('button', { type: 'button', class: `chip${host === 'office' ? ' on' : ''}`, 'aria-pressed': host === 'office' ? 'true' : 'false', disabled: !offices.length, title: offices.length ? '' : 'AI 사무실에서 사무실 컴퓨터의 ssh 별칭을 넣으면 고를 수 있어요', onclick: () => host !== 'office' && setHost('office') }, officeLabel));
+    h('button', { type: 'button', class: `chip${host === 'office' ? ' on' : ''}`, 'aria-pressed': host === 'office' ? 'true' : 'false', disabled: !offices.length, title: offices.length ? '' : '내 자원 탭에서 맥 스튜디오 같은 컴퓨터의 ssh 별칭을 넣으면 고를 수 있어요', onclick: () => host !== 'office' && setHost('office') }, officeLabel));
   const how = host === 'office' ? `한 번만: 화면 공유로 ${place}에 들어가 Ego Lite를 열고 Muse에 직접 로그인해 두세요.` : '한 번만: 이 컴퓨터에서 Ego Lite를 열고 Muse에 직접 로그인해 두세요.';
   return h('section', { class: 'sec' }, secHead('Muse'),
     h('div', { class: 'lan' },
@@ -8144,52 +8427,118 @@ function knowledgePanel() {
     gridWrap);
 }
 
+function machinesRoutingPanel() {
+  const d = S.data;
+  const machines = d.resources.filter((r) => r.kind === '기계');
+  const activeMachines = machines.filter((r) => r.status !== '꺼짐');
+  const thisMac = activeMachines.find((m) => m.isThisMac) || activeMachines[0] || null;
+  const studio = activeMachines.find((m) => !m.isThisMac && /(스튜디오|studio|데스크톱|워크스테이션|office)/i.test(m.name)) || activeMachines.find((m) => m.id !== thisMac?.id) || null;
+  const workTags = S.options.machineWorkTags || [
+    { key: 'daily', label: '일상 · 브라우저 · SNS' },
+    { key: 'code', label: '코딩 · 문서 · 리서치' },
+    { key: 'video', label: '영상 · 쇼츠 · 모션' },
+    { key: '3d', label: '3D · 블렌더 · 렌더' },
+    { key: 'local', label: '로컬 AI (Ollama)' },
+  ];
+
+  const ownerFor = (tagKey) => {
+    const tagged = activeMachines.filter((m) => Array.isArray(m.workTags) && m.workTags.includes(tagKey));
+    if (tagged.length) {
+      return tagged.find((m) => !m.isThisMac && ['video', '3d', 'local'].includes(tagKey))
+        || tagged.find((m) => m.isThisMac)
+        || tagged[0];
+    }
+    if ((tagKey === '3d' || tagKey === 'video') && studio) return studio;
+    return (d.settings?.mainMachine && activeMachines.find((m) => m.id === d.settings.mainMachine)) || thisMac;
+  };
+
+  const quickAddStudio = () => once('quick-add-studio', async () => {
+    const created = await act('POST', '/api/ui/resources', {
+      name: '맥 스튜디오 (Mac Studio)',
+      kind: '기계',
+      workTags: ['video', '3d', 'local'],
+      note: '영상 편집 · 3D 블렌더 · 로컬 AI 전담',
+      status: '확인 필요',
+      autoOptimize: true,
+    }, '맥 스튜디오를 추가하고 맥북 ↔ 스튜디오 역할 배분을 자동 최적화했어요');
+    if (created) render();
+  });
+
+  const runOptimize = () => once('opt-machines', async () => {
+    const resOpt = await act('POST', '/api/ui/resources/optimize-machines', {});
+    if (resOpt?.summary) toast(resOpt.summary);
+  });
+
+  return h('section', { class: 'res-route-card', 'aria-label': '작업별 컴퓨터 자원 배분 규칙' },
+    h('div', { class: 'res-route-top' },
+      h('div', null,
+        h('div', { class: 'ops-sec-k' }, 'RESOURCE ROUTING · 어떤 일에 어떤 컴퓨터를 쓰나요?'),
+        h('h2', { class: 'res-route-h' }, studio
+          ? `${thisMac?.name || '이 맥'} × ${studio.name} 역할 배분표`
+          : `${thisMac?.name || '이 컴퓨터'} 단독 운영 중 · 맥 스튜디오를 추가해 역할을 나눠보세요`)),
+      h('div', { class: 'row', style: 'flex-wrap:wrap' },
+        !studio ? h('button', { type: 'button', class: 'btn sm gold', onclick: quickAddStudio }, '+ 맥 스튜디오 빠르게 추가') : null,
+        h('button', { type: 'button', class: 'btn sm dark', onclick: runOptimize }, '⚡ 컴퓨터 역할 · 백업 자동 최적화'))),
+    h('div', { class: 'res-route-grid' }, workTags.map((wt) => {
+      const owner = ownerFor(wt.key);
+      const fb = owner?.fallbackTo ? activeMachines.find((m) => m.id === owner.fallbackTo) : null;
+      const isStudio = Boolean(owner && !owner.isThisMac);
+      return h('div', { class: `res-route-cell${isStudio ? ' is-studio' : ''}` },
+        h('div', { class: 'res-rc-task' }, wt.label),
+        h('div', { class: 'res-rc-owner' },
+          h('span', { class: 'res-rc-arrow' }, '→'),
+          h('b', null, owner ? owner.name : '미연결')),
+        h('div', { class: 'res-rc-sub' }, fb ? `혼잡·오프라인 시 → ${fb.name}` : (owner?.isThisMac ? '이 맥에서 즉시 실행' : 'SSH 연결 시 원격 배차')));
+    })),
+    h('div', { class: 'res-route-foot' },
+      h('span', null, '아래 각 컴퓨터 카드의 '), h('b', null, '담당 작업 칩'), h('span', null, '을 누르면 어떤 일이 어느 컴퓨터로 갈지 바로 바꿀 수 있어요. RAM 85%를 넘거나 꺼져 있으면 대체 컴퓨터로 자동 우회합니다.')));
+}
+
 function pageResources() {
   if (!ui.office) loadOffice();
   if (!ui.tools) loadTools();
   const d = S.data;
-  const tab = ui.resTab || 'all';
-  const show = (k) => tab === 'all' || tab === k;
+  // 구 탭 키('office', 'all') 호환 → 깔끔한 5개 집중 탭(기본: 컴퓨터 · 자원 배분)
+  const rawTab = ui.resTab || 'machines';
+  const tab = rawTab === 'office' || rawTab === 'all' ? 'machines' : rawTab;
   const genericKinds = S.options.resKinds.filter((k) => !['브라우저', '스마트폰', '오픈소스', '계정', '디자인'].includes(k));
-  const kbCount = (d.knowledge || []).length;
+  const machineCount = d.resources.filter((r) => genericKinds.includes(r.kind)).length;
   const webCount = d.resources.filter((r) => ['브라우저', '계정'].includes(r.kind)).length;
-  const mobileCount = d.resources.filter((r) => r.kind === '스마트폰').length;
+  const kbCount = (d.knowledge || []).length;
   const toolsCount = d.resources.filter((r) => ['오픈소스', '디자인'].includes(r.kind)).length;
-  const officeCount = d.resources.filter((r) => genericKinds.includes(r.kind)).length;
+  const mobileCount = d.resources.filter((r) => r.kind === '스마트폰').length;
   const tabs = [
-    ['all', '전체'],
-    ['knowledge', `내 지식 (${kbCount})`],
+    ['machines', `컴퓨터 · 자원 배분 (${machineCount})`],
     ['web', `브라우저 · 계정 (${webCount})`],
-    ['mobile', `스마트폰 · 헬스 (${mobileCount})`],
-    ['tools', `오픈소스 · 디자인 (${toolsCount})`],
-    ['office', `사무실 · 컴퓨터 (${officeCount})`],
+    ['knowledge', `내 지식 (${kbCount})`],
+    ['tools', `도구 · 디자인 (${toolsCount})`],
+    ['mobile', `스마트폰 · 기타 (${mobileCount})`],
   ];
-  const name = h('input', { class: 'in', placeholder: '새 리소스 (예: Office 2 맥북, 외장 SSD, 작업 폴더)', 'data-k': 'rs-name', 'aria-label': '리소스 이름' });
+  const name = h('input', { class: 'in', placeholder: '새 자원 이름 (예: 맥 스튜디오, 외장 SSD, 작업 폴더)', 'data-k': 'rs-name', 'aria-label': '자원 이름' });
   const kind = h('select', { class: 'in', style: 'width:110px', 'data-k': 'rs-kind', 'aria-label': '종류' }, genericKinds.map((k) => h('option', { value: k }, k)));
-  const add = () => submitInput(name, 'add-res', (v) => act('POST', '/api/ui/resources', { name: v, kind: kind.value }, '추가했어요'));
+  const add = () => submitInput(name, 'add-res', (v) => act('POST', '/api/ui/resources', { name: v, kind: kind.value }, '자원을 추가했어요'));
   name.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) add(); });
   return h('div', null,
-    h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, 'AI 사무실')),
-      h('div', { class: 'sub' }, '내 지식 · 컴퓨터(화면 조작) · 브라우저(Ego Lite) · 스마트폰 · 오픈소스를 한 번만 연결하면 모든 AI 직원과 할 일에 자동 반영됩니다.')),
-    h('button', { class: 'btn', onclick: () => { loadOffice(); loadTools(); } }, '다시 읽기')),
-    h('div', { class: 'picker', style: 'margin-bottom:20px' }, tabs.map(([k, label]) => h('button', {
-      type: 'button', class: `chip${tab === k ? ' on' : ''}`, onclick: () => { ui.resTab = k; render(); },
+    h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, '내 자원')),
+      h('div', { class: 'sub' }, '맥북 · 맥 스튜디오 · 브라우저(Ego Lite) · SNS 계정 · 내 지식을 한눈에 관리하고 작업별로 자동 배분합니다.')),
+    h('button', { class: 'btn sm', onclick: () => { loadOffice(); loadTools(); toast('자원 상태를 다시 읽었어요'); } }, '다시 읽기')),
+    h('div', { class: 'picker res-main-tabs', role: 'tablist', 'aria-label': '내 자원 탭' }, tabs.map(([k, label]) => h('button', {
+      type: 'button', role: 'tab', 'aria-selected': tab === k ? 'true' : 'false',
+      class: `chip${tab === k ? ' on' : ''}`, onclick: () => { ui.resTab = k; render(); },
     }, label))),
-    show('knowledge') ? knowledgePanel() : null,
-    show('web') ? browserPanel() : null,
-    show('mobile') ? phonePanel() : null,
-    show('mobile') ? healthPanel() : null,
-    show('web') ? accountsPanel() : null,
-    show('tools') ? ossPanel() : null,
-    show('tools') ? designPanel() : null,
-    show('office') ? h('section', { class: 'sec' }, secHead('사무실 컴퓨터 · 멤버십 · 폴더 추가'),
-      h('div', { class: 'addbar slim' }, kind, name, h('button', { class: 'btn dark', onclick: add }, '추가'))) : null,
-    show('office') ? lanPanel() : null,
-    show('web') ? musePanel() : null,
-    show('office') ? genericKinds.map((k) => {
-      const list = d.resources.filter((r) => r.kind === k);
-      return list.length ? h('section', { class: 'sec' }, secHead(k, `${list.length}개`), h('ul', { class: 'list' }, list.map(resRow))) : null;
-    }) : null);
+    tab === 'machines' ? [
+      machinesRoutingPanel(),
+      ...genericKinds.map((k) => {
+        const list = d.resources.filter((r) => r.kind === k);
+        return list.length ? h('section', { class: 'sec' }, secHead(k === '기계' ? '연결된 컴퓨터 (맥북 · 맥 스튜디오)' : k, `${list.length}개`), h('ul', { class: 'list' }, list.map(resRow))) : null;
+      }),
+      h('section', { class: 'sec' }, secHead('컴퓨터 · 멤버십 · 폴더 직접 추가'),
+        h('div', { class: 'addbar slim' }, kind, name, h('button', { class: 'btn dark', onclick: add }, '추가'))),
+    ] : null,
+    tab === 'web' ? [browserPanel(), accountsPanel()] : null,
+    tab === 'knowledge' ? knowledgePanel() : null,
+    tab === 'tools' ? [ossPanel(), designPanel()] : null,
+    tab === 'mobile' ? [phonePanel(), healthPanel(), lanPanel(), musePanel()] : null);
 }
 
 // ───────── 1분 시작하기 (처음 켠 사람) ─────────
@@ -8325,7 +8674,7 @@ function pageStart() {
     const chips = ['Mac mini', 'Mac Studio', 'MacBook Pro', 'MacBook Air', 'Windows PC'];
     const toggle = (set, v) => { if (set.has(v)) set.delete(v); else set.add(v); render(); };
     const done = async () => { const r = await obSend({ machines: [...ob.machines], sshHosts: [...ob.ssh], browsers: [...ob.browsers], openSource: [...ob.oss] }); if (r) next(4); };
-    return obShell(3, '컴퓨터와 도구를 확인해 주세요.', '이 컴퓨터는 본사로 자동 등록돼요. 웹 자동화에 쓸 브라우저와 설치된 도구를 골라 두면 바로 적용됩니다 (나중에 AI 사무실에서 바꿀 수 있어요).',
+    return obShell(3, '컴퓨터와 도구를 확인해 주세요.', '이 컴퓨터는 메인 자원으로 자동 등록돼요. 웹 자동화에 쓸 브라우저와 설치된 도구를 골라 두면 바로 적용됩니다 (나중에 내 자원 탭에서 바꿀 수 있어요).',
       h('div', null,
         h('div', { class: 'card' }, h('div', { class: 'row' }, h('b', null, '이 컴퓨터 · 본사'), h('span', { class: 'tag' }, '자동')),
           h('div', { class: 'small muted' }, [M.chip, M.memoryGB ? `메모리 ${M.memoryGB}GB` : '', M.diskFreeGB ? `여유 ${M.diskFreeGB}GB` : ''].filter(Boolean).join(' · ') || '읽는 중')),

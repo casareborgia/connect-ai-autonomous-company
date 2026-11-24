@@ -48,7 +48,7 @@ import {
 } from './lib/steps.mjs';
 import { exportBlueprint, importBlueprint } from './lib/blueprint.mjs';
 import {
-  DEFAULT_MAX_RAM_PCT, DEFAULT_MAX_HEAVY, detectQuotaError, isCoolingDown, cooldownRemainingMin,
+  DEFAULT_MAX_RAM_PCT, DEFAULT_MAX_HEAVY, MACHINE_WORK_TAGS, detectQuotaError, isCoolingDown, cooldownRemainingMin,
   isSensitiveLocalTask, isHeavyTask, pickFallbackEmployee, buildMachineHealthMap, pickOptimalMachine,
   autoWireEmployeeFallbacks, autoWireMachineFallbacks,
 } from './lib/optimizer.mjs';
@@ -117,6 +117,7 @@ function migrate(d) {
     e.skills = Array.isArray(e.skills)
       ? e.skills.map((sk, i) => normalizeEmployeeSkill(sk, i)).filter(Boolean).slice(0, 20)
       : [];
+    if (!Array.isArray(e.knowledgeIds)) e.knowledgeIds = [];
     if (e.fallbackTo === undefined) e.fallbackTo = null;
     if (e.cooldownUntil === undefined) e.cooldownUntil = null;
     if (e.cooldownReason === undefined) e.cooldownReason = '';
@@ -487,6 +488,12 @@ function knowledgeRefs(d, v) {
   if (!Array.isArray(v)) return [];
   const valid = new Set((d.knowledge || []).map((k) => k.id));
   return [...new Set(v.map(String))].filter((id) => valid.has(id)).slice(0, 10);
+}
+
+function workTagRefs(v) {
+  if (!Array.isArray(v)) return [];
+  const valid = new Set(MACHINE_WORK_TAGS.map((t) => t.key));
+  return [...new Set(v.map(String))].filter((k) => valid.has(k)).slice(0, 8);
 }
 
 function resolvePinnedSkills(d, keys = []) {
@@ -957,7 +964,7 @@ function taskPromptCommon(d, emp, t) {
     const hostLine = x.computeHint ? ` · 실행 컴퓨터: ${x.computeHint}` : '';
     return `- ${x.primary ? '★ [주요] ' : ''}${x.name}${x.roleLabel ? ` (${x.roleLabel})` : ''}${x.command ? ` · 명령: ${x.command}` : ''}${x.repo ? ` · GitHub: ${x.repo}` : ''}${statusLine}${ioLine}${hostLine}${subs}${x.when ? ` · 트리거: ${x.when}` : ''}${x.note ? ` · ${x.note}` : ''}`;
   };
-  const explicitKbIds = [...new Set([...(t.knowledgeIds || []), ...(routine?.knowledgeIds || [])])];
+  const explicitKbIds = [...new Set([...(t.knowledgeIds || []), ...(routine?.knowledgeIds || []), ...(emp?.knowledgeIds || [])])];
   const resolvedKb = resolveTaskKnowledge(d, emp, fullText, explicitKbIds);
   const kbLines = resolvedKb.map((x) => x.chunk);
   const hasPinnedKb = resolvedKb.some((x) => x.pinned);
@@ -1671,6 +1678,7 @@ async function stateView(viaLan = false) {
     egoProbe,
     options: {
       catalog: AI_CATALOG, teams: TEAMS, swarmMissions: SWARM_MISSIONS, avatarPacks: AVATAR_PACKS, avatarPresets: AVATAR_PRESETS, avatarStyles: AVATAR_STYLES, statuses: STATUSES, approvalKinds: APPROVAL_KINDS, metricNames: METRIC_NAMES,
+      machineWorkTags: MACHINE_WORK_TAGS.map(({ key, label }) => ({ key, label })),
       gates: GATES, engines: ENGINES, runModes: RUN_MODES, resKinds: RES_KINDS, resStatus: RES_STATUS, knowledgeCategories: KNOWLEDGE_CATEGORIES,
       phoneModes: PHONE_MODES,
       accountPlatforms: publicAccountCatalog(), accountCategories: ACCOUNT_CATEGORIES, accountPresets: ACCOUNT_PRESETS, permLevels: PERM_LEVELS,
@@ -1765,7 +1773,7 @@ function buildPromptPreview(d, t) {
     : mode === 'handout' ? handoutPrompt(d, emp, t) : (mode === 'local' ? `[시스템]\n${systemPrompt(emp, d.owner.name)}\n\n[작업 지시]\n${runPrompt(d, emp, t)}` : runPrompt(d, emp, t));
   const pinnedSkillKeys = [...new Set([...(t.skills || []), ...(routine?.skills || [])])];
   const pinnedSkills = resolvePinnedSkills(d, pinnedSkillKeys);
-  const explicitKbIds = [...new Set([...(t.knowledgeIds || []), ...(routine?.knowledgeIds || [])])];
+  const explicitKbIds = [...new Set([...(t.knowledgeIds || []), ...(routine?.knowledgeIds || []), ...(emp?.knowledgeIds || [])])];
   const fullText = `${t.title} ${t.note || ''} ${routine?.instruction || ''}`;
   const resolvedKb = resolveTaskKnowledge(d, emp, fullText, explicitKbIds);
   return {
@@ -2970,6 +2978,9 @@ route('PATCH', '/api/ui/employees/:id', async ({ params, body }) => store.mutate
     const rawList = Array.isArray(body.skills) ? body.skills : [];
     e.skills = rawList.map((sk, i) => normalizeEmployeeSkill(sk, i)).filter(Boolean).slice(0, 20);
   }
+  if (body.knowledgeIds !== undefined) {
+    e.knowledgeIds = knowledgeRefs(d, body.knowledgeIds);
+  }
   const again = ['role', 'tools', 'name', 'avatarName', 'manual', 'skills'].some((k) => body[k] !== undefined) ? reassignUnmatched(d) : { task: [], routine: [] };
   return { ...e, reassigned: again };
 }).then((r) => { refineMany(r.reassigned); if (body.engine !== undefined || body.model !== undefined || body.resources !== undefined) maybeRefreshModels(true); return r; }), UI);
@@ -3226,6 +3237,9 @@ route('DELETE', '/api/ui/knowledge/:id', async ({ params }) => store.mutate((d) 
   for (const t of d.tasks || []) {
     if (Array.isArray(t.knowledgeIds)) t.knowledgeIds = t.knowledgeIds.filter((x) => x !== params.id);
   }
+  for (const e of d.employees || []) {
+    if (Array.isArray(e.knowledgeIds)) e.knowledgeIds = e.knowledgeIds.filter((x) => x !== params.id);
+  }
   return { ok: true };
 }), UI);
 
@@ -3252,7 +3266,7 @@ route('POST', '/api/ui/employees/:id/cooldown', async ({ params, body }) => {
   return updated;
 }, UI);
 
-function makeEmployee(d, { name, role, manual, engine, webUrl, model, effort, general, runMode, group, catalog, team, avatar, avatarStyle, avatarName, avatarImage, persona, skills, resources }) {
+function makeEmployee(d, { name, role, manual, engine, webUrl, model, effort, general, runMode, group, catalog, team, avatar, avatarStyle, avatarName, avatarImage, persona, skills, knowledgeIds, resources }) {
   if (!d.groups.length) d.groups = DEFAULT_GROUPS.map((x) => ({ ...x }));
   if (group && !d.groups.some((x) => x.id === group)) {
     const def = DEFAULT_GROUPS.find((x) => x.id === group);
@@ -3270,12 +3284,13 @@ function makeEmployee(d, { name, role, manual, engine, webUrl, model, effort, ge
   const cleanEf = ['low', 'medium', 'high'].includes(String(effort || '').toLowerCase()) ? String(effort).toLowerCase() : '';
   const defaultRun = (CLI_ENGINES.includes(eng) && Boolean(runnerInfo(eng)?.bin)) || (eng === 'local' && Boolean(cleanMdl)) ? 'auto' : 'off';
   const empSkills = Array.isArray(skills) ? skills.map((sk, i) => normalizeEmployeeSkill(sk, i)).filter(Boolean).slice(0, 20) : [];
+  const empKbIds = knowledgeRefs(d, knowledgeIds);
   const empRes = Array.isArray(resources) ? resources.filter((rid) => d.resources.some((r) => r.id === rid)).slice(0, 10) : [];
   const e = {
     id, name, group: g, team: empTeam, role: role || '', tools: [], runsOn: '', command: '', salary: null, engine: eng, model: cleanMdl, effort: cleanEf,
     runMode: eng === 'web' || eng === 'none' ? 'off' : (RUN_MODES.includes(runMode) ? runMode : defaultRun),
     userPaused: runMode === 'off',
-    webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: text(manual || '', 8000), resources: empRes, abilities: [], skills: empSkills,
+    webUrl: webUrl || webUrlFor(name), general: Boolean(general), manual: text(manual || '', 8000), resources: empRes, abilities: [], skills: empSkills, knowledgeIds: empKbIds,
     avatar: avKey, avatarStyle: avStyle, avatarName: text(avatarName || '', 40), avatarImage: avatarImage || '', persona: text(persona || '', 80),
     fallbackTo: null, cooldownUntil: null, cooldownReason: '',
   };
@@ -3802,7 +3817,7 @@ route('POST', '/api/ui/employees', async ({ body }) => {
       name, role: text(body.role, 200) || cat?.role || '', manual: text(body.manual, 8000), engine, model: text(body.model, 120), effort: body.effort,
       webUrl: cat?.url, general: cat?.general, group: body.group || cat?.group, catalog: cat?.key,
       team: body.team, avatar: body.avatar, avatarStyle: body.avatarStyle, avatarName: body.avatarName, avatarImage, persona: body.persona,
-      skills: body.skills, resources: empResources,
+      skills: body.skills, knowledgeIds: body.knowledgeIds, resources: empResources,
     });
     if (cat) e.catalog = cat.key;
     autoWireEmployeeFallbacks(d);
@@ -3839,7 +3854,19 @@ route('POST', '/api/ui/resources', async ({ body }) => store.mutate((d) => {
   const name = text(body.name, 120) || text(parsed.name, 120);
   if (!name) throw new HttpError(400, '이름이 필요합니다.');
   const r = { id: nextId(d, 'res'), kind, name, status: RES_STATUS.includes(body.status) ? body.status : '사용 가능', note: text(body.note, 300) };
-  if (kind === '기계') Object.assign(r, { hostname: '', port: 22, isThisMac: false, deviceKind: body.deviceKind === 'phone' ? 'phone' : 'computer', computerUse: Boolean(body.computerUse), maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY, fallbackTo: null, status: '확인 필요' });
+  if (kind === '기계') {
+    const cleanAlias = body.sshAlias && /^[A-Za-z0-9._-]+$/.test(String(body.sshAlias).trim()) ? String(body.sshAlias).trim() : '';
+    const cleanHost = text(body.hostname, 120);
+    const defaultTags = /(스튜디오|studio)/i.test(name) ? ['video', '3d', 'local'] : [];
+    const wTags = body.workTags !== undefined ? workTagRefs(body.workTags) : defaultTags;
+    Object.assign(r, {
+      hostname: cleanHost, sshAlias: cleanAlias, port: 22, isThisMac: false,
+      deviceKind: body.deviceKind === 'phone' ? 'phone' : 'computer',
+      computerUse: Boolean(body.computerUse), maxRamPct: DEFAULT_MAX_RAM_PCT, maxHeavy: DEFAULT_MAX_HEAVY,
+      fallbackTo: null, workTags: wTags,
+      status: RES_STATUS.includes(body.status) ? body.status : (cleanAlias || cleanHost ? '사용 가능' : '확인 필요'),
+    });
+  }
   if (kind === '스마트폰') {
     const phoneMode = PHONE_MODES.some((m) => m.key === body.phoneMode) ? body.phoneMode : 'iphone-mirror';
     const hostMachine = body.hostMachine && d.resources.some((x) => x.id === body.hostMachine && x.kind === '기계')
@@ -3882,8 +3909,55 @@ route('POST', '/api/ui/resources', async ({ body }) => store.mutate((d) => {
     Object.assign(r, { platform, preset: detectPreset(platform, permissions), permissions, browser, spaceName, assignee });
   }
   d.resources.push(r);
-  if (kind === '기계') autoWireMachineFallbacks(d);
+  if (kind === '기계') {
+    autoWireMachineFallbacks(d);
+    if (body.autoOptimize === true) {
+      const machines = d.resources.filter((m) => m.kind === '기계' && m.status !== '꺼짐');
+      const thisMac = machines.find((m) => m.isThisMac) || machines[0];
+      const studio = machines.find((m) => m.id !== thisMac?.id && /(스튜디오|studio|데스크톱|워크스테이션|office)/i.test(m.name))
+        || machines.find((m) => m.id !== thisMac?.id) || null;
+      if (thisMac && studio) {
+        thisMac.workTags = ['daily', 'code'];
+        studio.workTags = ['video', '3d', 'local'];
+        thisMac.fallbackTo = studio.id;
+        studio.fallbackTo = thisMac.id;
+        d.settings.mainMachine = thisMac.id;
+        d.settings.autoOptimize = true;
+      }
+    }
+  }
   return r;
+}), UI);
+
+// 맥북 · 맥 스튜디오 등 등록된 컴퓨터의 역할(workTags)과 상호 대체 순위(fallbackTo)를 1클릭 자동 최적화
+route('POST', '/api/ui/resources/optimize-machines', async () => store.mutate((d) => {
+  const machines = d.resources.filter((r) => r.kind === '기계' && r.status !== '꺼짐');
+  d.settings.autoOptimize = true;
+  if (!machines.length) return { ok: true, count: 0, summary: '최적화할 컴퓨터가 없습니다.' };
+  const thisMac = machines.find((m) => m.isThisMac) || machines[0];
+  const studio = machines.find((m) => m.id !== thisMac.id && /(스튜디오|studio|데스크톱|워크스테이션|office)/i.test(m.name))
+    || machines.find((m) => m.id !== thisMac.id)
+    || null;
+  for (const m of machines) {
+    if (!m.maxRamPct) m.maxRamPct = DEFAULT_MAX_RAM_PCT;
+    if (!m.maxHeavy) m.maxHeavy = DEFAULT_MAX_HEAVY;
+    if (!Array.isArray(m.workTags)) m.workTags = [];
+  }
+  if (studio) {
+    thisMac.workTags = ['daily', 'code'];
+    studio.workTags = ['video', '3d', 'local'];
+    thisMac.fallbackTo = studio.id;
+    studio.fallbackTo = thisMac.id;
+    d.settings.mainMachine = thisMac.id;
+  } else {
+    thisMac.workTags = ['daily', 'code', 'video', '3d', 'local'];
+    d.settings.mainMachine = thisMac.id;
+  }
+  autoWireMachineFallbacks(d);
+  const summary = studio
+    ? `${thisMac.name}(일상·SNS·코딩) ↔ ${studio.name}(영상·3D·로컬 AI) 역할 분리 & 상호 백업 완료`
+    : `${thisMac.name} 단독 최적화 완료 (RAM 상한 ${thisMac.maxRamPct}%)`;
+  return { ok: true, count: machines.length, summary, thisMac, studio, machines };
 }), UI);
 
 route('PATCH', '/api/ui/resources/:id', async ({ params, body }) => store.mutate((d) => {
@@ -3935,6 +4009,7 @@ route('PATCH', '/api/ui/resources/:id', async ({ params, body }) => store.mutate
   if (r.kind === '기계') {
     if (body.deviceKind !== undefined) r.deviceKind = body.deviceKind === 'phone' ? 'phone' : 'computer';
     if (body.computerUse !== undefined) r.computerUse = Boolean(body.computerUse);
+    if (body.workTags !== undefined) r.workTags = workTagRefs(body.workTags);
     if (body.maxRamPct !== undefined) {
       const p = Math.round(Number(body.maxRamPct));
       if (!Number.isFinite(p) || p < 55 || p > 95) throw new HttpError(400, 'RAM 상한은 55~95% 사이로 입력해 주세요.');

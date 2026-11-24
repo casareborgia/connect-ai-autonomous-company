@@ -376,6 +376,68 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     const rtAfterApp = stAfterApp.body.data.routines.find((r) => r.id === gatedRt.body.id);
     assert.equal(rtAfterApp.autoApprove, true);
     assert.equal(rtAfterApp.gate, null);
+
+    // 11) AI 직원별 전용 참고 지식(e.knowledgeIds) 지정 → 할 일/루틴에 별도 지식 연결이 없어도 프롬프트에 최우선 주입 + 삭제 시 정리
+    const empKbRes = await srv.ui('POST', '/api/ui/knowledge', {
+      title: '코덱스 전용 배포 체크리스트',
+      category: '참고 자료',
+      content: '모든 코드 변경 후 node --check 와 npm test 를 반드시 통과시킨 뒤 보고한다.',
+      tags: ['체크'],
+      scope: 'all',
+    });
+    assert.equal(empKbRes.status, 200);
+    const empKbId = empKbRes.body.id;
+
+    const patchEmpKb = await srv.ui('PATCH', '/api/ui/employees/codex', { knowledgeIds: [empKbId] });
+    assert.equal(patchEmpKb.status, 200);
+    assert.deepEqual(patchEmpKb.body.knowledgeIds, [empKbId]);
+
+    const plainTask = await srv.ui('POST', '/api/ui/tasks', {
+      title: '오늘 회의 안건 3줄로 정리',
+      assignee: 'codex',
+    });
+    assert.equal(plainTask.status, 200);
+    const empPrev = await srv.ui('GET', `/api/ui/tasks/${plainTask.body.id}/prompt-preview`);
+    assert.equal(empPrev.status, 200);
+    assert.match(empPrev.body.prompt, /★ \[필수 지식 · 참고 자료\] 코덱스 전용 배포 체크리스트/);
+    assert.match(empPrev.body.prompt, /npm test/);
+
+    const delEmpKb = await srv.ui('DELETE', `/api/ui/knowledge/${empKbId}`);
+    assert.equal(delEmpKb.status, 200);
+    const stAfterEmpKbDel = await srv.ui('GET', '/api/state');
+    const codexAfterDel = stAfterEmpKbDel.body.data.employees.find((e) => e.id === 'codex');
+    assert.equal((codexAfterDel.knowledgeIds || []).includes(empKbId), false, '지식 삭제 시 직원의 knowledgeIds에서도 정리되어야 함');
+
+    // 12) 맥북 ↔ 맥 스튜디오 자원 배분(workTags) + 1클릭 자동 최적화 + 작업 성격별 컴퓨터 자동 배차
+    const stBeforeOpt = await srv.ui('GET', '/api/state');
+    const existingStudio = stBeforeOpt.body.data.resources.find((r) => r.kind === '기계' && !r.isThisMac && /(스튜디오|studio)/i.test(r.name));
+    let studioId = existingStudio?.id;
+    if (!studioId) {
+      const studioRes = await srv.ui('POST', '/api/ui/resources', {
+        name: '맥 스튜디오 (Mac Studio)',
+        kind: '기계',
+        status: '사용 가능',
+      });
+      assert.equal(studioRes.status, 200);
+      studioId = studioRes.body.id;
+    }
+
+    const optRes = await srv.ui('POST', '/api/ui/resources/optimize-machines', {});
+    assert.equal(optRes.status, 200);
+    assert.equal(optRes.body.studio.id, studioId);
+    assert.ok(optRes.body.studio.workTags.includes('video'));
+    assert.ok(optRes.body.studio.workTags.includes('3d'));
+    assert.ok(optRes.body.thisMac.workTags.includes('daily'));
+    assert.equal(optRes.body.thisMac.fallbackTo, studioId);
+    assert.equal(optRes.body.studio.fallbackTo, optRes.body.thisMac.id);
+
+    const videoSuggest = await srv.ui('POST', '/api/ui/assign/suggest', { title: '쇼츠 9:16 영상 편집 모션그래픽 렌더' });
+    assert.equal(videoSuggest.status, 200);
+    assert.equal(videoSuggest.body.resource, studioId, '영상·모션 작업은 workTags=video 인 맥 스튜디오로 배정되어야 함');
+
+    const snsSuggest = await srv.ui('POST', '/api/ui/assign/suggest', { title: '인스타그램 댓글 확인하고 답글 초안 쓰기' });
+    assert.equal(snsSuggest.status, 200);
+    assert.equal(snsSuggest.body.resource, optRes.body.thisMac.id, '일상·SNS 작업은 workTags=daily 인 이 맥으로 배정되어야 함');
   } finally {
     await srv.close();
   }
