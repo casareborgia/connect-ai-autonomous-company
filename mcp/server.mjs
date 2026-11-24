@@ -147,6 +147,68 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} },
     run: async () => call('GET', '/api/agent/resources'),
   },
+  {
+    name: 'register_skill',
+    description: '작업 중 새로 설치·활용한 CLI/npx/GitHub 도구를 내 스킬 목록(주요 스킬 + 세부 스킬)에 자동 등록한다. 본인 스킬 목록만 수정 가능.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: str('스킬/도구 이름 (예: Connect AI Motion, Remotion, yt-dlp)'),
+        command: str('실행 명령 (예: npx connect-ai-video-motion)'),
+        repo: str('GitHub 주소 (선택 · https://github.com/owner/repo)'),
+        primary: { type: 'boolean', description: '주요 스킬 여부 (기본 false)' },
+        sub_skills: { type: 'array', items: { type: 'string' }, description: '세부 스킬 목록 (예: ["자막 하이라이트", "9:16 숏폼 크롭"])' },
+        when: str('자동 배분 매칭 키워드 (쉼표 구분, 선택)'),
+        note: str('간단한 설명 (선택)'),
+      },
+      required: ['name'],
+    },
+    run: async (a) => call('POST', '/api/agent/skills/register', {
+      from: needMe(),
+      name: a.name,
+      command: a.command || '',
+      repo: a.repo || '',
+      primary: Boolean(a.primary),
+      subSkills: Array.isArray(a.sub_skills) ? a.sub_skills : undefined,
+      when: a.when || '',
+      note: a.note || '',
+    }),
+  },
+  {
+    name: 'list_knowledge',
+    description: '회사 공용 지식 베이스(내 지식: 브랜드 톤, 채널 정보, 업무 규칙, 참고 자료, AI 학습 메모)를 검색·조회한다.',
+    inputSchema: {
+      type: 'object',
+      properties: { q: str('검색어 (생략 시 전체 조회)') },
+    },
+    run: async (a) => {
+      const q = new URLSearchParams();
+      if (ME) q.set('emp', ME);
+      if (a?.q) q.set('q', a.q);
+      return call('GET', `/api/agent/knowledge?${q}`);
+    },
+  },
+  {
+    name: 'save_knowledge',
+    description: '작업 중 새로 파악한 운영 노하우나 참고 정보를 회사 지식 베이스(AI 학습 메모)에 저장한다. 대표가 작성한 문서는 덮어쓸 수 없다.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: str('지식 제목'),
+        content: str('지식 내용 (마크다운/텍스트)'),
+        tags: str('태그 (쉼표 구분, 선택)'),
+        scope: { type: 'string', enum: ['all', 'self'], description: 'all=전체 AI 공유, self=나만 참고 (기본 all)' },
+      },
+      required: ['title', 'content'],
+    },
+    run: async (a) => call('POST', '/api/agent/knowledge', {
+      from: needMe(),
+      title: a.title,
+      content: a.content,
+      tags: a.tags || '',
+      scope: a.scope || 'all',
+    }),
+  },
 ];
 
 function reply(id, result) {

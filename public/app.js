@@ -9,6 +9,7 @@ const ui = {
   route: 'home', param: '', open: null, picking: null, rtPicking: null, editingEmp: null, openAccount: null, resTab: 'all',
   taskPick: 'auto', rtPick: 'auto', rtSched: 'time', homeFilter: 'all', doneOpen: false, insertOpen: {}, empDraftEngine: {},
   autoTab: 'list', autoQuery: '', autoFilter: 'all', autoRunsFilter: 'all',
+  kbCat: 'all', kbQuery: '',
   swarmTeam: 'all', swarmSelected: 'all',
   drag: false, office: null, tools: null, briefOpen: false, models: null, listening: false, lastThread: null, handout: {}, ob: null, lan: null,
   composing: false, pendingRender: false, lastSig: '',
@@ -155,19 +156,32 @@ function parseClientRepoHint(raw) {
 }
 
 function skillPillsEl(empObj, { onDark = false, max = 6 } = {}) {
-  const skills = Array.isArray(empObj?.skills) ? empObj.skills : [];
+  const skills = [...(Array.isArray(empObj?.skills) ? empObj.skills : [])]
+    .sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
   if (!skills.length) {
     return onDark
       ? h('div', { class: 'swarm-brain-bar' },
-        h('button', { type: 'button', class: 'swarm-brain-pill', onclick: () => openEmployeeSkillsModal(empObj.id) }, '+ GitHub 스킬 연결 (예: Remotion)'))
-      : h('button', { type: 'button', class: 'input-me', onclick: () => openEmployeeSkillsModal(empObj.id) }, '+ GitHub 스킬 연결 (예: Remotion)');
+        h('button', { type: 'button', class: 'swarm-brain-pill', onclick: () => openEmployeeSkillsModal(empObj.id) }, '+ 주요 스킬 · GitHub 연결 (예: Connect AI Motion)'))
+      : h('button', { type: 'button', class: 'input-me', onclick: () => openEmployeeSkillsModal(empObj.id) }, '+ 주요 스킬 · GitHub 연결');
   }
   const shown = skills.slice(0, max);
   const more = skills.length - shown.length;
   return h('div', { class: `skill-pills${onDark ? ' on-dark' : ''}` },
-    shown.map((sk) => h('span', { class: `skill-pill${onDark ? ' on-dark' : ''}`, title: [sk.when ? `키워드: ${sk.when}` : '', sk.command ? `명령: ${sk.command}` : '', sk.repo || ''].filter(Boolean).join('\n') },
-      h('span', { class: 'skill-pill-name' }, sk.name),
-      sk.repo ? h('a', { class: 'skill-gh-link', href: sk.repo, target: '_blank', rel: 'noopener noreferrer', title: sk.repo }, 'GitHub ↗') : null)),
+    shown.map((sk) => {
+      const subCnt = (sk.subSkills || []).length;
+      const tip = [
+        sk.primary ? '★ 주요 스킬' : '',
+        sk.command ? `명령: ${sk.command}` : '',
+        subCnt ? `세부 스킬: ${sk.subSkills.map((s) => s.name).join(', ')}` : '',
+        sk.when ? `키워드: ${sk.when}` : '',
+        sk.repo || '',
+      ].filter(Boolean).join('\n');
+      return h('span', { class: `skill-pill${sk.primary ? ' is-primary' : ''}${onDark ? ' on-dark' : ''}`, title: tip },
+        sk.primary ? h('span', { class: 'skill-star', 'aria-hidden': 'true' }, '★') : null,
+        h('span', { class: 'skill-pill-name' }, sk.name),
+        subCnt ? h('span', { class: 'skill-sub-cnt' }, `세부 ${subCnt}`) : null,
+        sk.repo ? h('a', { class: 'skill-gh-link', href: sk.repo, target: '_blank', rel: 'noopener noreferrer', title: sk.repo }, 'GitHub ↗') : null);
+    }),
     more > 0 ? h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id) }, `+${more}`) : null,
     h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id) }, '+ 스킬'));
 }
@@ -179,11 +193,13 @@ function openEmployeeSkillsModal(empOrId) {
   dlg.className = 'wide';
   let editingSkillId = null;
 
-  const repoIn = h('input', { class: 'in', placeholder: 'https://github.com/remotion-dev/remotion 또는 owner/repo · npx 명령', 'aria-label': 'GitHub 주소 또는 실행 명령' });
-  const nameIn = h('input', { class: 'in', placeholder: '예: Remotion 모션그래픽', 'aria-label': '스킬 이름' });
-  const cmdIn = h('input', { class: 'in mono', placeholder: '예: npx remotion (선택)', 'aria-label': '실행 명령' });
+  const repoIn = h('input', { class: 'in', placeholder: '예: npx connect-ai-video-motion 또는 https://github.com/remotion-dev/remotion', 'aria-label': 'GitHub 주소 또는 실행 명령' });
+  const nameIn = h('input', { class: 'in', placeholder: '예: Connect AI Motion, Remotion', 'aria-label': '주요 스킬 이름' });
+  const cmdIn = h('input', { class: 'in mono', placeholder: '예: npx connect-ai-video-motion', 'aria-label': '실행 명령' });
+  const subIn = h('input', { class: 'in', placeholder: '쉼표로 구분 · 예: 인물 피해 모션그래픽, Hyperframes 자막, 9:16 숏폼', 'aria-label': '세부 스킬 목록' });
   const whenIn = h('input', { class: 'in', placeholder: '예: 영상편집, 모션그래픽, 리모션, 쇼츠', 'aria-label': '언제 쓸지 키워드' });
   const noteIn = h('input', { class: 'in', placeholder: '예: 9:16 세로 쇼츠 인트로 기준 (선택)', 'aria-label': '스킬 메모' });
+  const primaryChk = h('input', { type: 'checkbox', checked: true });
   let nameTouched = false;
   let cmdTouched = false;
   nameIn.addEventListener('input', () => { nameTouched = Boolean(nameIn.value.trim()); });
@@ -199,8 +215,10 @@ function openEmployeeSkillsModal(empOrId) {
     repoIn.value = '';
     nameIn.value = '';
     cmdIn.value = '';
+    subIn.value = '';
     whenIn.value = '';
     noteIn.value = '';
+    primaryChk.checked = true;
     nameTouched = false;
     cmdTouched = false;
     submitBtn.textContent = '+ 스킬 장착';
@@ -215,12 +233,14 @@ function openEmployeeSkillsModal(empOrId) {
   const submitSkill = () => once('emp-skill-save', async () => {
     const rawRepo = repoIn.value.trim();
     const rawName = nameIn.value.trim();
-    if (!rawRepo && !rawName) { repoIn.focus(); toast('GitHub 주소나 스킬 이름을 입력해 주세요'); return; }
+    if (!rawRepo && !rawName) { repoIn.focus(); toast('스킬 이름이나 명령/GitHub 주소를 입력해 주세요'); return; }
     if (editingSkillId) {
       const r = await act('PATCH', `/api/ui/employees/${empId}/skills/${editingSkillId}`, {
         name: rawName,
         repo: rawRepo,
         command: cmdIn.value.trim(),
+        primary: primaryChk.checked,
+        subSkills: subIn.value.trim(),
         when: whenIn.value.trim(),
         note: noteIn.value.trim(),
       }, '스킬을 수정했어요');
@@ -233,6 +253,8 @@ function openEmployeeSkillsModal(empOrId) {
       repo: isRepoLike ? rawRepo : '',
       name: rawName,
       command: cmdIn.value.trim(),
+      primary: primaryChk.checked,
+      subSkills: subIn.value.trim(),
       when: whenIn.value.trim(),
       note: noteIn.value.trim(),
     }, '스킬을 장착했어요');
@@ -241,49 +263,88 @@ function openEmployeeSkillsModal(empOrId) {
 
   const submitBtn = h('button', { type: 'button', class: 'btn gold', onclick: submitSkill }, '+ 스킬 장착');
   repoIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) submitSkill(); });
+  subIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) submitSkill(); });
   whenIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) submitSkill(); });
 
   const renderBody = () => {
     const e = emp(empId);
     if (!e) { closeDlg(); render(); return; }
-    const skills = Array.isArray(e.skills) ? e.skills : [];
+    const skills = [...(Array.isArray(e.skills) ? e.skills : [])]
+      .sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
     headCount.textContent = `${skills.length}개 장착`;
 
     if (!skills.length) {
-      listWrap.replaceChildren(h('div', { class: 'skill-empty' }, '아직 연결된 스킬이 없어요. 아래에 GitHub 주소를 붙여넣거나 추천 오픈소스를 1클릭으로 장착해 보세요.'));
+      listWrap.replaceChildren(h('div', { class: 'skill-empty' }, '아직 연결된 스킬이 없어요. 아래에서 주요 스킬(예: Connect AI Motion, Remotion)과 세부 스킬을 장착해 보세요.'));
     } else {
-      listWrap.replaceChildren(h('div', { class: 'skill-list' }, skills.map((sk) => h('div', { class: 'skill-row' },
-        h('div', { class: 'skill-row-main' },
-          h('div', { class: 'skill-row-top' },
-            h('b', null, sk.name),
-            sk.repo ? h('a', { class: 'skill-repo-badge', href: sk.repo, target: '_blank', rel: 'noopener noreferrer', title: sk.repo }, `GitHub · ${githubShortLabel(sk.repo)} ↗`) : null,
-            sk.command ? h('code', { class: 'skill-cmd' }, sk.command) : null),
-          sk.when ? h('div', { class: 'skill-row-meta' }, `자동 배분 키워드: ${sk.when}`) : null,
-          sk.note ? h('div', { class: 'skill-row-note' }, sk.note) : null),
-        h('div', { class: 'skill-row-acts' },
-          h('button', {
-            type: 'button', class: 'btn sm',
-            onclick: () => {
-              editingSkillId = sk.id;
-              repoIn.value = sk.repo || '';
-              nameIn.value = sk.name || '';
-              cmdIn.value = sk.command || '';
-              whenIn.value = sk.when || '';
-              noteIn.value = sk.note || '';
-              nameTouched = Boolean(sk.name);
-              cmdTouched = Boolean(sk.command);
-              submitBtn.textContent = '스킬 수정 저장';
-              cancelEditBtn.classList.remove('hidden');
-              nameIn.focus();
-            },
-          }, '편집'),
-          h('button', {
-            type: 'button', class: 'btn sm',
-            onclick: () => once(`del-sk-${sk.id}`, async () => {
-              const r = await act('DELETE', `/api/ui/employees/${empId}/skills/${sk.id}`, undefined, `${sk.name} 스킬을 뺐어요`);
-              if (r) { if (editingSkillId === sk.id) resetForm(); renderBody(); }
-            }),
-          }, '제거'))))));
+      listWrap.replaceChildren(h('div', { class: 'skill-list' }, skills.map((sk) => {
+        const subs = Array.isArray(sk.subSkills) ? sk.subSkills : [];
+        const addSubIn = h('input', { class: 'in sm skill-sub-in', placeholder: '+ 세부 스킬 추가 후 Enter (예: 9:16 숏폼 크롭)', 'aria-label': `${sk.name} 세부 스킬 추가` });
+        const pushSub = async () => {
+          const val = addSubIn.value.trim();
+          if (!val) return;
+          const nextSubs = [...subs.map((x) => ({ name: x.name, when: x.when, command: x.command, note: x.note })), { name: val }];
+          const r = await act('PATCH', `/api/ui/employees/${empId}/skills/${sk.id}`, { subSkills: nextSubs }, `세부 스킬 "${val}"을 추가했어요`);
+          if (r) renderBody();
+        };
+        addSubIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); pushSub(); } });
+
+        return h('div', { class: `skill-row${sk.primary ? ' is-primary' : ''}` },
+          h('div', { class: 'skill-row-main' },
+            h('div', { class: 'skill-row-top' },
+              sk.primary ? h('span', { class: 'skill-primary-tag' }, '★ 주요') : null,
+              h('b', null, sk.name),
+              sk.addedBy === 'ai' ? h('span', { class: 'skill-ai-tag', title: 'AI 직원이 작업 중 스스로 등록한 도구' }, 'AI 자동 등록') : null,
+              sk.repo ? h('a', { class: 'skill-repo-badge', href: sk.repo, target: '_blank', rel: 'noopener noreferrer', title: sk.repo }, `GitHub · ${githubShortLabel(sk.repo)} ↗`) : null,
+              sk.command ? h('code', { class: 'skill-cmd' }, sk.command) : null),
+            h('div', { class: 'skill-subs' },
+              subs.map((sub) => h('span', { class: 'skill-sub-chip' },
+                h('span', null, sub.name),
+                h('button', {
+                  type: 'button', class: 'skill-sub-x', 'aria-label': `${sub.name} 제거`,
+                  onclick: () => once(`del-sub-${sk.id}-${sub.id}`, async () => {
+                    const nextSubs = subs.filter((x) => x.id !== sub.id && x.name !== sub.name);
+                    const r = await act('PATCH', `/api/ui/employees/${empId}/skills/${sk.id}`, { subSkills: nextSubs }, `세부 스킬 "${sub.name}"을 뺐어요`);
+                    if (r) renderBody();
+                  }),
+                }, '×'))),
+              h('div', { class: 'skill-sub-add' }, addSubIn, h('button', { type: 'button', class: 'btn sm', onclick: pushSub }, '추가'))),
+            sk.when ? h('div', { class: 'skill-row-meta' }, `자동 배분 키워드: ${sk.when}`) : null,
+            sk.note ? h('div', { class: 'skill-row-note' }, sk.note) : null),
+          h('div', { class: 'skill-row-acts' },
+            h('button', {
+              type: 'button', class: `btn sm${sk.primary ? ' gold' : ''}`,
+              title: sk.primary ? '주요 스킬 해제' : '이 직원의 주요 스킬로 지정',
+              onclick: () => once(`pri-sk-${sk.id}`, async () => {
+                const r = await act('PATCH', `/api/ui/employees/${empId}/skills/${sk.id}`, { primary: !sk.primary }, sk.primary ? '일반 스킬로 바꿨어요' : '★ 주요 스킬로 지정했어요');
+                if (r) renderBody();
+              }),
+            }, sk.primary ? '★ 주요' : '☆ 주요'),
+            h('button', {
+              type: 'button', class: 'btn sm',
+              onclick: () => {
+                editingSkillId = sk.id;
+                repoIn.value = sk.repo || '';
+                nameIn.value = sk.name || '';
+                cmdIn.value = sk.command || '';
+                subIn.value = subs.map((x) => x.name).join(', ');
+                whenIn.value = sk.when || '';
+                noteIn.value = sk.note || '';
+                primaryChk.checked = Boolean(sk.primary);
+                nameTouched = Boolean(sk.name);
+                cmdTouched = Boolean(sk.command);
+                submitBtn.textContent = '스킬 수정 저장';
+                cancelEditBtn.classList.remove('hidden');
+                nameIn.focus();
+              },
+            }, '편집'),
+            h('button', {
+              type: 'button', class: 'btn sm',
+              onclick: () => once(`del-sk-${sk.id}`, async () => {
+                const r = await act('DELETE', `/api/ui/employees/${empId}/skills/${sk.id}`, undefined, `${sk.name} 스킬을 뺐어요`);
+                if (r) { if (editingSkillId === sk.id) resetForm(); renderBody(); }
+              }),
+            }, '제거')));
+      })));
     }
 
     const equippedKeys = new Set(skills.map((s) => (s.preset || '').toLowerCase()).filter(Boolean));
@@ -304,7 +365,7 @@ function openEmployeeSkillsModal(empOrId) {
           type: 'button',
           class: `skill-preset-btn${on ? ' on' : ''}`,
           onclick: () => once(`preset-sk-${c.key}`, async () => {
-            const r = await act('POST', `/api/ui/employees/${empId}/skills`, { presetKey: c.key }, on ? `${c.name} 스킬을 최신으로 맞췄어요` : `${shortName(empId)}에게 ${c.name} 스킬을 장착했어요`);
+            const r = await act('POST', `/api/ui/employees/${empId}/skills`, { presetKey: c.key, primary: !skills.length }, on ? `${c.name} 스킬을 최신으로 맞췄어요` : `${shortName(empId)}에게 ${c.name} 스킬(세부 ${(c.subSkills || []).length}개 포함)을 장착했어요`);
             if (r) renderBody();
           }),
         },
@@ -312,7 +373,7 @@ function openEmployeeSkillsModal(empOrId) {
           h('b', null, c.name),
           h('span', { class: `skill-preset-st${on ? ' on' : ''}` }, on ? '장착됨 ✓' : '+ 장착')),
         h('span', { class: 'skill-preset-hint' }, c.hint),
-        c.repo ? h('span', { class: 'skill-preset-repo' }, githubShortLabel(c.repo)) : null);
+        (c.subSkills || []).length ? h('span', { class: 'skill-preset-repo' }, `세부: ${c.subSkills.slice(0, 3).join(' · ')}`) : (c.repo ? h('span', { class: 'skill-preset-repo' }, githubShortLabel(c.repo)) : null));
       })),
     ];
     if (officeOss.length) {
@@ -341,24 +402,29 @@ function openEmployeeSkillsModal(empOrId) {
   setDlg(dlg,
     h('div', { class: 'row codex-top' },
       h('div', null,
-        h('div', { class: 'swarm-kicker' }, 'CONNECT AI · EMPLOYEE SKILLS & GITHUB'),
-        h('h3', { class: 'coord-dlg-h' }, `${shortName(empId)} · 스킬 & GitHub 오픈소스`,
+        h('div', { class: 'swarm-kicker' }, 'CONNECT AI · PRIMARY & SUB-SKILLS'),
+        h('h3', { class: 'coord-dlg-h' }, `${shortName(empId)} · 주요 스킬 & 세부 스킬`,
           tInfo ? h('span', { class: `team-pill tm-${tInfo.key}` }, h('i'), tInfo.short) : null)),
-      headCount),
-    h('p', { class: 'small muted codex-desc' }, 'GitHub 오픈소스 주소(예: Remotion, Hyperframes 또는 직접 만든 커스텀 스킬 레포)를 연결하면 자동 배분과 실행 프롬프트에 바로 반영되고, 강의 청사진 공유에도 함께 담깁니다.'),
-    h('div', { class: 'skill-sec-h' }, '장착된 스킬'),
+      h('div', { class: 'skill-head-right' },
+        headCount,
+        h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: finish }, '×'))),
+    h('p', { class: 'small muted codex-desc' }, '주요 스킬(예: npx connect-ai-video-motion, Remotion)과 세부 스킬을 지정해 두면 자동 배분과 프롬프트에 바로 반영됩니다. AI 직원이 작업 중 새로 찾은 도구도 스스로 여기에 등록합니다.'),
+    h('div', { class: 'skill-sec-h' }, '장착된 스킬 (주요 스킬 · 세부 스킬)'),
     listWrap,
     h('div', { class: 'skill-form' },
-      h('div', { class: 'skill-sec-h' }, 'GitHub 주소 · 커스텀 스킬 직접 연결'),
-      h('label', { class: 'field' }, 'GitHub 주소 (또는 owner/repo · npx 명령)', repoIn),
+      h('div', { class: 'skill-sec-h' }, '주요 스킬 · 세부 스킬 직접 추가'),
+      h('label', { class: 'field' }, 'GitHub 주소 또는 npx/CLI 명령', repoIn),
       h('div', { class: 'grid2 coord-dlg-gap' },
-        h('label', { class: 'field' }, '스킬 이름', nameIn),
+        h('label', { class: 'field' }, '주요 스킬 이름', nameIn),
         h('label', { class: 'field' }, '실행 명령 (선택)', cmdIn)),
+      h('label', { class: 'field coord-dlg-gap' }, '세부 스킬 (쉼표로 구분 · 선택)', subIn),
       h('div', { class: 'grid2 coord-dlg-gap' },
-        h('label', { class: 'field' }, '언제 쓸지 · 자동 배분 키워드 (쉼표 구분)', whenIn),
+        h('label', { class: 'field' }, '자동 배분 키워드 (쉼표 구분)', whenIn),
         h('label', { class: 'field' }, '사용 메모 (선택)', noteIn)),
-      h('div', { class: 'skill-form-acts' }, cancelEditBtn, submitBtn)),
-    h('div', { class: 'skill-sec-h coord-dlg-gap' }, '추천 오픈소스 스킬 (1클릭 장착)'),
+      h('div', { class: 'skill-form-foot' },
+        h('label', { class: 'skill-pri-chk' }, primaryChk, '★ 이 직원의 주요 스킬로 지정'),
+        h('div', { class: 'skill-form-acts' }, cancelEditBtn, submitBtn))),
+    h('div', { class: 'skill-sec-h coord-dlg-gap' }, '추천 주요 스킬 · 오픈소스 (1클릭 장착)'),
     presetWrap,
     h('div', { class: 'bar' },
       h('button', { type: 'button', class: 'btn dark', onclick: finish }, '완료')));
@@ -419,7 +485,7 @@ function evidenceLink(file) {
 const SND = () => window.HQSound;
 let liveCardSeq = 0;
 
-function pushLiveCard({ kind = 'info', kicker = '', title = '', body = '', empId = null, taskId = null, actionLabel = '', sound = null, seal = false, duration = 4600 } = {}) {
+function pushLiveCard({ kind = 'info', kicker = '', title = '', body = '', empId = null, taskId = null, actionLabel = '', onAction = null, sound = null, seal = false, duration = 4600 } = {}) {
   const dock = document.getElementById('live-dock');
   if (!dock) return;
   if (sound !== false) SND()?.play(sound || (kind === 'info' ? 'tick' : kind));
@@ -453,7 +519,11 @@ function pushLiveCard({ kind = 'info', kicker = '', title = '', body = '', empId
         h('div', { class: 'live-card-meta' }, h('span', { class: 'live-kicker' }, kickerText), h('span', { class: 'live-ts' }, nowStr)),
         h('div', { class: 'live-card-title' }, title),
         body ? h('div', { class: 'live-card-sub clamp2' }, body) : null,
-        taskId ? h('button', { type: 'button', class: 'btn link live-card-act', onclick: () => { dismiss(); openTaskById(taskId); } }, actionLabel || '열기 →') : null),
+        taskId
+          ? h('button', { type: 'button', class: 'btn link live-card-act', onclick: () => { dismiss(); openTaskById(taskId); } }, actionLabel || '열기 →')
+          : onAction
+            ? h('button', { type: 'button', class: 'btn link live-card-act', onclick: () => { dismiss(); onAction(); } }, actionLabel || '열기 →')
+            : null),
       h('button', { type: 'button', class: 'live-x', 'aria-label': '알림 닫기', onclick: dismiss }, '×')),
     h('div', { class: 'live-prog' }, h('i')));
 
@@ -1986,6 +2056,21 @@ function addBar() {
     });
     if (r) {
       whoBar.resetSuggest();
+      if (r.createdRoutine) {
+        const assigneeLabel = shortName(r.assignee);
+        pushLiveCard({
+          kind: 'connect',
+          kicker: 'CONNECT AI · 오토메이션 자동 등록',
+          title: `⏱ ${r.scheduleLabel || '반복'} 오토메이션을 등록했어요`,
+          body: `${assigneeLabel}${r.membershipNote ? ` · ${r.membershipNote}` : ''} · ${r.title}`,
+          empId: r.assignee !== 'jay' ? r.assignee : null,
+          duration: 6500,
+          actionLabel: '오토메이션 보기 →',
+          onAction: () => { location.hash = '#daily'; },
+        });
+        document.querySelector('[data-k="add-title"]')?.focus();
+        return;
+      }
       const multi = Array.isArray(r.steps) && r.steps.length >= 2;
       const isHuman = r.assignee === 'jay';
       const isAlarm = Boolean(r.isAlarm);
@@ -1998,7 +2083,7 @@ function addBar() {
       if (r.autoStarted && r.id) markStartCardShown(r.id);
       pushLiveCard({
         kind: r.gate ? 'approve' : (unlinked || queued) ? 'handoff' : 'connect',
-        kicker: `CONNECT AI · ${multi ? '멀티 팀 자동 배분' : isAlarm ? '알람 예약' : isHuman ? '대표 일정 분류' : queued ? 'RAM 보호 대기열' : unlinked ? '미연결 AI 배정' : '자동 배분'}`,
+        kicker: `CONNECT AI · ${multi ? '멀티 팀 자동 배분' : isAlarm ? '알람 예약' : isHuman ? '대표 일정 분류' : queued ? 'RAM 보호 대기열' : r.membershipNote ? '멤버십 최적화 배분' : unlinked ? '미연결 AI 배정' : '자동 배분'}`,
         title: multi
           ? `${koSubject(aiLabel)} ${r.steps.length}단계로 팀에 배분했어요`
           : isAlarm
@@ -2016,7 +2101,7 @@ function addBar() {
           ? (r.reason || '몸이나 현장이 필요한 일')
           : queued
             ? (r.queueReason || `${assigneeLabel}${host} · RAM 여유 생기면 자동 시작 (목록에서 "지금 바로 실행" 가능)`)
-            : `${r.stepSummary || shortName(r.assignee)}${host}${r.autoStarted ? ' · 즉시 실행 시작' : r.gate ? ` · ${r.gate} 승인 대기` : unlinked ? ' · AI 직원에서 연결하거나 복사 실행해 주세요' : schedTag}`,
+            : `${r.membershipNote ? `${r.membershipNote} · ` : ''}${r.stepSummary || shortName(r.assignee)}${host}${r.autoStarted ? ' · 즉시 실행 시작' : r.gate ? ` · ${r.gate} 승인 대기` : unlinked ? ' · AI 직원에서 연결하거나 복사 실행해 주세요' : schedTag}`,
         empId: r.assignee !== 'jay' ? r.assignee : null,
         taskId: r.id,
         actionLabel: isHuman ? '일정 보기 →' : queued ? '대기열 열기 →' : '배분 내역 보기 →',
@@ -2050,7 +2135,7 @@ function addBar() {
       document.querySelector('[data-k="add-title"]')?.focus();
     }
   };
-  title.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) add(); });
+  title.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && !ui.composing) add(); });
   return h('div', null,
     h('div', { class: 'addbar with-delegate' },
       title, timeWrap,
@@ -2698,7 +2783,24 @@ function joseonSwarmPanel() {
               h('button', { type: 'button', class: 'swarm-brain-pill', title: '클릭해 메인 AI 및 메인 컴퓨터 변경', onclick: openCoordinatorConfigModal },
                 '메인 AI ', h('b', null, mainAiEmp ? shortName(mainAiEmp.id) : '미지정'), ' ▾'),
               mainMacObj ? h('button', { type: 'button', class: 'swarm-brain-pill', title: '클릭해 메인 컴퓨터 변경 (RAM 85% 초과 시 자동 우회)', onclick: openCoordinatorConfigModal },
-                '메인 컴퓨터 ', h('b', null, mainMacObj.name), mainRam, ' ▾') : null),
+                '메인 컴퓨터 ', h('b', null, mainMacObj.name), mainRam, ' ▾') : null,
+              S.egoProbe?.installed ? h('button', {
+                type: 'button',
+                class: `swarm-brain-pill${S.egoProbe.connected ? ' is-live' : ''}`,
+                title: `${S.egoProbe.reason || 'Ego Lite 상태'} — 클릭해 지금 접속 다시 확인`,
+                onclick: () => once('probe-ego-hero', async () => {
+                  const resP = await api('GET', '/api/ui/browsers/probe');
+                  if (resP?.ego) {
+                    S.egoProbe = resP.ego;
+                    toast(resP.ego.connected ? `Ego Lite 실시간 연결됨 (스페이스 ${resP.ego.spaces}개)` : (resP.ego.reason || 'Ego Lite 앱이 꺼져 있어요'), { kind: resP.ego.connected ? 'connect' : 'handoff' });
+                    render();
+                  }
+                }),
+              }, h('i', { class: `ego-live-dot${S.egoProbe.connected ? ' on' : ''}` }), 'Ego Lite ', h('b', null, S.egoProbe.connected ? '연결됨' : '대기')) : null,
+              h('button', {
+                type: 'button', class: 'swarm-brain-pill', title: '회사 공용 지식 베이스 (내 지식) 열기',
+                onclick: () => { ui.resTab = 'knowledge'; location.hash = '#resources'; },
+              }, '내 지식 ', h('b', null, String((d.knowledge || []).length)))),
             h('div', { class: 'swarm-hero-sub' }, linkedEmps.length
               ? `자동 배분 가동 가능: ${linkedEmps.map((e) => shortName(e.id)).join(' · ')} (미연결 AI는 자동 배분에서 제외)`
               : '아직 자동 실행 연결된 AI가 없어요 · AI 직원 탭에서 연결해 주세요'),
@@ -5281,10 +5383,15 @@ function openAddBrowser() {
 function browserPanel() {
   const saved = S.data.resources.filter((r) => r.kind === '브라우저');
   const detected = ui.tools?.browsers || [];
+  const egoP = S.egoProbe || null;
   const cards = detected.map((b) => {
     const existing = saved.find((r) => r.preset === b.key || r.name.toLowerCase() === b.name.toLowerCase());
     const on = Boolean(existing && existing.status !== '꺼짐');
     const isDef = Boolean(existing?.isDefault);
+    const isEgo = b.key === 'ego-lite';
+    const egoTag = isEgo && egoP?.installed
+      ? h('span', { class: `tag${egoP.connected ? ' ego-ok-tag' : ''}`, title: egoP.reason || '' }, egoP.connected ? `● 실시간 연결 (${egoP.spaces})` : '앱 꺼짐')
+      : null;
     return h('button', {
       type: 'button', class: `tool-card${on ? ' on' : ''}`, 'aria-pressed': on ? 'true' : 'false',
       onclick: () => once(`br-${b.key}`, () => {
@@ -5295,11 +5402,24 @@ function browserPanel() {
       }),
     },
     h('div', { class: 'top' }, h('b', null, b.name),
-      isDef ? h('span', { class: 'tag solid' }, '기본') : on ? h('span', { class: 'tag' }, '켜짐') : b.found ? h('span', { class: 'tag' }, '설치됨') : null),
-    h('span', { class: 'small muted' }, b.hint));
+      h('span', { class: 'row' },
+        egoTag,
+        isDef ? h('span', { class: 'tag solid' }, '기본') : on ? h('span', { class: 'tag' }, '켜짐') : b.found ? h('span', { class: 'tag' }, '설치됨') : null)),
+    h('span', { class: 'small muted' }, isEgo && egoP?.reason ? egoP.reason : b.hint));
   });
   const custom = saved.filter((r) => !detected.some((b) => b.key === r.preset || b.name.toLowerCase() === r.name.toLowerCase()));
-  return h('section', { class: 'sec' }, secHead('내가 쓰는 브라우저', 'Ego Lite, Aside, Chrome, Dia, Comet 등 내가 쓰는 브라우저를 1클릭으로 기본 지정하세요', h('button', { class: 'btn sm', onclick: openAddBrowser }, '+ 브라우저 추가')),
+  const probeBtn = h('button', {
+    type: 'button', class: 'btn sm',
+    onclick: () => once('probe-ego-btn', async () => {
+      const resP = await api('GET', '/api/ui/browsers/probe');
+      if (resP?.ego) {
+        S.egoProbe = resP.ego;
+        toast(resP.ego.connected ? `Ego Lite 실시간 연결됨 (스페이스 ${resP.ego.spaces}개)` : (resP.ego.reason || 'Ego Lite 앱이 꺼져 있어요'), { kind: resP.ego.connected ? 'connect' : 'handoff' });
+        render();
+      }
+    }),
+  }, 'Ego Lite 접속 확인');
+  return h('section', { class: 'sec' }, secHead('내가 쓰는 브라우저', 'Ego Lite, Aside, Chrome, Dia, Comet 등 내가 쓰는 브라우저를 1클릭으로 기본 지정하세요', probeBtn, h('button', { class: 'btn sm', onclick: openAddBrowser }, '+ 브라우저 추가')),
     h('div', { class: 'tool-cards' }, cards,
       custom.map((r) => h('button', {
         type: 'button', class: `tool-card${r.status !== '꺼짐' ? ' on' : ''}`,
@@ -5665,6 +5785,135 @@ function accountsPanel() {
       : h('div', { class: 'empty' }, '아직 연결된 계정이 없어요. YouTube, Instagram 같은 계정을 추가하고 권한을 정해 보세요.'));
 }
 
+// ───────── 내 지식 (회사 공용 지식 베이스 · 모든 AI 프롬프트 자동 주입) ─────────
+
+function openKnowledgeModal(existing = null, prefill = null) {
+  const dlg = document.getElementById('dlg');
+  const cats = S.options.knowledgeCategories || ['브랜드', '비즈니스', '업무 규칙', '참고 자료', 'AI 학습 메모'];
+  const titleIn = h('input', { class: 'in auto-m-title', value: existing?.title || prefill?.title || '', placeholder: '예: CONNECT AI LAB 브랜드 톤 · 채널 소개 · 12월 강의 커리큘럼', 'aria-label': '지식 제목' });
+  const catSel = h('select', { class: 'in', 'aria-label': '카테고리' },
+    cats.map((c) => h('option', { value: c, selected: (existing?.category || prefill?.category || '브랜드') === c }, c)));
+  const scopeSel = h('select', { class: 'in', 'aria-label': '공유 범위' },
+    h('option', { value: 'all', selected: !existing?.scope || existing.scope === 'all' }, '전체 AI 직원 공유'),
+    ...S.data.employees.map((e) => h('option', { value: e.id, selected: existing?.scope === e.id }, `${shortName(e.id)} 전용`)));
+  const tagsIn = h('input', { class: 'in', value: (existing?.tags || []).join(', '), placeholder: '쉼표로 구분 · 예: 유튜브, 강의, 톤앤매너, 가격', 'aria-label': '태그' });
+  const contentIn = h('textarea', {
+    class: 'in kb-content-in', rows: 7, 'aria-label': '지식 내용',
+    placeholder: '브랜드 소개, 채널 링크, 말투 규칙, 상품 가격, 자주 쓰는 SOP 등을 자유롭게 적어 주세요.\nAI 직원들이 일할 때 자동으로 이 지식을 참고합니다.',
+  }, existing?.content || prefill?.content || '');
+
+  const submit = async () => {
+    const titleVal = titleIn.value.trim();
+    const contentVal = contentIn.value.trim();
+    if (!titleVal) { titleIn.focus(); toast('지식 제목을 입력해 주세요'); return; }
+    if (!contentVal) { contentIn.focus(); toast('지식 내용을 입력해 주세요'); return; }
+    const body = { title: titleVal, category: catSel.value, scope: scopeSel.value, tags: tagsIn.value.trim(), content: contentVal };
+    const r = existing
+      ? await once(`kb-edit-${existing.id}`, () => act('PATCH', `/api/ui/knowledge/${existing.id}`, body, '지식을 수정했어요'))
+      : await once('kb-add', () => act('POST', '/api/ui/knowledge', body, '내 지식에 저장했어요'));
+    if (r) { closeDlg(); render(); }
+  };
+  contentIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); submit(); } });
+
+  dlg.className = 'auto-dlg';
+  setDlg(dlg,
+    h('div', { class: 'auto-m-top' },
+      h('div', { class: 'auto-m-head' },
+        h('span', { class: 'auto-tpl-kicker' }, 'CONNECT AI · KNOWLEDGE BASE'),
+        h('h3', { class: 'auto-m-title-h' }, existing ? '내 지식 편집' : '새 지식 추가')),
+      h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: closeDlg }, '×')),
+    h('div', { class: 'auto-m-body' },
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '제목'), titleIn),
+      h('div', { class: 'auto-m-grid2' },
+        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '카테고리'), catSel),
+        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'AI 공유 범위'), scopeSel)),
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '자동 매칭 태그 (쉼표 구분 · 선택)'), tagsIn),
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '내용 (마크다운 · 텍스트)'), contentIn)),
+    h('div', { class: 'auto-m-foot' },
+      h('span', { class: 'small muted' }, '로컬에만 저장 · 청사진 공유 시 비공개 제외'),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn', onclick: closeDlg }, '취소'),
+        h('button', { type: 'button', class: 'btn dark', onclick: submit }, existing ? '저장 ⌘↵' : '추가 ⌘↵'))));
+  dlg.showModal();
+  setTimeout(() => titleIn.focus(), 20);
+}
+
+function knowledgePanel() {
+  const list = Array.isArray(S.data.knowledge) ? S.data.knowledge : [];
+  const cats = ['all', ...(S.options.knowledgeCategories || ['브랜드', '비즈니스', '업무 규칙', '참고 자료', 'AI 학습 메모'])];
+  const fileIn = h('input', { type: 'file', accept: '.md,.txt,.json', class: 'is-hidden' });
+  fileIn.addEventListener('change', async () => {
+    const f = fileIn.files?.[0];
+    fileIn.value = '';
+    if (!f) return;
+    const raw = (await f.text()).slice(0, 6000).trim();
+    if (!raw) { toast('비어 있는 파일입니다'); return; }
+    openKnowledgeModal(null, { title: f.name.replace(/\.(md|txt|json)$/i, ''), category: '참고 자료', content: raw });
+  });
+
+  const gridWrap = h('div', { class: 'kb-list-wrap' });
+  const renderList = () => {
+    const q = String(ui.kbQuery || '').trim().toLowerCase();
+    const cat = ui.kbCat || 'all';
+    const filtered = list.filter((k) => {
+      if (cat !== 'all' && k.category !== cat) return false;
+      if (q && !`${k.title} ${k.category} ${(k.tags || []).join(' ')} ${k.content}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+    if (!filtered.length) {
+      gridWrap.replaceChildren(h('div', { class: 'auto-empty-center compact' },
+        h('div', { class: 'auto-empty-title' }, list.length ? '조건에 맞는 지식 문서가 없어요' : '아직 저장된 내 지식이 없어요'),
+        h('p', { class: 'small muted' }, '브랜드 소개, 채널 정보, 업무 규칙, 강의 커리큘럼을 넣어두면 모든 AI 직원이 일할 때 자동으로 참고합니다.'),
+        h('button', { type: 'button', class: 'btn dark sm', onclick: () => openKnowledgeModal() }, '+ 첫 지식 추가하기')));
+      return;
+    }
+    gridWrap.replaceChildren(h('div', { class: 'kb-grid' }, filtered.map((k) => {
+      const byAi = k.updatedBy && k.updatedBy !== 'jay';
+      const scopeLabel = !k.scope || k.scope === 'all' ? '전체 AI 공유' : `${shortName(k.scope)} 전용`;
+      return h('article', { class: 'kb-card' },
+        h('div', { class: 'kb-card-top' },
+          h('div', { class: 'kb-badges' },
+            h('span', { class: `kb-cat-pill${k.category === '브랜드' || k.category === '업무 규칙' ? ' is-core' : ''}` }, k.category),
+            h('span', { class: 'tag' }, scopeLabel),
+            byAi ? h('span', { class: 'skill-ai-tag' }, `${shortName(k.updatedBy)} 정리`) : null),
+          h('div', { class: 'row' },
+            h('button', { type: 'button', class: 'btn sm', onclick: () => openKnowledgeModal(k) }, '편집'),
+            h('button', {
+              type: 'button', class: 'x', 'aria-label': `${k.title} 삭제`,
+              onclick: () => { if (confirm(`"${k.title}" 지식을 지울까요?`)) act('DELETE', `/api/ui/knowledge/${k.id}`, undefined, '지식을 지웠어요'); },
+            }, '×'))),
+        h('h3', { class: 'kb-title' }, k.title),
+        h('p', { class: 'kb-preview' }, k.content),
+        (k.tags || []).length ? h('div', { class: 'kb-tags' }, k.tags.map((tg) => h('span', { class: 'kb-tag' }, `#${tg}`))) : null);
+    })));
+  };
+
+  const searchIn = h('input', {
+    class: 'in auto-search-in', type: 'search', value: ui.kbQuery || '',
+    placeholder: '내 지식 검색 (제목 · 태그 · 내용)...', 'aria-label': '내 지식 검색',
+  });
+  searchIn.addEventListener('input', () => { ui.kbQuery = searchIn.value; renderList(); });
+
+  const catBtns = cats.map((c) => h('button', {
+    type: 'button', class: `chip sm${(ui.kbCat || 'all') === c ? ' on' : ''}`,
+    onclick: () => {
+      ui.kbCat = c;
+      catBtns.forEach((b, i) => b.classList.toggle('on', cats[i] === c));
+      renderList();
+    },
+  }, c === 'all' ? `전체 (${list.length})` : c));
+
+  renderList();
+
+  return h('section', { class: 'sec' },
+    secHead('내 지식 (회사 공용 지식 베이스)', '브랜드 · 비즈니스 · 업무 규칙을 적어 두면 모든 AI 직원이 작업할 때 자동으로 참고하고, AI가 배운 노하우도 여기에 쌓입니다',
+      fileIn,
+      h('button', { type: 'button', class: 'btn sm', onclick: () => fileIn.click() }, '.md 파일 불러오기'),
+      h('button', { type: 'button', class: 'btn sm dark', onclick: () => openKnowledgeModal() }, '+ 새 지식 추가')),
+    h('div', { class: 'auto-toolbar kb-toolbar' }, searchIn, h('div', { class: 'auto-filters' }, catBtns)),
+    gridWrap);
+}
+
 function pageResources() {
   if (!ui.office) loadOffice();
   if (!ui.tools) loadTools();
@@ -5672,12 +5921,14 @@ function pageResources() {
   const tab = ui.resTab || 'all';
   const show = (k) => tab === 'all' || tab === k;
   const genericKinds = S.options.resKinds.filter((k) => !['브라우저', '스마트폰', '오픈소스', '계정', '디자인'].includes(k));
+  const kbCount = (d.knowledge || []).length;
   const webCount = d.resources.filter((r) => ['브라우저', '계정'].includes(r.kind)).length;
   const mobileCount = d.resources.filter((r) => r.kind === '스마트폰').length;
   const toolsCount = d.resources.filter((r) => ['오픈소스', '디자인'].includes(r.kind)).length;
   const officeCount = d.resources.filter((r) => genericKinds.includes(r.kind)).length;
   const tabs = [
     ['all', '전체'],
+    ['knowledge', `내 지식 (${kbCount})`],
     ['web', `브라우저 · 계정 (${webCount})`],
     ['mobile', `스마트폰 · 헬스 (${mobileCount})`],
     ['tools', `오픈소스 · 디자인 (${toolsCount})`],
@@ -5689,11 +5940,12 @@ function pageResources() {
   name.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) add(); });
   return h('div', null,
     h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, 'AI 사무실')),
-      h('div', { class: 'sub' }, '컴퓨터(화면 조작) · 브라우저 · 스마트폰(아이폰 미러링) · 대표 헬스 · 오픈소스를 한 번만 연결하면 모든 할 일과 대시보드에 즉시 적용됩니다.')),
+      h('div', { class: 'sub' }, '내 지식 · 컴퓨터(화면 조작) · 브라우저(Ego Lite) · 스마트폰 · 오픈소스를 한 번만 연결하면 모든 AI 직원과 할 일에 자동 반영됩니다.')),
     h('button', { class: 'btn', onclick: () => { loadOffice(); loadTools(); } }, '다시 읽기')),
     h('div', { class: 'picker', style: 'margin-bottom:20px' }, tabs.map(([k, label]) => h('button', {
       type: 'button', class: `chip${tab === k ? ' on' : ''}`, onclick: () => { ui.resTab = k; render(); },
     }, label))),
+    show('knowledge') ? knowledgePanel() : null,
     show('web') ? browserPanel() : null,
     show('mobile') ? phonePanel() : null,
     show('mobile') ? healthPanel() : null,

@@ -301,6 +301,57 @@ async function main() {
     return fail('report revenue | metric');
   }
 
+  if (cmd === 'skill') {
+    if (sub === 'list') {
+      const me = await call('GET', `/api/agent/whoami?emp=${encodeURIComponent(need(flags, 'from'))}`);
+      const list = me.skills || [];
+      if (!list.length) return console.log('등록된 스킬이 없습니다.');
+      for (const s of list) {
+        const subs = (s.subSkills || []).map((x) => x.name).join(', ');
+        console.log(`${s.primary ? '★ ' : '- '}${s.name}${s.command ? ` (${s.command})` : ''}${s.repo ? ` · ${s.repo}` : ''}${subs ? ` → 세부: ${subs}` : ''}`);
+      }
+      return;
+    }
+    if (sub === 'add') {
+      const r = await call('POST', '/api/agent/skills/register', {
+        from: need(flags, 'from'),
+        name: flags.name === true ? '' : (flags.name || rest[0] || ''),
+        command: flags.cmd === true ? '' : (flags.cmd || flags.command || ''),
+        repo: flags.repo === true ? '' : (flags.repo || ''),
+        primary: Boolean(flags.primary),
+        subSkills: flags.sub === true ? '' : (flags.sub || flags.subSkills || ''),
+        when: flags.when === true ? '' : (flags.when || ''),
+        note: flags.note === true ? '' : (flags.note || ''),
+      });
+      const sk = r.skill;
+      return console.log(`${r.empId} 스킬 ${r.updated ? '업데이트' : '등록'}: ${sk.primary ? '★ ' : ''}${sk.name}${sk.subSkills?.length ? ` (세부 ${sk.subSkills.length}개)` : ''}`);
+    }
+    return fail('skill list | add --from <직원> --name "<이름>" [--cmd "npx ..."] [--repo "https://..."] [--sub "세부1,세부2"] [--primary]');
+  }
+
+  if (cmd === 'knowledge') {
+    if (sub === 'list' || !sub) {
+      const q = new URLSearchParams();
+      if (flags.from && flags.from !== true) q.set('emp', flags.from);
+      if (flags.q && flags.q !== true) q.set('q', flags.q);
+      const list = await call('GET', `/api/agent/knowledge?${q}`);
+      if (!list.length) return console.log('등록된 지식이 없습니다.');
+      for (const k of list) console.log(`${k.id.padEnd(5)} [${k.category}] ${k.title}${k.tags?.length ? ` (#${k.tags.join(' #')})` : ''}\n  ${k.content.slice(0, 180).replace(/\n/g, ' ')}`);
+      return;
+    }
+    if (sub === 'save') {
+      const r = await call('POST', '/api/agent/knowledge', {
+        from: need(flags, 'from'),
+        title: flags.title === true ? '' : (flags.title || rest[0] || ''),
+        content: flags.content === true ? '' : (flags.content || rest[1] || ''),
+        tags: flags.tags === true ? '' : (flags.tags || ''),
+        scope: flags.scope === 'self' ? 'self' : 'all',
+      });
+      return console.log(`지식 ${r.updated ? '업데이트' : '저장'} (${r.item.id}): [${r.item.category}] ${r.item.title}`);
+    }
+    return fail('knowledge list [--q "<검색어>"] | save --from <직원> --title "<제목>" --content "<내용>" [--tags "태그1,태그2"]');
+  }
+
   console.log(HELP);
   process.exit(1);
 }

@@ -1,0 +1,217 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { extractRecurringSchedule } from '../lib/util.mjs';
+import { normalizeEmployeeSkill, matchEmployeeSkills } from '../lib/tools.mjs';
+import { exportBlueprint } from '../lib/blueprint.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const STUB = path.join(ROOT, 'qa', 'stub-agent.mjs');
+
+async function startServer(extraEnv = {}) {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'aihq-kb-test-'));
+  const port = 19500 + Math.floor(Math.random() * 400);
+  const child = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      AIHQ_PORT: String(port),
+      AIHQ_DATA_DIR: path.join(dir, 'data'),
+      AIHQ_WORKSPACES: path.join(dir, 'ws'),
+      AIHQ_SEED: 'example',
+      AIHQ_NO_OPEN: '1',
+      AIHQ_DISPATCH: '0',
+      AIHQ_AUTO_ENABLE: '1',
+      AIHQ_NO_NOTIFY: '1',
+      AIHQ_NO_CAFFEINATE: '1',
+      AIHQ_NO_BROWSER_PROBE: '1',
+      AIHQ_TEST_RAM_PCT: '40',
+      AIHQ_LLM_MODEL: '',
+      AIHQ_CLAUDE_BIN: STUB,
+      AIHQ_CODEX_BIN: STUB,
+      ...extraEnv,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const origin = `http://127.0.0.1:${port}`;
+  const dataDir = path.join(dir, 'data');
+  for (let i = 0; i < 60; i++) {
+    try {
+      const r = await fetch(`${origin}/api/state`);
+      if (r.ok) {
+        const secret = (await fs.readFile(path.join(dataDir, '.human-session'), 'utf8')).trim();
+        const cookie = `hq_human=${secret}`;
+        return {
+          origin,
+          cookie,
+          async ui(method, p, body) {
+            const res = await fetch(`${origin}${p}`, {
+              method,
+              headers: { 'Content-Type': 'application/json', 'X-HQ-UI': '1', 'Sec-Fetch-Site': 'same-origin', Origin: origin, Cookie: cookie },
+              body: body === undefined ? undefined : JSON.stringify(body),
+            });
+            return { status: res.status, body: await res.json().catch(() => null) };
+          },
+          async agent(method, p, body) {
+            const res = await fetch(`${origin}${p}`, {
+              method,
+              headers: { 'Content-Type': 'application/json', 'User-Agent': 'aihq-cli/1', 'X-HQ-Agent': '1' },
+              body: body === undefined ? undefined : JSON.stringify(body),
+            });
+            return { status: res.status, body: await res.json().catch(() => null) };
+          },
+          async close() {
+            child.kill('SIGTERM');
+            await new Promise((res) => child.once('exit', res));
+            await fs.rm(dir, { recursive: true, force: true });
+          },
+        };
+      }
+    } catch { /* wait */ }
+    await new Promise((r) => setTimeout(r, 80));
+  }
+  child.kill('SIGKILL');
+  throw new Error('테스트 서버 기동 시간 초과');
+}
+
+test('반복 명령 자연어 파싱 + 주요/세부 스킬 매칭 단위 검증', () => {
+  const iv = extractRecurringSchedule('5분마다 이메일 체크해줘');
+  assert.equal(iv?.intervalMin, 5);
+  const hourly = extractRecurringSchedule('매시간 AI 막힘 점검');
+  assert.equal(hourly?.intervalMin, 60);
+  const daily = extractRecurringSchedule('매일 오전 8시 30분 유튜브 브리핑');
+  assert.equal(daily?.time, '08:30');
+  assert.deepEqual(daily?.days, [0, 1, 2, 3, 4, 5, 6]);
+  const weekly = extractRecurringSchedule('매주 월요일 9시에 주간 보고');
+  assert.deepEqual(weekly?.days, [1]);
+  assert.equal(weekly?.time, '09:00');
+  assert.equal(extractRecurringSchedule('지금 유튜브 쇼츠 훅 3개 써줘'), null);
+
+  const sk = normalizeEmployeeSkill({
+    name: 'Connect AI Motion',
+    command: 'npx connect-ai-video-motion',
+    primary: true,
+    subSkills: '인물 피해 모션그래픽 배치, 9:16 숏폼 크롭',
+  });
+  assert.equal(sk.primary, true);
+  assert.equal(sk.subSkills.length, 2);
+  const hits = matchEmployeeSkills('이 영상 9:16 숏폼 크롭으로 정리해줘', { skills: [sk] });
+  assert.equal(hits.length, 1);
+  assert.deepEqual(hits[0].matchedSubSkills, ['9:16 숏폼 크롭']);
+});
+
+test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(프롬프트 자동 주입/보안) · 선제적 멤버십 최적화 · 1줄 반복 오토메이션 · Ego Lite 프로브 통합 검증', async () => {
+  const srv = await startServer({ AIHQ_TEST_USAGE_JSON: JSON.stringify({ claude: 100, codex: 5 }) });
+  try {
+    // 1) 주요 스킬 + 세부 스킬 장착 (UI) & AI 자가 등록 (Agent)
+    const addSk = await srv.ui('POST', '/api/ui/employees/codex/skills', {
+      presetKey: 'connect-ai-video-motion',
+      primary: true,
+      subSkills: ['인물 피해 모션그래픽 배치', '9:16 숏폼 크롭'],
+    });
+    assert.equal(addSk.status, 200);
+    assert.equal(addSk.body.skill.primary, true);
+    assert.equal(addSk.body.skill.subSkills.length, 2);
+
+    const selfReg = await srv.agent('POST', '/api/agent/skills/register', {
+      from: 'codex',
+      name: 'yt-dlp',
+      command: 'yt-dlp',
+      subSkills: ['유튜브 자막 추출'],
+    });
+    assert.equal(selfReg.status, 200);
+    assert.equal(selfReg.body.skill.addedBy, 'ai');
+    assert.equal(selfReg.body.skill.subSkills[0].name, '유튜브 자막 추출');
+
+    // 위험한 URL 차단 검증
+    const badUrl = await srv.agent('POST', '/api/agent/skills/register', {
+      from: 'codex',
+      name: 'bad',
+      repo: 'javascript:alert(1)',
+    });
+    assert.equal(badUrl.status, 400);
+
+    // 2) 내 지식 베이스 (대표 저장 → AI 조회/메모 저장 → 대표 문서 덮어쓰기 403 차단 → 청사진 격리)
+    const kb = await srv.ui('POST', '/api/ui/knowledge', {
+      title: 'CONNECT AI LAB 브랜드 톤',
+      category: '브랜드',
+      tags: '유튜브, 강의, 톤',
+      content: '군더더기 없이 직관적이고 실전 중심의 한국어로 답한다. 시그니처 컬러는 매트 블랙과 샴페인 골드.',
+    });
+    assert.equal(kb.status, 200);
+    assert.equal(kb.body.category, '브랜드');
+
+    const agentKbList = await srv.agent('GET', '/api/agent/knowledge?emp=codex&q=매트');
+    assert.equal(agentKbList.status, 200);
+    assert.equal(agentKbList.body.length, 1);
+
+    const overwriteBlocked = await srv.agent('POST', '/api/agent/knowledge', {
+      from: 'codex',
+      title: 'CONNECT AI LAB 브랜드 톤',
+      content: 'AI가 마음대로 덮어쓰기 시도',
+    });
+    assert.equal(overwriteBlocked.status, 403, '대표가 작성한 지식은 AI가 덮어쓸 수 없어야 함');
+
+    const aiMemo = await srv.agent('POST', '/api/agent/knowledge', {
+      from: 'codex',
+      title: '쇼츠 자막 안전영역 메모',
+      content: '상단 1/3 및 하단 240px 안전영역 준수',
+      tags: '쇼츠, 자막',
+    });
+    assert.equal(aiMemo.status, 200);
+    assert.equal(aiMemo.body.item.category, 'AI 학습 메모');
+    assert.equal(aiMemo.body.item.updatedBy, 'codex');
+
+    // 3) 선제적 멤버십 최적화 라우팅: 메인 AI를 claude(한도 100%)로 지정해도 일반 작업은 여유 있는 codex(5%)로 선제 우회!
+    await srv.ui('PATCH', '/api/ui/settings', { mainAi: 'claude' });
+    const del = await srv.ui('POST', '/api/ui/coordinator/delegate', {
+      title: '12월 강의 소개 문구 2줄만 써줘',
+    });
+    assert.equal(del.status, 200);
+    assert.equal(del.body.assignee, 'codex', 'Claude 100% 한도일 때 여유 있는 Codex(5%)로 선제 우회해야 함');
+    assert.match(del.body.reason, /멤버십 최적화/);
+
+    // 4) 최종 프롬프트 미리보기에 주요·세부 스킬 + 내 지식(브랜드 톤)이 모두 자동 주입되는지 확인
+    const prev = await srv.ui('GET', `/api/ui/tasks/${del.body.id}/prompt-preview`);
+    assert.equal(prev.status, 200);
+    assert.match(prev.body.prompt, /★ \[주요\] Connect AI Motion/);
+    assert.match(prev.body.prompt, /9:16 숏폼 크롭/);
+    assert.match(prev.body.prompt, /CONNECT AI LAB 브랜드 톤/);
+
+    // 5) 청사진 내보내기에 주요·세부 스킬은 포함되고 비공개 내 지식은 제외되는지 확인
+    const stNow = await srv.ui('GET', '/api/state');
+    const bp = exportBlueprint(stNow.body.data);
+    assert.equal(bp.knowledge, undefined, '비공개 내 지식은 청사진에 포함되지 않아야 함');
+    const codexBp = bp.employeeSkills.find((x) => x.empName.includes('Codex'));
+    assert.ok(codexBp?.skills?.some((s) => s.primary && s.subSkills?.length >= 2));
+
+    // 6) #home 1줄 반복 명령 → 오토메이션 자동 등록 검증
+    const recurRes = await srv.ui('POST', '/api/ui/coordinator/delegate', {
+      title: '매일 오전 8시 30분 유튜브 트렌드 브리핑',
+    });
+    assert.equal(recurRes.status, 200);
+    assert.equal(recurRes.body.isRecurring, true);
+    assert.equal(recurRes.body.createdRoutine.time, '08:30');
+    assert.equal(recurRes.body.createdRoutine.assignee, 'codex');
+
+    // 7) 도구·인터넷 필수 작업("내 깃허브 전체 체크")은 순수 로컬 LLM(ollama)에 배정하지 않고 CLI 에이전트에 배정
+    const ghTask = await srv.ui('POST', '/api/ui/coordinator/delegate', {
+      title: '내 깃허브 전체 체크',
+    });
+    assert.equal(ghTask.status, 200);
+    assert.notEqual(ghTask.body.assignee, 'ollama', '깃허브·도구 필요 작업은 인터넷/셸이 없는 로컬 LLM으로 가면 안 됨');
+    assert.equal(ghTask.body.assignee, 'codex');
+
+    // 8) Ego Lite 실시간 프로브 API 응답 구조 검증
+    const probeRes = await srv.ui('GET', '/api/ui/browsers/probe');
+    assert.equal(probeRes.status, 200);
+    assert.equal(typeof probeRes.body.ego.installed, 'boolean');
+    assert.equal(typeof probeRes.body.ego.connected, 'boolean');
+  } finally {
+    await srv.close();
+  }
+});

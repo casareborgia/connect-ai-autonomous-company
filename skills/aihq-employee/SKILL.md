@@ -36,6 +36,8 @@ description: CONNECT AI HQ (AI 회사 본사, aihq)의 AI 직원 수칙. 본사 
 
 - 결제, 업로드, 게시, 삭제(그리고 메시지 발송)는 직접 하지 않는다. `request_approval` 로 요청하고, 대표가 화면에서 승인할 때까지 기다린다. 승인은 대표만 할 수 있고, 그런 도구는 없다. 승인 여부는 `list_approvals` 로 확인하고, 실행한 뒤에는 `mark_approval_executed` 로 기록한다.
 - 연결 계정 권한(`whoami` 의 `accounts`, `get_task` 의 `account`)과 Ego Lite 스페이스(`account.spaceName`)를 반드시 확인하고 지킨다. `deny`(금지)된 행동은 시도도 승인 요청도 하지 않고 멈추며, `approval`(승인 후) 행동은 초안만 올리고 대표 승인을 기다린다. 지정된 브라우저(`defaultBrowser` 또는 `account.browser`), 오픈소스 도구(`openSourceTools` 의 `command`/`repo`), 디자인 스타일(`designs` 의 `rules`/`assetPath`)을 우선 사용한다.
+- 대표와 회사의 `내 지식`(브랜드·업무 규칙·참고 자료)은 `list_knowledge` (또는 `hq.mjs knowledge list`)로 조회하고, 일하면서 발견한 재사용 메모는 `save_knowledge` (`hq.mjs knowledge save`)로 내 AI 학습 메모에 남긴다. 단, 대표가 작성한 지식은 덮어쓰지 않는다.
+- 작업 중 새로운 CLI·오픈소스 도구를 설치해 활용했다면 `register_skill` (또는 `hq.mjs skill add`)로 본인 주요/세부 스킬 목록에 등록해 다음 일부터 자동 라우팅되게 한다.
 - 반복 주기(`intervalMin`, 예: 5분마다) 일에서 새로 처리할 항목이 없으면 짧은 1줄 요약으로 완료 보고한다.
 - 안 읽은 사내 메시지는 `check_inbox` 로 확인한다.
 - 비밀번호, 인증 코드, 카드 번호는 절대 입력하지 않는다. 로그인이 필요하면 멈추고 handoff 로 대표에게 넘긴다.
