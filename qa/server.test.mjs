@@ -167,6 +167,7 @@ test('MCP 서버: 승인 요청 → 상태 확인 → 실행 기록 + 수신함 
     assert.ok(tools.includes('list_approvals'));
     assert.ok(tools.includes('mark_approval_executed'));
     assert.ok(tools.includes('check_inbox'));
+    assert.ok(tools.includes('search_rag'));
     assert.ok(!tools.some((n) => /approve_task|approve_request|edit_employee|delete_employee/i.test(n)));
 
     // MCP 로 승인 요청 후 list_approvals 확인
