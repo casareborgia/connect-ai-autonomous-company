@@ -456,6 +456,33 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     assert.equal(finalTask?.status, '완료', '먹통 감지 후 대체 직원 codex 가 이어받아 완료해야 함');
     assert.equal(finalTask?.assignee, 'codex');
     assert.ok(msgs.some((m) => /무응답\(먹통\) 감지/.test(m.text)), '먹통 감지 시스템 로그가 남아야 함');
+
+    // 4) 게이트 승인(approve-gate) 시 프롬프트에 "대표 승인 완료"가 주입되고, auto 직원은 즉시 실행까지 자동 착수
+    await ui('PATCH', '/api/ui/employees/codex', { runMode: 'auto' });
+    const gated = await ui('POST', '/api/ui/tasks', { title: '유튜브 커뮤니티 테스트 포스팅 게시해줘', assignee: 'codex' });
+    assert.equal(gated.status, 200);
+    assert.equal(gated.body.gate, '게시');
+    assert.equal(gated.body.status, '대기');
+
+    const beforePreview = await (await fetch(`${origin}/api/ui/tasks/${gated.body.id}/prompt-preview`)).json();
+    assert.match(beforePreview.prompt, /결제, 업로드, 게시, 삭제, 메시지 발송은 직접 하지 않는다/);
+
+    const approved = await ui('POST', `/api/ui/tasks/${gated.body.id}/approve-gate`, {});
+    assert.equal(approved.status, 200);
+    assert.ok(approved.body.gateApprovedAt);
+
+    const afterPreview = await (await fetch(`${origin}/api/ui/tasks/${gated.body.id}/prompt-preview`)).json();
+    assert.match(afterPreview.prompt, /대표 승인 완료: 게시/);
+    assert.doesNotMatch(afterPreview.prompt, /결제, 업로드, 게시, 삭제, 메시지 발송은 직접 하지 않는다/);
+
+    let gatedFinal = null;
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 120));
+      const st = await (await fetch(`${origin}/api/state`)).json();
+      gatedFinal = st.data.tasks.find((t) => t.id === gated.body.id);
+      if (gatedFinal?.status === '완료') break;
+    }
+    assert.equal(gatedFinal?.status, '완료', '대표 승인 1클릭만으로 추가 클릭 없이 즉시 실행·완료되어야 함');
   } finally {
     child.kill('SIGTERM');
     await new Promise((r) => child.once('exit', r));

@@ -64,6 +64,11 @@ test('할 일 표의 문장', () => {
 });
 
 test('영어', () => {
-  const wrong = ENGLISH.filter(([s, want]) => !ok(detectGate(s), want)).map(([s, want]) => `${s} (기대 ${want}, 감지 ${detectGate(s)})`);
+  const wrong = ENGLISH.filter(([s, want]) => !ok(detectGate(s), want)).map((s) => `${s} (기대 ${s[1]}, 감지 ${detectGate(s[0])})`);
   assert.deepEqual(wrong, []);
+});
+
+test('본문 설명 속 안전 문구("게시·결제는 대표 승인 앞 안전 정지")를 결제로 오인하지 않는다', () => {
+  const postDraft = '스레드(@aimentorjay)에 무인 AI 자율회사 테스트 포스팅 게시해줘\n• 게시·결제는 대표 승인 앞 안전 정지\n• 결제·업로드·게시 같은 중요한 순간엔 반드시 대표님 승인 앞에서 딱 멈추는 시스템';
+  assert.equal(detectGate(postDraft), '게시');
 });
