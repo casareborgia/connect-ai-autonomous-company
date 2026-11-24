@@ -1576,14 +1576,32 @@ function taskDetail(t, e) {
   const latestRes = latestResultOf(t);
   const trail = t.failoverTrail || [];
   const topStatusBox = workJob
-    ? h('div', { class: 'res-card live' },
-      h('div', { class: 'row', style: 'justify-content:space-between' },
+    ? h('div', { class: 'res-card live live-stream-card' },
+      h('div', { class: 'live-stream-top' },
         h('div', { class: 'row' },
-          emp(workJob.emp) ? avatarEl(emp(workJob.emp), { size: 28, stateOverride: 'working' }) : null,
+          emp(workJob.emp) ? avatarEl(emp(workJob.emp), { size: 30, stateOverride: 'working', onDark: true }) : null,
           h('b', null, `${shortName(workJob.emp)} 지금 실행 중`),
-          h('span', { class: 'tag solid' }, workJob.label || '실행 중')),
-        h('span', { class: 'small muted' }, stamp(workJob.since))),
-      h('div', { class: 'small muted', style: 'margin-top:6px' }, workJob.statusLine || '작업을 처리하고 있어요… (끝나면 아래 오늘 한 일에 결과물이 올라옵니다)'))
+          h('span', { class: 'ops-pill sm is-live' }, workJob.label || '실행 중'),
+          workJob.machineName ? h('span', { class: 'ops-lj-mach' }, workJob.machineName) : null),
+        h('div', { class: 'row' },
+          h('span', { class: 'ops-lj-time', 'data-live-since': workJob.since || null, 'data-live-prefix': '⚡ ' }, `⚡ ${fmtElapsedSec(workJob.elapsedSec)}`),
+          h('span', { class: 'live-stream-ts' }, stamp(workJob.since)))),
+      h('div', { class: 'live-stream-sub' },
+        h('i', { class: 'ops-dot' }),
+        h('span', null, workJob.statusLine || '작업을 처리하고 있어요… (끝나면 결과물이 자동으로 올라옵니다)')),
+      h('div', { class: 'live-term', role: 'log', 'aria-live': 'polite' },
+        h('div', { class: 'live-term-head' },
+          h('span', null, 'LIVE EXECUTION STREAM'),
+          h('span', { class: 'live-term-cnt' }, `${(workJob.liveLines || []).length}줄 실시간 수신`)),
+        h('div', { class: 'live-term-body' },
+          (workJob.liveLines || []).length
+            ? (workJob.liveLines || []).slice(-18).map((ln) => h('div', { class: 'live-term-line' },
+              h('span', { class: 'lt-ts' }, ln.at || ''),
+              h('span', { class: 'lt-txt' }, ln.text || '')))
+            : h('div', { class: 'live-term-line muted' },
+              h('span', { class: 'lt-ts' }, 'LIVE'),
+              h('span', { class: 'lt-txt' }, '에이전트 작업 출력을 기다리는 중…')),
+          h('span', { class: 'live-term-cursor', 'aria-hidden': 'true' }, '▌'))))
     : latestRes
       ? h('div', { class: 'res-card' },
         h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:6px' },
@@ -2914,8 +2932,14 @@ function joseonSwarmPanel() {
     }),
   ];
 
+  const voiceOn = d.settings?.joseonVoice !== false;
   const topActions = h('div', { class: 'swarm-actions' },
     h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => openSwarmMissionModal() }, '멀티 팀 실행'),
+    h('button', {
+      type: 'button', class: `swarm-btn${voiceOn ? ' voice-on' : ''}`,
+      title: '장영실·세종대왕 등 야학·집현전 캐릭터 말투("에헴!") ON/OFF',
+      onclick: () => once('toggle-voice', () => act('PATCH', '/api/ui/settings', { joseonVoice: !voiceOn }, !voiceOn ? '에헴! 집현전·야학 캐릭터 말투를 켰어요' : '기본 실무 말투로 바꿨어요')),
+    }, voiceOn ? '에헴 말투 ON' : '에헴 말투 OFF'),
     h('button', { type: 'button', class: 'swarm-btn', onclick: openJoseonCodexModal }, '크루 에디션'),
     !isJoseonMode
       ? h('button', {
@@ -6856,11 +6880,14 @@ setInterval(() => {
   }
 }, 1000);
 
-// 새 소식: 누가 일하거나 배분 중이거나 스레드를 열어 두면 4초, 아니면 30초
+// 새 소식: AI가 실시간 일할 땐 2초, 배분/열림 중엔 4초, 평소엔 30초
 let tick = 0;
 setInterval(() => {
   tick++;
-  const fast = S && (S.working.length || S.assigning.length || ui.open);
-  if (document.hidden && !fast) return;
-  if (fast || tick % 8 === 0) load({ background: true }).catch(() => {});
-}, 4000);
+  const working = !!(S && S.working.length);
+  const active = !!(S && (S.assigning.length || ui.open));
+  if (document.hidden && !working && !active) return;
+  if (working || (active && tick % 2 === 0) || tick % 15 === 0) {
+    load({ background: true }).catch(() => {});
+  }
+}, 2000);

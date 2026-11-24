@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { createPowerGuard } from '../lib/runtime.mjs';
-import { scanClaudeUsage, scanCodexUsage, buildEmployeeUsageMap } from '../lib/usage.mjs';
+import { scanClaudeUsage, scanCodexUsage, buildEmployeeUsageMap, detectClaudePlanTier } from '../lib/usage.mjs';
 import { AVATAR_PRESETS, TEAMS, SWARM_MISSIONS, defaultTeamFor, defaultAvatarFor } from '../lib/catalog.mjs';
 import { ruleAssign } from '../lib/assign.mjs';
 import { seedData } from '../lib/seed.mjs';
@@ -425,10 +425,15 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
     });
     assert.equal(avBadSvg.status, 400, 'SVG data URI 는 보안상 거부해야 함');
 
-    // 2) 절전 방지 설정 변경 확인
-    const setOff = await ui('PATCH', '/api/ui/settings', { preventSleep: false });
+    // 2) 절전 방지 + 에헴 말투(조선 집현전·야학) 설정 변경 확인
+    const setOff = await ui('PATCH', '/api/ui/settings', { preventSleep: false, joseonVoice: false });
     assert.equal(setOff.status, 200);
     assert.equal(setOff.body.preventSleep, false);
+    assert.equal(setOff.body.joseonVoice, false);
+
+    const setJoseonOn = await ui('PATCH', '/api/ui/settings', { joseonVoice: true });
+    assert.equal(setJoseonOn.status, 200);
+    assert.equal(setJoseonOn.body.joseonVoice, true);
 
     // 3) 먹통 감시(1초) → claude(먹통) 자동 종료 후 fallbackTo(codex)가 이어받아 완료
     await ui('PATCH', '/api/ui/employees/codex', { runMode: 'manual' });
@@ -454,6 +459,38 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
   } finally {
     child.kill('SIGTERM');
     await new Promise((r) => child.once('exit', r));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Claude 플랜 티어 자동 감지: Ultra/Max 20x(50M) · Max 5x(16M) · Pro(4M) 정확 분리', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aihq-claude-tier-'));
+  const prevEnv = process.env.AIHQ_CLAUDE_5H_BUDGET;
+  delete process.env.AIHQ_CLAUDE_5H_BUDGET;
+  try {
+    // 기본값(파일 없음) → Pro 4M
+    const defTier = detectClaudePlanTier(dir);
+    assert.equal(defTier.tier, 'pro');
+    assert.equal(defTier.budget5h, 4_000_000);
+
+    // Claude Ultra / Max 20x → 50M
+    fs.writeFileSync(path.join(dir, '.claude.json'), JSON.stringify({
+      oauthAccount: { organizationType: 'claude_max', organizationRateLimitTier: 'default_claude_max_20x' },
+    }));
+    const ultraTier = detectClaudePlanTier(dir);
+    assert.equal(ultraTier.tier, 'max_20x');
+    assert.equal(ultraTier.budget5h, 50_000_000);
+    assert.match(ultraTier.label, /Ultra|20x/);
+
+    // Claude Max 5x → 16M
+    fs.writeFileSync(path.join(dir, '.claude.json'), JSON.stringify({
+      oauthAccount: { organizationType: 'claude_max', organizationRateLimitTier: 'default_claude_max_5x' },
+    }));
+    const max5Tier = detectClaudePlanTier(dir);
+    assert.equal(max5Tier.tier, 'max_5x');
+    assert.equal(max5Tier.budget5h, 16_000_000);
+  } finally {
+    if (prevEnv !== undefined) process.env.AIHQ_CLAUDE_5H_BUDGET = prevEnv;
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
