@@ -1261,6 +1261,8 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
     return true;
   };
 
+  const INCOMPLETE_RUN_RE = /(?:누르지\s*못|게시하지\s*못|올리지\s*못|보내지\s*못|발송하지\s*못|완료하지\s*못|실행하지\s*못|Ego\s*Lite\s*연결이\s*끊|Failed\s+to\s+start\s+ego\s+lite|게시\s*상태는\s*\*?\*?미게시|접근이\s*거부됐)/i;
+
   const finish = (output, ok, code, meta = {}) => store.mutate((x) => {
     const outText = meta.hung
       ? `${output ? `${output}\n\n` : ''}[먹통 감시] ${meta.hangSec || Math.round(DEFAULT_HANG_MS / 1000)}초 동안 응답이 없어 실행을 중단했습니다.`
@@ -1272,25 +1274,27 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
     if (!tt) return;
     tt.runStartedAt = null;
     tt.lastRunAt = nowIso();
+    const blockedInText = Boolean(ok && INCOMPLETE_RUN_RE.test(outText));
+    const effectiveOk = Boolean(ok && !blockedInText);
     if (tt.status === '진행') {
-      if (!ok && handleFailureQuota(x, tt, output)) return;
+      if (!effectiveOk && handleFailureQuota(x, tt, output)) return;
       if (meta.hung && handleFailureHang(x, tt, meta.hangSec || Math.round(DEFAULT_HANG_MS / 1000))) return;
-      if (!ok && handleFailureGeneral(x, tt, `실행 실패 (코드 ${code})`)) return;
-      if (ok && Array.isArray(tt.steps) && tt.steps.length) {
+      if (!effectiveOk && handleFailureGeneral(x, tt, blockedInText ? '실행 미완료(브라우저/권한 막힘)' : `실행 실패 (코드 ${code})`)) return;
+      if (effectiveOk && Array.isArray(tt.steps) && tt.steps.length) {
         completeActiveStepFromRun(x, tt, emp.id, String(output || '').slice(0, 2000), '실행 끝');
       } else {
-        tt.status = ok ? '완료' : '막힘';
-        if (ok) {
+        tt.status = effectiveOk ? '완료' : '막힘';
+        tt.resultSummary = summarizeText(outText, 240);
+        if (effectiveOk) {
           tt.completedAt = nowIso();
           tt.completedBy = emp.id;
-          tt.resultSummary = summarizeText(outText, 240);
         }
-        pushHistory(tt, emp.id, tt.status, ok ? '실행 끝' : meta.hung ? '무응답(먹통) 중단' : `실행 실패 (코드 ${code})`);
+        pushHistory(tt, emp.id, tt.status, effectiveOk ? '실행 끝' : blockedInText ? '실행 미완료 (대체 AI 없음)' : meta.hung ? '무응답(먹통) 중단' : `실행 실패 (코드 ${code})`);
         syncRoutineLog(x, tt);
         const empLabel = emp.avatarName || emp.name;
-        notifyOwner(x, `CONNECT AI HQ · ${empLabel} ${ok ? '완료' : '확인 필요'}`, `${tt.title}${ok ? '' : ' (실행 중단)'}`);
+        notifyOwner(x, `CONNECT AI HQ · ${empLabel} ${effectiveOk ? '완료' : '확인 필요'}`, `${tt.title}${effectiveOk ? '' : (blockedInText ? ' (미완료 · 확인 필요)' : ' (실행 중단)')}`);
       }
-    } else if (ok && tt.status === '완료') {
+    } else if (effectiveOk && tt.status === '완료') {
       // AI 직원이 실행 중 hq.mjs task done 으로 먼저 완료 처리했더라도 최종 출력에서 결과 요약을 채워 둔다
       if (!tt.completedAt) tt.completedAt = nowIso();
       if (!tt.completedBy) tt.completedBy = emp.id;
@@ -4116,6 +4120,7 @@ route('POST', '/api/agent/tasks/:id/status', async ({ params, body }) => store.m
     t.completedAt = nowIso();
     t.completedBy = emp.id;
     if (result) t.resultSummary = summarizeText(result, 240);
+    else if (note && !t.resultSummary) t.resultSummary = summarizeText(note, 240);
     notifyOwner(d, `CONNECT AI HQ · ${emp.avatarName || emp.name} 완료`, t.title);
   }
   if (result) addMsg(d, { thread: `task:${t.id}`, from: emp.id, fromKind: 'ai', kind: 'result', text: result, to: ['jay'], ...(modelOf(emp) ? { run: { label: '직원 보고', model: modelOf(emp) } } : {}) });
