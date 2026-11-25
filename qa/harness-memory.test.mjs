@@ -358,12 +358,55 @@ if (prompt.includes('하네스 자동 검증 피드백')) {
     assert.match(teamPrev.body.prompt, /connect-ai-handoff\/v1/);
     assert.match(teamPrev.body.prompt, /네이버 블로그 초안/);
 
-    // 6) 청사진(Blueprint) 내보내기에 자동 기억·비공개 데이터가 절대 포함되지 않는지 확인
+    // 6) 클릭클릭 직원 조합 루틴 생성(POST /api/ui/routines steps + skill) · 오늘 할 일 동기화 · 결제 게이트 보호 E2E
+    const comboRt = await srv.ui('POST', '/api/ui/routines', {
+      title: '매일 아침 영상 → 글쓰기 → 모션 → 마케터 릴레이',
+      time: '09:30',
+      days: [0, 1, 2, 3, 4, 5, 6],
+      assignee: 'auto',
+      stepMode: 'serial',
+      steps: [
+        { title: '글쓰기', skill: 'connect-ai-writer', assignee: 'claude', note: '멀티채널 초안 작성' },
+        { title: '모션그래픽', skill: 'connect-ai-motion', assignee: 'codex', note: '9:16 모션 클립 제작' },
+        { title: '마케터', skill: 'connect-ai-marketer', assignee: 'auto', note: '임시저장 준비' },
+      ],
+    });
+    assert.equal(comboRt.status, 200);
+    assert.equal(comboRt.body.steps?.length, 3, '조합 루틴은 3단계여야 함');
+    assert.equal(comboRt.body.steps[0].skill, 'connect-ai-writer');
+    assert.equal(comboRt.body.steps[1].assignee, 'codex');
+    assert.ok(comboRt.body.skills.includes('connect-ai-writer') && comboRt.body.skills.includes('connect-ai-marketer'), '조합 스킬이 자동 병합되어야 함');
+    assert.equal(comboRt.body.assignee, 'claude', '첫 단계 담당 AI로 루틴 대표 담당이 설정되어야 함');
+
+    const comboPrev = await srv.ui('GET', `/api/ui/routines/${comboRt.body.id}/prompt-preview`);
+    assert.equal(comboPrev.status, 200);
+    assert.match(comboPrev.body.prompt, /스킬:connect-ai-writer/);
+    assert.match(comboPrev.body.prompt, /스킬:connect-ai-motion/);
+
+    // 조합 단계 안의 결제 키워드는 autoApprove여도 절대 우회 불가
+    const payComboRt = await srv.ui('POST', '/api/ui/routines', {
+      title: '정기 조합 점검',
+      time: '10:00',
+      assignee: 'auto',
+      autoApprove: true,
+      stepMode: 'serial',
+      steps: [
+        { title: '글쓰기', skill: 'connect-ai-writer', assignee: 'claude' },
+        { title: '광고비 카드 결제 진행', assignee: 'codex' },
+      ],
+    });
+    assert.equal(payComboRt.status, 200);
+    assert.equal(payComboRt.body.gate, '결제', '조합 단계 내 결제 키워드는 autoApprove로 우회 불가');
+
+    // 7) 청사진(Blueprint) 내보내기에 자동 기억·비공개 데이터가 절대 포함되지 않는지 확인
     const stNow = await srv.ui('GET', '/api/state');
     assert.equal(stNow.body.data.memory, undefined, '원시 memory 객체는 stateView.data에 노출하지 않음');
     assert.equal(stNow.body.options.companyTeams?.length, 3, '3개 팀(기획·분석 / 제작 / 알림) 메타가 포함되어야 함');
     assert.ok(stNow.body.harness?.verification?.repaired >= 1);
-    const bpJson = JSON.stringify(exportBlueprint(stNow.body.data));
+    const bp = exportBlueprint(stNow.body.data);
+    const bpCombo = bp.routines.find((x) => x.title.includes('영상 → 글쓰기'));
+    assert.equal(bpCombo?.steps?.[0]?.skill, 'connect-ai-writer', '청사진에도 조합 단계 스킬이 유지되어야 함');
+    const bpJson = JSON.stringify(bp);
     assert.doesNotMatch(bpJson, /SECRET_MARKER_SHOULD_STAY_LOCAL/);
     assert.doesNotMatch(bpJson, /홍보성 스팸 계정/);
   } finally {

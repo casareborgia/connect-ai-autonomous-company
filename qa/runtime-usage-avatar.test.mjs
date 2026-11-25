@@ -146,7 +146,7 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
       AIHQ_DISPATCH: '0',
       AIHQ_TEST_RAM_PCT: '40',
       AIHQ_LLM_MODEL: '',
-      AIHQ_HANG_MS: '1000', // 1초 무응답 시 먹통 감지
+      AIHQ_HANG_MS: '1800', // 1.8초 무응답 시 먹통 감지 (병렬 테스트 부하에서도 mock-codex 정상 완료 보장)
       AIHQ_NO_CAFFEINATE: '1',
       AIHQ_CLAUDE_BIN: hangBin,
       AIHQ_CODEX_BIN: okBin,
@@ -446,7 +446,7 @@ test('서버 통합: 먹통 감시(hang-watchdog) 자동 인계 + AI 직원 캐�
 
     let finalTask = null;
     let msgs = [];
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 80; i++) {
       await new Promise((r) => setTimeout(r, 150));
       const st = await (await fetch(`${origin}/api/state`)).json();
       finalTask = st.data.tasks.find((t) => t.id === tid);

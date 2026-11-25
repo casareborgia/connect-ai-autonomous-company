@@ -3094,6 +3094,54 @@ route('POST', '/api/ui/routines', async ({ body }) => {
       }
       Object.assign(r, { assignee: s.assignee, resource: s.resource, account: s.account || null, browser: s.browser || null, design: s.design || null, tools: s.tools || [], reason: s.reason, reasonBy: s.engine, noMatch: Boolean(s.noMatch), gate: applyAutoApproveGate(s.gate, r.autoApprove), assignSource: assignSrc });
     }
+    if (body.stepTemplate) {
+      const built = buildTemplateSteps(String(body.stepTemplate), d, { asTemplate: true });
+      if (built) {
+        r.stepMode = STEP_MODES.includes(body.stepMode) ? body.stepMode : built.mode;
+        r.steps = built.steps;
+      }
+    } else if (Array.isArray(body.steps) && body.steps.length) {
+      const builtSteps = [];
+      for (const raw of body.steps.slice(0, 20)) {
+        const stTitle = text(raw?.title, 200);
+        if (!stTitle) continue;
+        const stSkill = text(raw?.skill, 80) || null;
+        const stNote = text(raw?.note, 500);
+        const explicitWho = raw?.assignee !== undefined && raw.assignee !== '' && raw.assignee !== 'auto';
+        const auto = autoFillStep(stTitle, stNote, d, { skill: stSkill });
+        const merged = {
+          ...auto,
+          id: nextStepId(builtSteps),
+          title: stTitle,
+          skill: stSkill || auto.skill || null,
+          note: stNote || auto.note || '',
+          assignee: explicitWho ? assigneeRef(d, raw.assignee) : auto.assignee,
+          resource: raw?.resource !== undefined && raw.resource !== '' ? stepResourceRef(d, raw.resource) : auto.resource,
+          browser: raw?.browser !== undefined && raw.browser !== '' ? browserRef(d, raw.browser) : auto.browser,
+          design: raw?.design !== undefined && raw.design !== '' ? designRef(d, raw.design) : auto.design,
+          tools: Array.isArray(raw?.tools) ? toolRefs(d, raw.tools) : auto.tools,
+          estCost: raw?.estCost !== undefined ? costOrNull(raw.estCost) : auto.estCost,
+        };
+        const norm = normalizeStep(merged, d, { asTemplate: true, fallbackId: merged.id });
+        if (norm) builtSteps.push(norm);
+      }
+      r.steps = builtSteps;
+    }
+    if (r.steps.length) {
+      const stepSkills = r.steps.map((st) => st.skill).filter(Boolean);
+      if (stepSkills.length) r.skills = skillKeyRefs([...(r.skills || []), ...stepSkills]);
+      const stepText = `${title} ${r.instruction} ${r.steps.map((st) => `${st.title} ${st.note || ''}`).join(' ')}`;
+      const sg = detectGate(stepText);
+      if (sg === '결제' || sg === '삭제') r.gate = sg;
+      else if (sg && !r.gate) r.gate = applyAutoApproveGate(sg, r.autoApprove);
+      const first = r.steps[0];
+      if (first?.assignee && (body.assignee === undefined || body.assignee === 'auto' || r.assignee === 'jay')) {
+        r.assignee = first.assignee;
+        if (first.resource && !r.resource) r.resource = first.resource;
+      }
+      r.reason = `직원 조합 ${r.steps.length}단계 (${r.stepMode === 'parallel' ? '동시에' : '순서대로'})`;
+      r.assignSource = 'jay';
+    }
     d.routines.push(r);
     ensureRoutineTasks(d);
     return r;
@@ -3185,7 +3233,17 @@ route('PATCH', '/api/ui/routines/:id', async ({ params, body }) => {
     }
     if (body.stepMode !== undefined && STEP_MODES.includes(body.stepMode)) r.stepMode = body.stepMode;
     if (body.sharedFolder !== undefined) r.sharedFolder = text(body.sharedFolder, 400);
-    if (body.steps !== undefined) r.steps = normalizeSteps(body.steps, d, { asTemplate: true });
+    if (body.stepTemplate !== undefined) {
+      const built = buildTemplateSteps(String(body.stepTemplate), d, { asTemplate: true });
+      if (built) { r.stepMode = built.mode; r.steps = built.steps; }
+    }
+    if (body.steps !== undefined) {
+      r.steps = normalizeSteps(body.steps, d, { asTemplate: true });
+      const stepText = `${r.title} ${r.instruction || ''} ${r.steps.map((st) => `${st.title} ${st.note || ''}`).join(' ')}`;
+      const sg = detectGate(stepText);
+      if (sg === '결제' || sg === '삭제') r.gate = sg;
+      else if (sg && !r.gate) r.gate = applyAutoApproveGate(sg, r.autoApprove);
+    }
     if (body.nextAssignee !== undefined) r.nextAssignee = assigneeRef(d, body.nextAssignee);
     if (body.gate !== undefined) r.gate = GATES.includes(body.gate) ? body.gate : null;
     if (body.assignee !== undefined) {
@@ -3213,11 +3271,15 @@ route('POST', '/api/ui/routines/:id/steps', async ({ params, body }) => store.mu
   if (!r) throw new HttpError(404, '매일 할 일이 없습니다.');
   const title = text(body.title, 200);
   if (!title) throw new HttpError(400, '단계 이름이 필요합니다.');
+  const stSkill = text(body.skill, 80) || null;
   const base = body.assignee !== undefined && body.assignee !== 'auto'
-    ? { title, note: body.note, assignee: assigneeRef(d, body.assignee), resource: stepResourceRef(d, body.resource), browser: browserRef(d, body.browser), design: designRef(d, body.design), tools: toolRefs(d, body.tools), estCost: costOrNull(body.estCost) }
-    : autoFillStep(title, body.note || '', d);
+    ? { title, skill: stSkill, note: body.note, assignee: assigneeRef(d, body.assignee), resource: stepResourceRef(d, body.resource), browser: browserRef(d, body.browser), design: designRef(d, body.design), tools: toolRefs(d, body.tools), estCost: costOrNull(body.estCost) }
+    : autoFillStep(title, body.note || '', d, { skill: stSkill });
   const s = normalizeStep({ ...base, id: nextStepId(r.steps) }, d, { asTemplate: true, fallbackId: nextStepId(r.steps) });
   r.steps.push(s);
+  if (s.skill) r.skills = skillKeyRefs([...(r.skills || []), s.skill]);
+  const sg = detectGate(`${s.title} ${s.note || ''}`);
+  if (sg === '결제' || sg === '삭제') r.gate = sg;
   syncTodayTasksFromRoutine(d, r);
   return { routine: r, step: s };
 }), UI);
@@ -3239,6 +3301,7 @@ route('PATCH', '/api/ui/routines/:id/steps/:stepId', async ({ params, body }) =>
   const s = (r.steps || []).find((x) => x.id === params.stepId);
   if (!s) throw new HttpError(404, '단계를 찾을 수 없습니다.');
   if (body.title !== undefined) { const v = text(body.title, 200); if (v) s.title = v; }
+  if (body.skill !== undefined) s.skill = text(body.skill, 80) || null;
   if (body.note !== undefined) s.note = text(body.note, 500);
   if (body.assignee !== undefined) s.assignee = assigneeRef(d, body.assignee);
   if (body.resource !== undefined) s.resource = stepResourceRef(d, body.resource);
