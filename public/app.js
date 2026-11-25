@@ -10,6 +10,7 @@ const ui = {
   taskPick: 'auto', rtPick: 'auto', rtSched: 'time', homeFilter: 'all', doneOpen: false, insertOpen: {}, empDraftEngine: {},
   autoTab: 'list', autoQuery: '', autoFilter: 'all', autoRunsFilter: 'all',
   kbCat: 'all', kbLayer: 'all', kbEmp: 'all', kbQuery: '', ragLayer: 'all',
+  editingTask: null, cliMonitor: false,
   swarmTeam: 'all', swarmSelected: 'all',
   archiveRange: 'today', archiveDay: '', archiveMore: false,
   hanokStage: (() => { try { return localStorage.getItem('aihq_hanok_stage') !== '0'; } catch { return true; } })(),
@@ -2193,24 +2194,61 @@ function linkedSummaryLine(item) {
   return h('div', { class: 'p-linked small muted' }, h('b', null, '자동·지정 연결됨'), ' · ', parts.join(' · '));
 }
 
+function openEmpTerminal(empId, app = 'terminal') {
+  if (!empId || empId === 'jay') return;
+  return once(`open-term-${empId}-${app}`, async () => {
+    const r = await act('POST', `/api/ui/employees/${empId}/open-terminal`, { app });
+    if (r?.ok) toast(`${shortName(empId)} ${r.app} 열었어요`);
+    else if (r?.workspace) toast(r.message || r.workspace);
+  });
+}
+
+function renderCleanResult(rawText) {
+  const lines = String(rawText || '').trim().split('\n');
+  const formatInline = (line) => {
+    const parts = [];
+    const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+    let last = 0;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+      if (m.index > last) parts.push(line.slice(last, m.index));
+      const tok = m[0];
+      if (tok.startsWith('**')) parts.push(h('b', null, tok.slice(2, -2)));
+      else parts.push(h('code', { class: 'res-code' }, tok.slice(1, -1)));
+      last = m.index + tok.length;
+    }
+    if (last < line.length) parts.push(line.slice(last));
+    return parts;
+  };
+  return h('div', { class: 'res-clean' }, lines.map((ln) => {
+    const trimmed = ln.trim();
+    if (!trimmed) return h('div', { class: 'res-gap' });
+    if (/^[-•*]\s+/.test(trimmed)) {
+      return h('div', { class: 'res-li' }, h('span', { class: 'res-dot' }, '·'), h('span', null, ...formatInline(trimmed.replace(/^[-•*]\s+/, ''))));
+    }
+    return h('div', { class: 'res-p' }, ...formatInline(trimmed));
+  }));
+}
+
 function taskDetail(t, e) {
   const browsers = S.data.resources.filter((r) => r.kind === '브라우저' && r.status !== '꺼짐');
   const ossList = S.data.resources.filter((r) => r.kind === '오픈소스' && r.status !== '꺼짐');
   const designList = S.data.resources.filter((r) => r.kind === '디자인' && r.status !== '꺼짐');
   const accList = S.data.resources.filter((r) => r.kind === '계정' && r.status !== '꺼짐');
+  const editing = ui.editingTask === t.id;
   const f = {
     title: h('input', { class: 'in sm', value: t.title, 'data-k': `e-title-${t.id}`, 'aria-label': '제목' }),
     time: h('input', { class: 'in sm', type: 'time', value: t.time || '', 'data-k': `e-time-${t.id}`, 'aria-label': '시간' }),
     date: h('input', { class: 'in sm', type: 'date', value: t.date, 'data-k': `e-date-${t.id}`, 'aria-label': '날짜' }),
     note: h('textarea', {
-      class: 'in prompt-box', rows: 4, 'data-k': `e-note-${t.id}`, 'aria-label': '프롬프트 지시서',
-      placeholder: 'AI에게 시킬 내용을 편하게 적어 주세요.\n예: Ego Lite 이메일 스페이스에서 새 영수증 요청 확인하고 초안만 저장해줘\n예: 모션 그래픽은 Hyperframes로 CONNECT AI 흑백 미니멀 스타일, 3D는 Blender로 해줘',
+      class: 'in prompt-box', rows: 3, 'data-k': `e-note-${t.id}`, 'aria-label': '지시 내용',
+      placeholder: '지시 내용',
     }, t.note || ''),
-    estCost: h('input', { class: 'in sm', inputmode: 'numeric', value: t.estCost ? String(t.estCost) : '', 'data-k': `e-cost-${t.id}`, placeholder: '예상 비용 (원, 선택)', 'aria-label': '예상 비용 (원)' }),
-    resource: h('select', { class: 'in sm', 'data-k': `e-res-${t.id}`, 'aria-label': '리소스' }, h('option', { value: '' }, '사무실·리소스 자동'),
+    estCost: h('input', { class: 'in sm', inputmode: 'numeric', value: t.estCost ? String(t.estCost) : '', 'data-k': `e-cost-${t.id}`, placeholder: '예상 비용 (원)', 'aria-label': '예상 비용 (원)' }),
+    resource: h('select', { class: 'in sm', 'data-k': `e-res-${t.id}`, 'aria-label': '리소스' }, h('option', { value: '' }, '컴퓨터 자동'),
       S.data.resources.filter((r) => !['브라우저', '오픈소스', '디자인'].includes(r.kind)).map((r) => h('option', { value: r.id, selected: t.resource === r.id }, `${r.name} · ${r.status}`))),
-    gate: h('select', { class: 'in sm', 'data-k': `e-gate-${t.id}`, 'aria-label': '대표 확인' }, h('option', { value: '' }, '확인 필요 없음'),
-      S.options.gates.map((g) => h('option', { value: g, selected: t.gate === g }, `${g} · 대표 확인 필요`))),
+    gate: h('select', { class: 'in sm', 'data-k': `e-gate-${t.id}`, 'aria-label': '대표 확인' }, h('option', { value: '' }, '확인 없음'),
+      S.options.gates.map((g) => h('option', { value: g, selected: t.gate === g }, `${g} 승인`))),
   };
   const dirtyEl = h('span', { class: 'p-dirty' }, '');
   const isDirty = () => f.title.value !== t.title || f.note.value !== (t.note || '') || f.time.value !== (t.time || '') || f.date.value !== t.date || (f.estCost.value.trim() !== (t.estCost ? String(t.estCost) : ''));
@@ -2284,25 +2322,56 @@ function taskDetail(t, e) {
   const workJob = S.working.find((w) => w.taskId === t.id) || (t.status === '진행' ? S.working.find((w) => w.emp === t.assignee) : null);
   const latestRes = latestResultOf(t);
   const trail = t.failoverTrail || [];
+  const locked = Boolean(t.gate && !t.gateApprovedAt);
+  const canCliTerm = Boolean(e && !['web', 'none'].includes(e.engine));
+  const quickRun = () => once(`qrun-${t.id}`, async () => {
+    await flushIfDirty();
+    const resRun = await act('POST', `/api/ui/tasks/${t.id}/run`, {});
+    if (resRun?.queued) toast(`대기열: ${resRun.reason || '여유 시 자동 시작'}`);
+    else if (resRun) toast(`${shortName(resRun.empId || e?.id || t.assignee)} 실행 시작`);
+  });
+
+  const topBar = h('div', { class: 'td-topbar' },
+    h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
+      e ? h('span', { class: 'td-who-pill' }, avatarEl(e, { size: 20 }), shortName(e.id))
+        : h('span', { class: 'td-who-pill' }, '나'),
+      h('select', { class: 'in sm td-status-sel', 'aria-label': '상태', onchange: (ev) => act('PATCH', `/api/ui/tasks/${t.id}`, { status: ev.target.value }) },
+        S.options.statuses.map((s) => h('option', { value: s, selected: s === t.status }, s))),
+      workJob
+        ? h('button', { type: 'button', class: 'btn sm stop-run-btn', onclick: () => stopRunningTask(t.id, workJob.emp) }, '■ 중단')
+        : (e && canRun(e) && !t.officeRun
+          ? h('button', { type: 'button', class: 'btn sm dark', disabled: locked || isWorking(e.id), onclick: quickRun }, t.status === '완료' ? '↻ 다시 실행' : '▶ 실행')
+          : null),
+      canCliTerm
+        ? h('button', { type: 'button', class: 'btn sm', title: '맥 터미널에서 작업 폴더 열기', onclick: () => openEmpTerminal(e.id, 'terminal') }, '터미널')
+        : null),
+    h('div', { class: 'row', style: 'gap:6px' },
+      h('button', {
+        type: 'button', class: `btn sm${editing ? ' dark' : ''}`,
+        onclick: () => { ui.editingTask = editing ? null : t.id; render(); },
+      }, editing ? '닫기' : '편집'),
+      h('button', {
+        type: 'button', class: 'x', 'aria-label': '삭제',
+        onclick: () => { if (confirm(`삭제할까요?\n${t.title}`)) { ui.open = null; ui.editingTask = null; act('DELETE', `/api/ui/tasks/${t.id}`, undefined, '삭제했어요'); } },
+      }, '×')));
+
+  const stepsStrip = Array.isArray(t.steps) && t.steps.length >= 2
+    ? h('div', { class: 'td-steps-strip' },
+      h('span', { class: 'tag' }, t.stepMode === 'parallel' ? '동시 협업' : '릴레이 협업'),
+      ...t.steps.map((st, idx) => h('span', { class: `td-step-pill is-${st.status === '완료' ? 'done' : st.status === '진행' ? 'live' : 'wait'}` },
+        `${idx + 1}. ${shortName(st.assignee)}${st.status === '완료' ? ' ✓' : st.status === '진행' ? ' ●' : ''}`)))
+    : null;
+
   const topStatusBox = workJob
     ? h('div', { class: 'res-card live live-stream-card' },
       h('div', { class: 'live-stream-top' },
         h('div', { class: 'row' },
-          emp(workJob.emp) ? avatarEl(emp(workJob.emp), { size: 30, stateOverride: 'working', onDark: true }) : null,
-          h('b', null, `${shortName(workJob.emp)} 지금 실행 중`),
-          h('span', { class: 'ops-pill sm is-live' }, workJob.label || '실행 중'),
-          workJob.machineName ? h('span', { class: 'ops-lj-mach' }, workJob.machineName) : null),
+          emp(workJob.emp) ? avatarEl(emp(workJob.emp), { size: 26, stateOverride: 'working', onDark: true }) : null,
+          h('b', null, `${shortName(workJob.emp)}`),
+          h('span', { class: 'ops-pill sm is-live' }, workJob.label || '실행 중')),
         h('div', { class: 'row' },
-          h('span', { class: 'ops-lj-time', 'data-live-since': workJob.since || null, 'data-live-prefix': '⚡ ' }, `⚡ ${fmtElapsedSec(workJob.elapsedSec)}`),
-          h('button', { type: 'button', class: 'btn sm stop-run-btn', onclick: () => stopRunningTask(t.id, workJob.emp) }, '■ 지금 중단'),
-          h('span', { class: 'live-stream-ts' }, stamp(workJob.since)))),
-      h('div', { class: 'live-stream-sub' },
-        h('i', { class: 'ops-dot' }),
-        h('span', null, workJob.statusLine || '작업을 처리하고 있어요… (끝나면 결과물이 자동으로 올라옵니다)')),
+          h('span', { class: 'ops-lj-time', 'data-live-since': workJob.since || null, 'data-live-prefix': '● ' }, `● ${fmtElapsedSec(workJob.elapsedSec)}`))),
       h('div', { class: 'live-term', role: 'log', 'aria-live': 'polite' },
-        h('div', { class: 'live-term-head' },
-          h('span', null, 'LIVE EXECUTION STREAM'),
-          h('span', { class: 'live-term-cnt' }, `${(workJob.liveLines || []).length}줄 실시간 수신`)),
         h('div', { class: 'live-term-body' },
           (workJob.liveLines || []).length
             ? (workJob.liveLines || []).slice(-18).map((ln) => h('div', { class: 'live-term-line' },
@@ -2310,53 +2379,53 @@ function taskDetail(t, e) {
               h('span', { class: 'lt-txt' }, ln.text || '')))
             : h('div', { class: 'live-term-line muted' },
               h('span', { class: 'lt-ts' }, 'LIVE'),
-              h('span', { class: 'lt-txt' }, '에이전트 작업 출력을 기다리는 중…')),
+              h('span', { class: 'lt-txt' }, workJob.statusLine || '실행 중…')),
           h('span', { class: 'live-term-cursor', 'aria-hidden': 'true' }, '▌'))))
     : latestRes
       ? h('div', { class: 'res-card' },
-        h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:6px' },
-          h('div', { class: 'row', style: 'gap:8px' },
-            emp(latestRes.by) ? avatarEl(emp(latestRes.by), { size: 26 }) : null,
-            h('b', null, t.status === '완료' ? '완료 결과물' : '최근 실행 결과'),
+        h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:8px' },
+          h('div', { class: 'row', style: 'gap:6px' },
+            h('b', { style: 'font-size:13px' }, t.status === '완료' ? '결과' : '최근 결과'),
             h('span', { class: 'small muted' }, `${latestRes.by === 'jay' ? '나' : shortName(latestRes.by)}${latestRes.at ? ` · ${stamp(latestRes.at)}` : ''}`),
-            trail.length ? h('span', { class: 'tag' }, `⚡ 자동 인계: ${trail.map((x) => x.fromName).join(' → ')} → ${trail[trail.length - 1].toName}`) : null),
-          h('button', { type: 'button', class: 'btn sm', onclick: async () => { await copyText(latestRes.text); toast('결과물을 복사했어요'); } }, '결과 복사')),
-        h('pre', { class: 'res-pre' }, latestRes.text))
+            trail.length ? h('span', { class: 'tag' }, `${trail.map((x) => x.fromName).join(' → ')} → ${trail[trail.length - 1].toName}`) : null),
+          h('button', { type: 'button', class: 'btn sm', onclick: async () => { await copyText(latestRes.text); toast('복사했어요'); } }, '복사')),
+        renderCleanResult(latestRes.text))
       : null;
 
-  return h('div', { class: 'detail' },
-    topStatusBox,
+  const editPanel = editing ? h('div', { class: 'td-edit-box' },
     h('div', { class: 'd-grid' }, h('div', { class: 'span2' }, f.title), f.time, f.date),
     h('div', { class: 'p-wrap' },
       h('div', { class: 'p-toolbar' },
         h('div', { class: 'row' }, insDrawer.btn, dirtyEl),
-        h('button', { type: 'button', class: 'btn link', onclick: () => openPromptPreview('tasks', t.id, flushIfDirty) }, '최종 지시서 미리보기')),
+        h('button', { type: 'button', class: 'btn link', onclick: () => openPromptPreview('tasks', t.id, flushIfDirty) }, '지시서 보기')),
       insDrawer.panel,
-      f.note,
-      linkedSummaryLine(t)),
-    h('div', { class: 'd-who' }, h('span', { class: 'small muted' }, '담당'), assigneePicker(t.assignee, (id) => act('PATCH', `/api/ui/tasks/${t.id}`, { assignee: id }, `${shortName(id)}에게 맡겼어요`))),
+      f.note),
+    h('div', { class: 'd-who' }, h('span', { class: 'small muted' }, '담당'), assigneePicker(t.assignee, (id) => act('PATCH', `/api/ui/tasks/${t.id}`, { assignee: id }, `${shortName(id)} 배정`))),
     h('div', { class: 'd-bar' },
       h('div', { class: 'row' },
-        h('button', { class: 'btn sm', onclick: () => { if (confirm(`이 할 일을 지울까요?\n${t.title}`)) { ui.open = null; act('DELETE', `/api/ui/tasks/${t.id}`, undefined, '지웠어요'); } } }, '지우기'),
-        !t.routineId ? h('button', { class: 'btn sm', onclick: () => once(`tor-${t.id}`, async () => { await flushIfDirty(); await act('POST', `/api/ui/tasks/${t.id}/to-routine`, {}, '오토메이션으로 등록했어요'); }) }, '오토메이션으로') : null,
-        h('select', { class: 'in sm', style: 'width:96px', 'aria-label': '상태', onchange: (ev) => act('PATCH', `/api/ui/tasks/${t.id}`, { status: ev.target.value }) },
-          S.options.statuses.map((s) => h('option', { value: s, selected: s === t.status }, s)))),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn sm dark', onclick: () => save() }, '저장'))),
+        !t.routineId ? h('button', { class: 'btn sm', onclick: () => once(`tor-${t.id}`, async () => { await flushIfDirty(); await act('POST', `/api/ui/tasks/${t.id}/to-routine`, {}, '오토메이션 등록'); }) }, '오토메이션으로') : null),
+      h('button', { class: 'btn sm dark', onclick: async () => { const r = await save(); if (r) { ui.editingTask = null; render(); } } }, '저장')),
     h('details', { class: 'adv-fold', 'data-k': `adv-${t.id}`, open: (t.steps || []).length > 0 ? true : undefined },
-      h('summary', null, (t.steps || []).length ? `세부 설정 · 팀 분업 ${(t.steps || []).length}단계` : '세부 설정 · 수동 연결 · 팀 분업'),
+      h('summary', null, (t.steps || []).length ? `세부 설정 · 협업 ${(t.steps || []).length}단계` : '세부 설정 · 협업'),
       h('div', { class: 'adv-body' },
         h('div', { class: 'd-grid2' }, f.resource, f.gate),
         h('div', { class: 'd-grid2' }, f.estCost,
           h('label', { class: 'chk-l', style: 'align-self:center' },
-            h('input', { type: 'checkbox', checked: Boolean(t.localOnly), onchange: (ev) => act('PATCH', `/api/ui/tasks/${t.id}`, { localOnly: ev.target.checked }, ev.target.checked ? '로컬 전용으로 잠갔어요 (외부 클라우드 AI 우회 금지)' : '로컬 전용을 해제했어요') }),
-            '로컬 전용 (외부 AI 우회 금지)')),
+            h('input', { type: 'checkbox', checked: Boolean(t.localOnly), onchange: (ev) => act('PATCH', `/api/ui/tasks/${t.id}`, { localOnly: ev.target.checked }) }),
+            '로컬 전용')),
         skillPicker, knowledgePicker, accountPicker, browserPicker, designPicker, ossPicker,
-        stepsEditor('tasks', t))),
-    t.reasonBy && /로컬 AI/.test(t.reasonBy) ? h('div', { class: 'small muted', style: 'margin-top:8px' }, `배분을 다시 본 것: ${t.reasonBy.replace(/ \(규칙 유지\)/, '')}`) : null,
+        stepsEditor('tasks', t)))) : null;
+
+  const needWorkBox = Boolean(e && !t.officeRun && (!canRun(e) || t.status === '막힘' || t.queued || locked));
+
+  return h('div', { class: 'detail td-clean' },
+    topBar,
+    stepsStrip,
+    topStatusBox,
+    editPanel,
     officeBox(t, e),
-    e && !t.officeRun ? workBox(t, e, flushIfDirty) : null,
-    threadView(t));
+    needWorkBox ? workBox(t, e, flushIfDirty) : null,
+    threadView(t, Boolean(topStatusBox)));
 }
 
 // ───────── 사무실에서 실행 (배차) ─────────
@@ -2522,26 +2591,31 @@ function msgView(m) {
   return h('div', { class: `m${m.from === 'jay' ? ' me' : ''}` }, head, body);
 }
 
-function threadView(t) {
+function threadView(t, hasTopResult = false) {
   const list = S.data.messages.filter((m) => m.thread === `task:${t.id}`);
-  const typing = S.working.filter((w) => w.thread === `task:${t.id}`).map((w) => (w.kind === 'office' ? `${w.office}에서 실행 중 · ${nameOf(w.emp)}` : `${nameOf(w.emp)} ${w.kind === 'local' ? '쓰는 중' : '일하는 중'}`));
-  const a = emp(t.assignee);
-  const replies = a && a.engine === 'local' && a.model;
-  const ta = h('textarea', { class: 'in', rows: 2, 'data-k': `compose-${t.id}`, 'aria-label': '스레드 메시지',
-    placeholder: a ? (replies ? `${nameOf(t.assignee)}에게 (다른 직원은 @이름)` : `메모 남기기 · ${josa(shortName(t.assignee), '은', '는')} 여기서 답하지 않아요`) : '메모나 메시지 (@이름 으로 부르기)' });
+  const msgCount = list.filter((m) => m.fromKind !== 'system').length;
+  const typing = S.working.filter((w) => w.thread === `task:${t.id}`).map((w) => `${nameOf(w.emp)} 실행 중`);
+  const inp = h('input', { class: 'in sm', 'data-k': `compose-${t.id}`, 'aria-label': '메모', placeholder: '메모 입력' });
   const sendMsg = async () => {
-    const r = await submitInput(ta, `msg-${t.id}`, (v) => act('POST', `/api/ui/tasks/${t.id}/messages`, { text: v }));
+    const r = await submitInput(inp, `msg-${t.id}`, (v) => act('POST', `/api/ui/tasks/${t.id}/messages`, { text: v }));
     if (r) document.querySelector(`[data-k="compose-${t.id}"]`)?.focus();
   };
-  ta.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) sendMsg(); });
-  return h('div', { class: 'thread-box' },
-    h('div', { class: 'small', style: 'font-weight:600;margin-bottom:8px' }, `스레드${list.length ? ` · ${list.filter((m) => m.fromKind !== 'system').length}` : ''}`),
-    h('div', { class: 'thread' }, list.length ? list.map(msgView) : h('div', { class: 'small muted' }, '아직 대화가 없습니다. 이 일에 대한 모든 직원의 대화가 여기에 모입니다.')),
+  inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); sendMsg(); } });
+
+  const historyEl = list.length
+    ? (hasTopResult || list.length > 3
+      ? h('details', { class: 'clean-fold sm td-hist', 'data-k': `hist-${t.id}` },
+        h('summary', null, `기록 (${msgCount || list.length})`),
+        h('div', { class: 'thread', style: 'margin-top:8px' }, list.slice(-20).map(msgView)))
+      : h('div', { class: 'thread' }, list.map(msgView)))
+    : null;
+
+  return h('div', { class: 'td-thread' },
+    historyEl,
     typing.length ? h('div', { class: 'typing' }, typing.join(' · ')) : null,
-    h('div', { class: 'compose' }, ta,
-      h('div', { class: 'row', style: 'justify-content:space-between' },
-        h('button', { class: 'btn sm', onclick: () => openImport(t) }, '대화 가져오기'),
-        h('button', { class: 'btn sm dark', onclick: sendMsg }, '보내기'))));
+    h('div', { class: 'row td-compose' },
+      h('div', { style: 'flex:1' }, inp),
+      h('button', { type: 'button', class: 'btn sm dark', onclick: sendMsg }, '보내기')));
 }
 
 function openImport(t) {
@@ -4127,8 +4201,14 @@ function joseonSwarmPanel() {
   ];
 
   const voiceOn = d.settings?.joseonVoice !== false;
+  const cliOn = Boolean(ui.cliMonitor);
   const topActions = h('div', { class: 'swarm-actions' },
     h('button', { type: 'button', class: 'swarm-btn gold', onclick: () => openSwarmMissionModal() }, '멀티 팀 실행'),
+    h('button', {
+      type: 'button', class: `swarm-btn${cliOn ? ' voice-on' : workingCount ? ' is-cli-live' : ''}`,
+      title: 'ORCA 스타일 분할 CLI 모니터 열기/닫기',
+      onclick: () => { ui.cliMonitor = !ui.cliMonitor; render(); },
+    }, cliOn ? 'CLI ON' : (workingCount ? `● CLI (${workingCount})` : 'CLI')),
     h('button', {
       type: 'button', class: `swarm-btn${ui.hanokStage ? ' voice-on' : ''}`,
       title: '한옥 집현전 집무실에서 AI 직원들이 움직이며 일하는 무대 ON/OFF',
@@ -4389,14 +4469,76 @@ function joseonSwarmPanel() {
       })))
     : null;
 
+  const buildCliMonitor = () => {
+    const cliLogs = S.cliLogs || {};
+    const runningByEmp = new Map((S.working || []).map((w) => [w.emp, w]));
+    const cliEmps = (visible.length ? visible : d.employees).filter((e) => !['web', 'none'].includes(e.engine));
+    const ordered = [
+      ...cliEmps.filter((e) => runningByEmp.has(e.id)),
+      ...cliEmps.filter((e) => !runningByEmp.has(e.id) && cliLogs[e.id]),
+      ...cliEmps.filter((e) => !runningByEmp.has(e.id) && !cliLogs[e.id]),
+    ].slice(0, Math.max(3, runningByEmp.size));
+    return h('div', { class: 'cli-mon-wrap', role: 'region', 'aria-label': 'AI 직원 CLI 모니터' },
+      h('div', { class: 'cli-mon-head' },
+        h('div', { class: 'row', style: 'gap:8px' },
+          h('span', { class: 'cli-mon-title' }, 'CLI MONITOR'),
+          workingCount ? h('span', { class: 'cli-mon-live' }, `● ${workingCount}명 실행 중`) : h('span', { class: 'cli-mon-idle' }, '대기')),
+        h('div', { class: 'row', style: 'gap:6px' },
+          workingCount > 1 ? h('button', {
+            type: 'button', class: 'slc-stop-btn',
+            onclick: () => once('stop-all', () => act('POST', '/api/ui/working/stop-all', {}, '모든 AI 작업을 중단했어요')),
+          }, '■ 전체 중단') : null,
+          h('button', { type: 'button', class: 'cli-mon-close', onclick: () => { ui.cliMonitor = false; render(); } }, '닫기'))),
+      h('div', { class: `cli-mon-grid cols-${Math.min(3, Math.max(1, ordered.length))}` }, ordered.map((e) => {
+        const w = runningByEmp.get(e.id);
+        const last = cliLogs[e.id];
+        const lines = w ? (w.liveLines || []).slice(-10) : (last?.lines || []).slice(-8);
+        const taskRefId = w?.taskId || last?.taskId || null;
+        const taskTitle = w?.title || last?.title || '';
+        const latestMsg = !w && !lines.length
+          ? (S.data.messages || []).filter((m) => m.from === e.id && m.kind === 'result').slice(-1)[0]
+          : null;
+        return h('div', { class: `cli-pane${w ? ' is-live' : ''}` },
+          h('div', { class: 'cli-pane-top' },
+            h('div', { class: 'row', style: 'gap:6px;min-width:0' },
+              avatarEl(e, { size: 20, stateOverride: w ? 'working' : 'idle', onDark: true }),
+              h('b', { class: 'cli-pane-nm' }, shortName(e.id)),
+              w
+                ? h('span', { class: 'cli-pane-badge is-live', 'data-live-since': w.since || null, 'data-live-prefix': '● ' }, `● ${fmtElapsedSec(w.elapsedSec)}`)
+                : h('span', { class: 'cli-pane-badge' }, e.engine)),
+            h('div', { class: 'row', style: 'gap:4px' },
+              h('button', { type: 'button', class: 'cli-pane-btn', title: '맥 Terminal 열기', onclick: () => openEmpTerminal(e.id, 'terminal') }, '터미널'),
+              h('button', { type: 'button', class: 'cli-pane-btn', title: 'Cursor IDE 열기', onclick: () => openEmpTerminal(e.id, 'cursor') }, 'IDE'),
+              w?.taskId ? h('button', { type: 'button', class: 'cli-pane-btn is-stop', title: '중단', onclick: () => stopRunningTask(w.taskId, e.id) }, '■') : null)),
+          taskTitle ? h('button', {
+            type: 'button', class: 'cli-pane-task',
+            onclick: () => { if (taskRefId) openTaskById(taskRefId); },
+          }, taskTitle) : null,
+          h('div', { class: 'cli-pane-body', role: 'log' },
+            lines.length
+              ? lines.map((ln) => h('div', { class: 'cli-ln' },
+                h('span', { class: 'cli-ts' }, ln.at || ''),
+                h('span', { class: 'cli-txt' }, ln.text || '')))
+              : latestMsg
+                ? h('div', { class: 'cli-ln muted' },
+                  h('span', { class: 'cli-ts' }, stamp(latestMsg.at)),
+                  h('span', { class: 'cli-txt' }, latestMsg.text.replace(/\s+/g, ' ').slice(0, 120)))
+                : h('div', { class: 'cli-ln muted' },
+                  h('span', { class: 'cli-ts' }, '$'),
+                  h('span', { class: 'cli-txt' }, `workspaces/${e.id} · 대기`)),
+            w ? h('span', { class: 'live-term-cursor', 'aria-hidden': 'true' }, '▌') : null));
+      })));
+  };
+
   const stageNode = ui.hanokStage ? buildHanokOfficeStage(visible.length ? visible : d.employees, selEmp) : null;
+  const cliMonitorNode = ui.cliMonitor ? buildCliMonitor() : null;
 
   return h('section', { class: 'swarm-card', 'aria-label': 'CONNECT AI LIVE CREW' },
     h('div', { class: 'swarm-top' }, h('div', { class: 'swarm-tabs' }, teamTabs), topActions),
     heroNode,
     stageNode,
     h('div', { class: 'swarm-strip' }, allItem, workerItems, addTile),
-    workingCount ? liveConsoleNode : tickerNode);
+    cliMonitorNode || (workingCount ? liveConsoleNode : tickerNode));
 }
 
 function pageHome() {

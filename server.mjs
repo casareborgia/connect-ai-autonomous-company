@@ -11,6 +11,7 @@ import fssync from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { Store } from './lib/store.mjs';
@@ -264,9 +265,10 @@ function migrate(d) {
 const hasBatchim = (w) => { const c = w.charCodeAt(w.length - 1) - 0xac00; return c >= 0 && c < 11172 && c % 28 !== 0; };
 const gateK = (g) => `${g}${hasBatchim(g) ? '이' : '가'}`;
 
-// 지금 일하는 중인 AI (메모리에만)
+// 지금 일하는 중인 AI + 최근 CLI 로그 버퍼 (메모리에만)
 const working = new Map();
 const workingAborts = new Map();
+const recentCliLogs = new Map();
 // 작업 중 맥 잠자기 방지 (macOS caffeinate)
 const powerGuard = createPowerGuard();
 const syncPower = () => powerGuard.sync(working.size, store.data?.settings?.preventSleep !== false);
@@ -1619,7 +1621,7 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
           const nowD = new Date();
           const ts = `${String(nowD.getHours()).padStart(2, '0')}:${String(nowD.getMinutes()).padStart(2, '0')}:${String(nowD.getSeconds()).padStart(2, '0')}`;
           job.liveLines.push({ at: ts, text: line });
-          if (job.liveLines.length > 50) job.liveLines.shift();
+          if (job.liveLines.length > 80) job.liveLines.shift();
         }
       },
       env: { AIHQ_URL: `http://127.0.0.1:${PORT}`, HQ_EMPLOYEE: emp.id },
@@ -1637,6 +1639,16 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
       if (tt.status === '진행') { tt.status = '막힘'; pushHistory(tt, emp.id, '막힘', '실행 실패'); }
     }
   })).finally(() => {
+    recentCliLogs.set(emp.id, {
+      emp: emp.id,
+      taskId: t.id,
+      title: job.title,
+      label: job.label,
+      statusLine: job.statusLine,
+      startedAt: job.since,
+      endedAt: nowIso(),
+      lines: (job.liveLines || []).slice(-60),
+    });
     working.delete(emp.id);
     workingAborts.delete(emp.id);
     syncPower();
@@ -1877,6 +1889,7 @@ async function stateView(viaLan = false) {
       routinePacks: ROUTINE_PACKS.map(({ key, badge, title, summary, routines }) => ({ key, badge, title, summary, count: routines.length, titles: routines.map((r) => r.title) })),
     },
     working: workingList,
+    cliLogs: Object.fromEntries(recentCliLogs),
     offices,
     machineHealth,
     localTelemetry,
@@ -3624,6 +3637,39 @@ route('POST', '/api/ui/rag/query', async ({ body }) => {
     includeHttp: true,
   });
 }, UI);
+
+// AI 직원 작업 폴더를 로컬 터미널 / IDE로 1클릭 열기 (대표 로컬 맥 전용 · 화이트리스트 앱만 허용)
+const OPEN_TERM_APPS = {
+  terminal: 'Terminal',
+  iterm: 'iTerm',
+  cursor: 'Cursor',
+  vscode: 'Visual Studio Code',
+  finder: null,
+};
+route('POST', '/api/ui/employees/:id/open-terminal', async ({ params, body }) => {
+  const e = store.data.employees.find((x) => x.id === params.id);
+  if (!e) throw new HttpError(404, '직원이 없습니다.');
+  const wsDir = path.resolve(WORKSPACES, e.id);
+  const wsRoot = path.resolve(WORKSPACES);
+  if (!wsDir.startsWith(`${wsRoot}${path.sep}`)) throw new HttpError(400, '잘못된 작업 폴더입니다.');
+  fssync.mkdirSync(wsDir, { recursive: true });
+  const appKey = String(body?.app || 'terminal').toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(OPEN_TERM_APPS, appKey)) {
+    throw new HttpError(400, '지원하지 않는 앱입니다.');
+  }
+  if (process.platform !== 'darwin') {
+    return { ok: false, workspace: wsDir, message: `작업 폴더: ${wsDir}` };
+  }
+  const appName = OPEN_TERM_APPS[appKey];
+  const args = appName ? ['-a', appName, wsDir] : [wsDir];
+  await new Promise((resolve, reject) => {
+    execFile('open', args, { timeout: 5000 }, (err) => {
+      if (err) reject(new HttpError(400, `${appName || 'Finder'} 실행 실패: ${err.message}`));
+      else resolve();
+    });
+  });
+  return { ok: true, app: appName || 'Finder', workspace: wsDir };
+}, { human: true, macOnly: true });
 
 // AI 직원 토큰·한도 휴식(쿨다운) 수동 설정 / 즉시 해제
 route('POST', '/api/ui/employees/:id/cooldown', async ({ params, body }) => {
