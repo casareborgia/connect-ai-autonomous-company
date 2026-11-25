@@ -200,7 +200,7 @@ function skillPillsEl(empObj, { onDark = false, max = 6 } = {}) {
           : (subCnt ? h('span', { class: 'skill-sub-cnt' }, `세부 ${subCnt}`) : null));
     }),
     more > 0 ? h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id, { tab: 'equipped' }) }, `+${more}`) : null,
-    h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id, { tab: 'arsenal' }) }, '+ 스킬 도감'));
+    h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id, { tab: 'arsenal' }) }, '+ 스킬'));
 }
 
 function kbLayerOf(k) {
@@ -542,23 +542,23 @@ function skillPixelIconSvg(kind = 'scroll', size = 28) {
 }
 
 const SKILL_VISUAL_MAP = {
-  'connect-ai-video-motion': { cat: 'video',     icon: 'video',    titleKo: '영상 편집 직원 · 2강',      flow: '내 영상(mp4) → 9:16 숏츠' },
-  'connect-ai-motion':       { cat: 'video',     icon: 'motion',   titleKo: '모션그래픽 직원 · 3강',     flow: '글 몇 줄 → 모션그래픽 영상' },
-  'connect-ai-marketer':     { cat: 'marketing', icon: 'marketer', titleKo: '마케팅팀 · 24시간',         flow: 'SNS · 유튜브 → 답글 · 벤치마크' },
-  reversebusiness:           { cat: 'research',  icon: 'research', titleKo: '사업 구조 해부',            flow: 'URL 1개 → 6칸 수익모델 해부' },
-  'connect-ai-slides-web':   { cat: 'build',     icon: 'slides',   titleKo: '웹 슬라이드 · 4~9강',       flow: '발표 개요 → 인터랙티브 슬라이드' },
-  'connect-ai-three':        { cat: 'build',     icon: 'three',    titleKo: '3D 웹 · Three.js',         flow: '콘셉트 → 3D 웹 쇼케이스' },
-  'connect-ai-blender':      { cat: 'build',     icon: 'blender',  titleKo: '3D 블렌더 렌더',           flow: '장면 지시서 → 3D 턴테이블 렌더' },
-  remotion:                  { cat: 'video',     icon: 'motion',   titleKo: 'Remotion 코드 영상',       flow: 'React 코드 → 쇼츠 · 인트로' },
-  hyperframes:               { cat: 'video',     icon: 'motion',   titleKo: 'Hyperframes 자막 모션',    flow: 'HTML → 미니멀 자막 카드' },
-  ffmpeg:                    { cat: 'video',     icon: 'video',    titleKo: 'FFmpeg 컷편집 · 변환',     flow: '원본 영상 → 무음 컷 · 인코딩' },
-  blender:                   { cat: 'build',     icon: 'blender',  titleKo: 'Blender 3D 스튜디오',      flow: '3D 모델 → 조명 · 카메라 렌더' },
-  'yt-dlp':                  { cat: 'marketing', icon: 'marketer', titleKo: 'yt-dlp 자막 · 참고영상',   flow: '유튜브 링크 → 자막 · 벤치마크' },
-  whisper:                   { cat: 'video',     icon: 'audio',    titleKo: 'Whisper 음성 → 자막',      flow: '음성 · 영상 → 한국어 SRT' },
-  'orca-computer':           { cat: 'build',     icon: 'auto',     titleKo: 'Orca 맥 · 아이폰 조작',    flow: '화면 트리 → 앱 · 미러링 제어' },
-  playwright:                { cat: 'build',     icon: 'auto',     titleKo: 'Playwright 웹 자동화',     flow: '웹 앱 → E2E 테스트 · 캡처' },
-  firecrawl:                 { cat: 'research',  icon: 'research', titleKo: 'Firecrawl 웹 수집',        flow: '웹사이트 → AI 마크다운' },
-  'reverse-engineer-anything': { cat: 'research', icon: 'research', titleKo: 'REA 앱 · 웹 구조 분석',  flow: '앱 · 번들 → API · 구조 해부' },
+  'connect-ai-video-motion': { cat: 'video',     icon: 'video',    titleKo: '영상 편집',            flow: '내 영상(mp4) → 9:16 숏츠' },
+  'connect-ai-motion':       { cat: 'video',     icon: 'motion',   titleKo: '모션그래픽',           flow: '글 몇 줄 → 모션그래픽 영상' },
+  'connect-ai-marketer':     { cat: 'marketing', icon: 'marketer', titleKo: '마케팅 · SNS',         flow: 'SNS · 유튜브 → 답글 · 벤치마크' },
+  reversebusiness:           { cat: 'research',  icon: 'research', titleKo: '사업 구조 분석',       flow: 'URL 1개 → 6칸 수익모델 해부' },
+  'connect-ai-slides-web':   { cat: 'build',     icon: 'slides',   titleKo: '웹 슬라이드',          flow: '발표 개요 → 인터랙티브 슬라이드' },
+  'connect-ai-three':        { cat: 'build',     icon: 'three',    titleKo: '3D 웹 (Three.js)',     flow: '콘셉트 → 3D 웹 쇼케이스' },
+  'connect-ai-blender':      { cat: 'build',     icon: 'blender',  titleKo: '3D 블렌더',            flow: '장면 지시서 → 3D 턴테이블 렌더' },
+  remotion:                  { cat: 'video',     icon: 'motion',   titleKo: 'Remotion 영상',        flow: 'React 코드 → 쇼츠 · 인트로' },
+  hyperframes:               { cat: 'video',     icon: 'motion',   titleKo: 'Hyperframes 모션',     flow: 'HTML → 미니멀 자막 카드' },
+  ffmpeg:                    { cat: 'video',     icon: 'video',    titleKo: 'FFmpeg 편집',          flow: '원본 영상 → 무음 컷 · 인코딩' },
+  blender:                   { cat: 'build',     icon: 'blender',  titleKo: 'Blender 3D',           flow: '3D 모델 → 조명 · 카메라 렌더' },
+  'yt-dlp':                  { cat: 'marketing', icon: 'marketer', titleKo: 'yt-dlp 자막 · 영상',   flow: '유튜브 링크 → 자막 · 벤치마크' },
+  whisper:                   { cat: 'video',     icon: 'audio',    titleKo: 'Whisper 자막',         flow: '음성 · 영상 → 한국어 SRT' },
+  'orca-computer':           { cat: 'build',     icon: 'auto',     titleKo: 'Orca 화면 제어',       flow: '화면 트리 → 앱 · 미러링 제어' },
+  playwright:                { cat: 'build',     icon: 'auto',     titleKo: 'Playwright 자동화',    flow: '웹 앱 → E2E 테스트 · 캡처' },
+  firecrawl:                 { cat: 'research',  icon: 'research', titleKo: 'Firecrawl 웹 수집',    flow: '웹사이트 → AI 마크다운' },
+  'reverse-engineer-anything': { cat: 'research', icon: 'research', titleKo: 'REA 구조 분석',       flow: '앱 · 번들 → API · 구조 해부' },
 };
 
 function skillVisualInfo(item = {}) {
@@ -737,7 +737,7 @@ function buildSkillArsenal({ catalog = [], isSelected, onToggle, compact = false
     loadoutBar.classList.toggle('hidden', !selectedItems.length);
     if (selectedItems.length) {
       loadoutBar.replaceChildren(
-        h('span', { class: 'ars-loadout-lbl' }, `장착 (${selectedItems.length})`),
+        h('span', { class: 'ars-loadout-lbl' }, `선택 (${selectedItems.length})`),
         h('div', { class: 'ars-loadout-chips' }, selectedItems.map((c) => {
           const v = skillVisualInfo(c);
           return h('button', {
@@ -792,7 +792,7 @@ function buildSkillArsenal({ catalog = [], isSelected, onToggle, compact = false
         h('div', { class: 'ars-titles' },
           h('div', { class: 'ars-title-ko' }, v.titleKo)),
         h('span', { class: `ars-state${on ? ' on' : ''}${upcoming ? ' locked' : ''}` },
-          on ? '✓ 장착됨' : (upcoming ? '준비 중' : '+ 장착'))));
+          on ? '✓ 추가됨' : (upcoming ? '준비 중' : '+ 추가'))));
     }));
   };
 
@@ -852,12 +852,12 @@ function openEmployeeSkillsModal(empOrId, opts = {}) {
     publishedChk.checked = true;
     nameTouched = false;
     cmdTouched = false;
-    submitBtn.textContent = '+ 스킬 장착';
+    submitBtn.textContent = '+ 스킬 추가';
     cancelEditBtn.classList.add('hidden');
   };
 
   const tabBar = h('div', { class: 'sk-modal-tabs', role: 'tablist' });
-  const equippedSearchIn = h('input', { class: 'in sm', placeholder: '장착된 스킬 검색 (예: 영상, 컷편집, 2강, 마케팅...)', 'aria-label': '장착된 스킬 검색' });
+  const equippedSearchIn = h('input', { class: 'in sm', placeholder: '스킬 검색', 'aria-label': '스킬 검색' });
   const listWrap = h('div');
   const presetWrap = h('div');
   const formWrap = h('div', { class: 'skill-form' });
@@ -870,9 +870,9 @@ function openEmployeeSkillsModal(empOrId, opts = {}) {
     const catCnt = (S.options?.ossCatalog || []).length;
     tabBar.replaceChildren(
       ...[
-        ['equipped', `장착 (${skCnt})`],
-        ['arsenal', `도감 (${catCnt})`],
-        ['custom', editingSkillId ? '편집' : '+ 등록'],
+        ['equipped', `사용 중 (${skCnt})`],
+        ['arsenal', `전체 스킬 (${catCnt})`],
+        ['custom', editingSkillId ? '편집' : '+ 직접 추가'],
       ].map(([tk, tl]) => h('button', {
         type: 'button',
         class: `sk-modal-tab${activeTab === tk ? ' on' : ''}`,
@@ -919,7 +919,7 @@ function openEmployeeSkillsModal(empOrId, opts = {}) {
     if (r) { resetForm(); activeTab = 'equipped'; renderBody(); }
   });
 
-  const submitBtn = h('button', { type: 'button', class: 'btn gold', onclick: submitSkill }, '+ 스킬 장착');
+  const submitBtn = h('button', { type: 'button', class: 'btn gold', onclick: submitSkill }, '+ 스킬 추가');
   repoIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) submitSkill(); });
   whenIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.isComposing) submitSkill(); });
 
@@ -930,11 +930,11 @@ function openEmployeeSkillsModal(empOrId, opts = {}) {
       .sort((a, b) => Number(a.published !== false) - Number(b.published !== false) ? (a.published !== false ? -1 : 1) : Number(Boolean(b.primary)) - Number(Boolean(a.primary)));
     const readyCnt = skills.filter((s) => s.published !== false && s.doctorStatus === 'ready').length;
     const upCnt = skills.filter((s) => s.published === false || s.doctorStatus === 'upcoming').length;
-    headCount.textContent = `${skills.length}개 장착${readyCnt ? ` · 사용 가능 ${readyCnt}` : ''}${upCnt ? ` · 준비 중 ${upCnt}` : ''}`;
+    headCount.textContent = `${skills.length}개`;
 
     if (!skills.length) {
       listWrap.replaceChildren(h('div', { class: 'skill-empty' },
-        h('button', { type: 'button', class: 'btn sm dark', onclick: () => { activeTab = 'arsenal'; syncTabs(); } }, '+ 도감에서 추가')));
+        h('button', { type: 'button', class: 'btn sm dark', onclick: () => { activeTab = 'arsenal'; syncTabs(); } }, '+ 스킬 추가')));
     } else {
       const eq = equippedQuery.trim().toLowerCase();
       const filteredSkills = eq
@@ -1624,8 +1624,8 @@ async function openConnectModal() {
           !done ? h('details', { style: 'margin-top:6px' },
             h('summary', { class: 'small muted', style: 'cursor:pointer' }, '개별 수동 명령 보기'),
             h('div', { class: 'ob-cmds' },
-              !t.mcp.configured ? (t.mcp.line ? copyBlock('터미널에 붙여넣기 · 출입증(MCP)', t.mcp.line) : copyBlock(`${t.mcp.file}에 합치기 · 출입증(MCP)`, t.mcp.snippet)) : null,
-              t.skill && !t.skill.installed ? copyBlock('터미널에 붙여넣기 · 직원 수첩(스킬)', t.skill.line) : null)) : null);
+              !t.mcp.configured ? (t.mcp.line ? copyBlock('MCP', t.mcp.line) : copyBlock(`MCP (${t.mcp.file})`, t.mcp.snippet)) : null,
+              t.skill && !t.skill.installed ? copyBlock('스킬', t.skill.line) : null)) : null);
       }) : [h('div', { class: 'empty' }, '이 컴퓨터에서 바이브코딩 툴(Claude Code · Codex · Antigravity · Cursor · OpenCode · Gemini CLI · Windsurf · Claude Desktop · LM Studio)을 찾지 못했어요. 웹 AI는 지시문 복사로 바로 쓸 수 있어요.')];
       setDlg(dlg,
         h('h3', null, 'AI 도구 연결'),
@@ -2511,7 +2511,7 @@ function msgView(m) {
       a && a.status === '대기'
         ? h('div', { class: 'row', style: 'margin-top:10px' },
           h('button', { class: 'btn sm', onclick: () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '반려' }, '반려했습니다') }, '반려'),
-          h('button', { class: 'btn sm dark', onclick: () => { triggerRoyalStampFx(a.kind || '결재'); act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인' }, '도장 쾅! 승인했습니다'); } }, '승인 印'))
+          h('button', { class: 'btn sm dark', onclick: () => { triggerRoyalStampFx(a.kind || '결재'); act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인' }, '승인했어요'); } }, '승인'))
         : h('div', { class: 'small muted', style: 'margin-top:6px' }, a ? `${a.status}${a.decidedAt ? ` · ${stamp(a.decidedAt)}` : ''}` : ''));
   } else {
     const long = m.text.length > 600;
@@ -3341,7 +3341,7 @@ function approvalInlineCard(a) {
         h('button', { type: 'button', class: 'btn sm dark', onclick: () => submitReject() }, '반려 확정'))) : null,
     !rejecting ? h('div', { class: 'row', style: 'justify-content:flex-end' },
       h('button', { type: 'button', class: 'btn sm', onclick: () => { ui.rejectingAppr = a.id; render(); setTimeout(() => document.querySelector(`[data-k="appr-rej-${a.id}"]`)?.focus(), 20); } }, '반려'),
-      h('button', { type: 'button', class: 'btn sm stamp-trig-btn', onclick: submitApprove }, '도장 쾅! 승인')) : null);
+      h('button', { type: 'button', class: 'btn sm stamp-trig-btn', onclick: submitApprove }, '승인')) : null);
 }
 
 // ───────── 조선 어보 · 한국식 대표 낙관 도장 ("쾅!") 결재 연출 ─────────
@@ -3569,14 +3569,14 @@ function openJoseonCodexModal() {
   dlg.className = 'wide';
   const presets = (S.options?.avatarPresets || []).filter((p) => p.pack === 'joseon' || p.pack === 'k-crew');
   const groups = [
-    ['HQ · FOUNDER & MASCOT (세종 · 소헌왕후 · 솜이 · 수문장)', ['som', 'sejong', 'queen', 'sumunjang']],
-    ['K-GUARDIAN PIXEL · 한국 수호신 픽셀 8종 (해태 · 도깨비 · 까치 · 호랑이 · 청룡 · 달토끼 · 장승 · 봉황)', ['haetae', 'dokkaebi', 'kkachi', 'horangi', 'cheongnyong', 'dalto', 'jangseung', 'bonghwang']],
-    ['DEV · 개발 (장영실 · 천문 아씨)', ['jangyeongsil', 'cheomseong']],
-    ['PLAN · 기획 (집현전 선비 · 문인 아씨)', ['seonbi', 'munin']],
-    ['DESIGN · 디자인 (김홍도 · 신사임당 · 안견 · 신윤복 · 추사)', ['hwawon', 'saimdang', 'angyeon', 'yunbok', 'chusa']],
-    ['GROWTH · 마케팅 (보부상 · 예인 아씨)', ['bobusang', 'yein']],
-    ['RESEARCH · 리서치 & QA (사냥꾼 · 다모)', ['hunter', 'damo']],
-    ['OPS & HEALTH · 운영 · 헬스 (마당쇠 · 행랑 아씨 · 허준 · 대장금)', ['madangsoe', 'haengrang', 'heojun', 'daejanggeum']],
+    ['대표 · 마스코트', ['som', 'sejong', 'queen', 'sumunjang']],
+    ['수호신 (8)', ['haetae', 'dokkaebi', 'kkachi', 'horangi', 'cheongnyong', 'dalto', 'jangseung', 'bonghwang']],
+    ['개발', ['jangyeongsil', 'cheomseong']],
+    ['기획', ['seonbi', 'munin']],
+    ['디자인', ['hwawon', 'saimdang', 'angyeon', 'yunbok', 'chusa']],
+    ['마케팅', ['bobusang', 'yein']],
+    ['리서치', ['hunter', 'damo']],
+    ['운영 · 헬스', ['madangsoe', 'haengrang', 'heojun', 'daejanggeum']],
   ];
   let mode = 'working';
   const stateBar = h('div', { class: 'picker' });
@@ -3584,7 +3584,7 @@ function openJoseonCodexModal() {
 
   const renderCodex = () => {
     stateBar.replaceChildren(
-      ...[['working', 'ACTIVE · 가동 모션'], ['idle', 'IDLE · Z 대기 모션']].map(([mk, ml]) => h('button', {
+      ...[['working', '작업 중'], ['idle', '대기']].map(([mk, ml]) => h('button', {
         type: 'button', class: `chip sm${mode === mk ? ' on' : ''}`,
         onclick: () => { mode = mk; renderCodex(); },
       }, ml)));
@@ -3595,18 +3595,18 @@ function openJoseonCodexModal() {
         h('div', { class: 'codex-sec' }, gTitle),
         h('div', { class: 'codex-grid' }, items.map((p) => h('button', {
           type: 'button', class: 'codex-card',
-          title: `${p.name} — 클릭해 적용 또는 채용`,
+          title: p.hint || p.name,
           onclick: () => {
             if (p.key === 'sejong' || p.key === 'queen' || p.key === 'som') {
               once('codex-royal', async () => {
-                await act('PATCH', '/api/ui/settings', { ownerAvatar: p.key }, `Coordinator 캐릭터를 ${p.name.split(' ')[0]}(으)로 바꿨어요`);
+                await act('PATCH', '/api/ui/settings', { ownerAvatar: p.key }, `캐릭터를 ${p.name.split(' ')[0]}(으)로 바꿨어요`);
                 closeDlg();
               });
               return;
             }
             if (p.key === 'heojun' || p.key === 'daejanggeum') {
               once('codex-doc', async () => {
-                await act('PATCH', '/api/ui/settings', { healthDoctor: p.key }, `컨디션 담당 캐릭터를 ${p.name.split(' ')[0]}(으)로 바꿨어요`);
+                await act('PATCH', '/api/ui/settings', { healthDoctor: p.key }, `헬스 캐릭터를 ${p.name.split(' ')[0]}(으)로 바꿨어요`);
                 closeDlg();
               });
               return;
@@ -3616,28 +3616,24 @@ function openJoseonCodexModal() {
           },
         },
         C.avatarSvg(p.key, { size: 54, state: mode, style: 'pixel' }),
-        h('b', null, p.name.replace(/\s*\([^)]*\)/, '')),
-        h('span', null, p.hint)))));
+        h('b', null, p.name.replace(/\s*\([^)]*\)/, ''))))));
     }));
   };
 
   renderCodex();
   setDlg(dlg,
     h('div', { class: 'row codex-top' },
-      h('div', null,
-        h('div', { class: 'swarm-kicker' }, 'CONNECT AI LAB · K-HERITAGE PIXEL'),
-        h('h3', { class: 'coord-dlg-h' }, '한국 픽셀 크루 도감 (29종)')),
+      h('h3', { class: 'coord-dlg-h' }, '캐릭터 (29)'),
       stateBar),
-    h('p', { class: 'small muted codex-desc' }, '캐릭터를 클릭하면 해당 팀으로 새 AI 직원을 추가합니다 (솜이·세종·왕후는 Coordinator, 허준·대장금은 헬스 담당으로 전환).'),
     body,
     h('div', { class: 'bar' },
       h('button', {
         type: 'button', class: 'btn',
         onclick: () => once('codex-dress-all', async () => {
-          await act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, '전체 AI 직원에게 K-Heritage Pixel을 적용했어요');
+          await act('POST', '/api/ui/employees/avatar-style', { pack: 'joseon', avatarStyle: 'pixel', rebalanceTeams: true }, '전체 AI 직원에 적용했어요');
           closeDlg();
         }),
-      }, '전체 직원에 부서별 적용'),
+      }, '전체 적용'),
       h('button', { type: 'button', class: 'btn dark', onclick: closeDlg }, '닫기')));
   dlg.showModal();
 }
@@ -4056,20 +4052,20 @@ function buildHanokOfficeStage(emps, selEmp) {
   const workCnt = workingEmps.length;
   const gateCnt = pendingGatesByEmp.size;
   const statusBadgeText = workCnt
-    ? `${workCnt}명 서안에서 집무 중`
+    ? `${workCnt}명 작업 중`
     : gateCnt
-      ? `결재 대기 ${gateCnt}건 · 클릭해 도장 승인`
-      : `${list.length}명 대청마루 순찰 중`;
+      ? `승인 대기 ${gateCnt}건`
+      : `${list.length}명 대기`;
 
-  const stageEl = h('div', { class: 'hanok-stage', 'aria-label': '집현전 AI 집무실 라이브 무대' },
+  const stageEl = h('div', { class: 'hanok-stage', 'aria-label': 'AI 오피스 무대' },
     h('div', { class: 'hanok-stage-top' },
       h('span', { class: `hanok-pill${workCnt ? ' is-live' : ''}` },
         h('i', { class: `hanok-dot${workCnt ? ' is-live' : ''}` }),
-        '집현전 집무실 · LIVE'),
+        'LIVE'),
       h('div', { class: 'hanok-stage-right' },
         h('span', { class: 'hanok-pill is-sub' }, statusBadgeText),
         h('button', {
-          type: 'button', class: 'hanok-hide-btn', title: '집무실 무대 접기 (상단 버튼으로 다시 켤 수 있어요)',
+          type: 'button', class: 'hanok-hide-btn', title: '접기',
           onclick: () => {
             ui.hanokStage = false;
             try { localStorage.setItem('aihq_hanok_stage', '0'); } catch { /* ignore */ }
@@ -4141,13 +4137,13 @@ function joseonSwarmPanel() {
         try { localStorage.setItem('aihq_hanok_stage', ui.hanokStage ? '1' : '0'); } catch { /* ignore */ }
         render();
       },
-    }, ui.hanokStage ? '🏮 집무실 ON' : '🏮 집무실 OFF'),
+    }, ui.hanokStage ? '오피스 ON' : '오피스 OFF'),
     h('button', {
       type: 'button', class: `swarm-btn${voiceOn ? ' voice-on' : ''}`,
-      title: '장영실·세종대왕 등 야학·집현전 캐릭터 말투("에헴!") ON/OFF',
-      onclick: () => once('toggle-voice', () => act('PATCH', '/api/ui/settings', { joseonVoice: !voiceOn }, !voiceOn ? '에헴! 집현전·야학 캐릭터 말투를 켰어요' : '기본 실무 말투로 바꿨어요')),
-    }, voiceOn ? '에헴 말투 ON' : '에헴 말투 OFF'),
-    h('button', { type: 'button', class: 'swarm-btn', onclick: openJoseonCodexModal }, '크루 도감 (29)'),
+      title: '사극 말투 ON/OFF',
+      onclick: () => once('toggle-voice', () => act('PATCH', '/api/ui/settings', { joseonVoice: !voiceOn }, !voiceOn ? '사극 말투를 켰어요' : '기본 말투로 바꿨어요')),
+    }, voiceOn ? '말투 ON' : '말투 OFF'),
+    h('button', { type: 'button', class: 'swarm-btn', onclick: openJoseonCodexModal }, '캐릭터 (29)'),
     !isJoseonMode
       ? h('button', {
         type: 'button', class: 'swarm-btn',
@@ -6004,10 +6000,10 @@ function pagePocket() {
       h('div', { class: 'pocket-sec-h' }, h('b', null, `대표 확인 대기 (${pendingApprs.length + pendingGates.length}건)`)),
       pendingGates.map((t) => h('div', { class: 'pocket-appr' },
         h('div', null, h('div', { style: 'font-weight:600;font-size:13px' }, t.title), h('div', { class: 'small muted' }, `${shortName(t.assignee)} · ${t.gate} 확인 필요`)),
-        h('button', { type: 'button', class: 'btn sm stamp-trig-btn', onclick: () => { triggerRoyalStampFx(t.gate || '결재'); act('POST', `/api/ui/tasks/${t.id}/approve-gate`, {}, '도장 쾅! 승인했어요'); } }, '도장 쾅!'))),
+        h('button', { type: 'button', class: 'btn sm stamp-trig-btn', onclick: () => { triggerRoyalStampFx(t.gate || '결재'); act('POST', `/api/ui/tasks/${t.id}/approve-gate`, {}, '승인했어요'); } }, '승인'))),
       pendingApprs.map((a) => h('div', { class: 'pocket-appr' },
         h('div', null, h('div', { style: 'font-weight:600;font-size:13px' }, a.title || a.kind), h('div', { class: 'small muted' }, a.summary || a.body || '')),
-        h('button', { type: 'button', class: 'btn sm stamp-trig-btn', onclick: () => { triggerRoyalStampFx(a.kind || '결재'); act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인' }, '도장 쾅! 승인했어요'); } }, '도장 쾅!')))) : null,
+        h('button', { type: 'button', class: 'btn sm stamp-trig-btn', onclick: () => { triggerRoyalStampFx(a.kind || '결재'); act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인' }, '승인했어요'); } }, '승인')))) : null,
     h('section', { class: 'pocket-cmd' },
       h('div', { class: 'small muted', style: 'margin-bottom:6px' }, `받는 직원: `, h('b', null, shortName(pickEmpId))),
       h('div', { class: 'row' }, cmdIn, h('button', { type: 'button', class: 'btn dark', onclick: sendCmd }, '보내기'))));
@@ -6453,7 +6449,7 @@ function openNewAutomationModal(preset = null) {
       hiddenCount > 0 || showAllSkills ? h('button', {
         type: 'button', class: 'btn link auto-more-btn',
         onclick: () => { showAllSkills = !showAllSkills; renderSkillChips(); },
-      }, showAllSkills ? '핵심만 보기' : `전체 도감 (+${hiddenCount})`) : null,
+      }, showAllSkills ? '접기' : `전체 (+${hiddenCount})`) : null,
     ].filter(Boolean));
 
     skillRow.replaceChildren(...displayList.map((sk) => {
@@ -7707,7 +7703,7 @@ function openAddEmployee(opts = {}) {
     agentPanel,
     h('div', { class: 'bot-skill-box' },
       h('div', { class: 'bot-skill-head' },
-        h('span', { class: 'bot-skill-lbl' }, '스킬 비급 도감 · 원하는 능력 장착'),
+        h('span', { class: 'bot-skill-lbl' }, '스킬'),
         h('span', { class: 'bot-skill-sub' }, `총 ${ossCatalog.length}종 · 카테고리·검색 지원`)),
       skillChipsWrap,
       ghSkillIn),
@@ -7756,8 +7752,8 @@ function pageStaff() {
             });
           }
         }),
-      }, '✦ 스킬 팩'),
-      h('button', { class: 'btn sm', onclick: openJoseonCodexModal }, '도감'),
+      }, '기본 스킬'),
+      h('button', { class: 'btn sm', onclick: openJoseonCodexModal }, '캐릭터'),
       h('button', { class: 'btn sm', onclick: openConnectModal }, '도구 연결'),
       h('button', { class: 'btn dark sm', onclick: () => openAddEmployee() }, '+ AI 직원 추가'))),
     !d.employees.length ? h('div', { class: 'empty' }, '아직 AI 직원이 없어요. + AI 직원 추가를 눌러 시작하세요.') : null,
@@ -9355,12 +9351,12 @@ function pageStart() {
       const done = t.mcp.configured && (!t.skill || t.skill.installed);
       const open = ob.open[t.key];
       return h('div', { class: 'ob-conn' },
-        h('div', { class: 'row' }, h('div', null, h('b', null, t.name), h('div', { class: 'small muted' }, `직원 아이디 ${t.employee}${t.skill ? ' · 출입증(MCP) + 직원 수첩(스킬)' : ' · 출입증(MCP)'}`)),
-          done ? h('span', { class: 'tag solid' }, '이미 연결됨 ✓')
+        h('div', { class: 'row' }, h('div', null, h('b', null, t.name), h('div', { class: 'small muted' }, `${t.employee}${t.skill ? ' · MCP + 스킬' : ' · MCP'}`)),
+          done ? h('span', { class: 'tag solid' }, '연결됨')
             : h('button', { type: 'button', class: `btn sm${open ? '' : ' dark'}`, 'aria-expanded': open ? 'true' : 'false', onclick: () => { ob.open[t.key] = !open; render(); } }, open ? '접기' : '개별 명령')),
         open && !done ? h('div', { class: 'ob-cmds' },
-          !t.mcp.configured ? (t.mcp.line ? copyBlock('터미널에 붙여 넣기 · 출입증(MCP)', t.mcp.line) : copyBlock(`${t.mcp.file} 에 합치기 · 출입증(MCP)`, t.mcp.snippet)) : null,
-          t.skill && !t.skill.installed ? copyBlock('터미널에 붙여 넣기 · 직원 수첩(스킬)', t.skill.line) : null) : null);
+          !t.mcp.configured ? (t.mcp.line ? copyBlock('MCP', t.mcp.line) : copyBlock(`MCP (${t.mcp.file})`, t.mcp.snippet)) : null,
+          t.skill && !t.skill.installed ? copyBlock('스킬', t.skill.line) : null) : null);
     };
     return obShell(5, '바이브코딩 툴을 한 번에 연결할까요?', '아직 아무 설정도 바꾸지 않았어요. 아래 터미널 한 줄을 실행하면 감지된 툴 전체에 .bak 백업 후 안전하게 한 번에 연결됩니다.',
       ob.connect.loading ? h('div', { class: 'small muted' }, '이 컴퓨터를 살펴보는 중')
