@@ -1645,12 +1645,12 @@ async function openConnectModal() {
 
 function openSettingsModal() {
   const dlg = document.getElementById('dlg');
-  dlg.className = 'wide';
+  dlg.className = '';
   const d = S.data;
-  const ownerName = h('input', { class: 'in', value: d.owner.name || '', placeholder: '예: Jay', 'aria-label': '대표 이름' });
-  const companyName = h('input', { class: 'in', value: d.settings.companyName || '', placeholder: '예: CONNECT AI LAB', 'aria-label': '회사 이름' });
-  const qFrom = h('input', { class: 'in', type: 'time', value: d.settings.quietHours?.from || '', 'aria-label': '자는 시간 시작' });
-  const qTo = h('input', { class: 'in', type: 'time', value: d.settings.quietHours?.to || '', 'aria-label': '자는 시간 끝' });
+  const ownerName = h('input', { class: 'in', value: d.owner.name || '', placeholder: '이름', 'aria-label': '이름' });
+  const companyName = h('input', { class: 'in', value: d.settings.companyName || '', placeholder: '회사', 'aria-label': '회사' });
+  const qFrom = h('input', { class: 'in', type: 'time', value: d.settings.quietHours?.from || '', 'aria-label': '방해 금지 시작' });
+  const qTo = h('input', { class: 'in', type: 'time', value: d.settings.quietHours?.to || '', 'aria-label': '방해 금지 종료' });
   const f = d.settings.features || {};
   const fAppr = h('input', { type: 'checkbox', checked: Boolean(f.approvals) });
   const fMsg = h('input', { type: 'checkbox', checked: Boolean(f.messenger) });
@@ -1661,6 +1661,9 @@ function openSettingsModal() {
   const fNotify = h('input', { type: 'checkbox', checked: d.settings.desktopNotify !== false });
   const fSound = h('input', { type: 'checkbox', checked: SND()?.enabled() !== false, onchange: (ev) => { SND()?.setEnabled(ev.target.checked); if (ev.target.checked) SND()?.play('connect', { force: true }); } });
   const memCount = Object.keys(d.settings.assignMemory || {}).length;
+  const swRow = (label, chk) => h('div', { class: 'set-row' },
+    h('span', { class: 'set-lbl' }, label),
+    h('label', { class: 'switch' }, chk, h('span', { class: 'tr' })));
   const save = () => once('save-set', async () => {
     SND()?.setEnabled(fSound.checked);
     const patch = {
@@ -1676,40 +1679,35 @@ function openSettingsModal() {
     else if (!qFrom.value && !qTo.value) patch.quietHours = null;
     dlg.className = '';
     dlg.close();
-    await act('PATCH', '/api/ui/settings', patch, '설정을 저장했어요');
+    await act('PATCH', '/api/ui/settings', patch, '저장했어요');
   });
   setDlg(dlg,
-    h('h3', null, '본사 설정'),
+    h('h3', null, '설정'),
     h('div', { class: 'grid2' },
-      h('label', { class: 'field' }, '대표 이름', ownerName),
-      h('label', { class: 'field' }, '회사 이름', companyName)),
+      h('label', { class: 'field' }, '이름', ownerName),
+      h('label', { class: 'field' }, '회사', companyName)),
     h('div', { class: 'grid2', style: 'margin-top:12px' },
-      h('label', { class: 'field' }, '자는 시간 시작 (선택)', qFrom),
-      h('label', { class: 'field' }, '일어나는 시간 (선택)', qTo)),
-    h('div', { style: 'margin-top:16px' },
-      h('div', { class: 'small muted', style: 'margin-bottom:8px' }, '자동 실행 · 알림 · 사운드 · 런타임 안정화'),
-      h('label', { class: 'chk-l' }, fAutoAdd, '자동 실행 AI 직원에게 할 일 추가(Add) 즉시 착수 (결제·발행·삭제 게이트는 승인 전 정지)'),
-      h('label', { class: 'chk-l', style: 'margin-top:6px' }, fNotify, 'AI 작업 완료 · 결재 요청 시 맥 데스크탑 알림 받기 (자는 시간 제외)'),
-      h('div', { class: 'row', style: 'margin-top:6px;justify-content:space-between;flex-wrap:wrap;gap:6px' },
-        h('label', { class: 'chk-l' }, fSound, 'CONNECT AI 시그니처 효과음 (연결 · 완료 · 자동 인계 · 결재 印)'),
-        h('div', { class: 'row', style: 'gap:4px' },
-          h('button', { type: 'button', class: 'chip sm', onclick: () => { SND()?.play('connect', { force: true }); pushLiveCard({ kind: 'connect', title: '연결 · 착수 사운드', body: 'AI 직원이 일을 시작할 때 울립니다', sound: false }); } }, '연결음'),
-          h('button', { type: 'button', class: 'chip sm', onclick: () => { SND()?.play('done', { force: true }); pushLiveCard({ kind: 'done', title: '완료 · 결과물 사운드', body: 'AI 직원이 일을 끝냈을 때 울립니다', sound: false }); } }, '완료음'),
-          h('button', { type: 'button', class: 'chip sm', onclick: () => { SND()?.play('approve', { force: true }); pushLiveCard({ kind: 'approve', title: '결재 · 印 승인 사운드', body: '대표가 중요 작업을 승인할 때 울립니다', seal: true, sound: false }); } }, '결재음'))),
-      h('label', { class: 'chk-l', style: 'margin-top:6px' }, fOpt, '토큰 한도 · 실패 시 대체 AI 자동 인계 · RAM 85% 초과 시 대체 컴퓨터 우회/대기열 보호'),
-      h('label', { class: 'chk-l', style: 'margin-top:6px' }, fSleep, `작업 중 맥 잠자기 방지 (caffeinate · 먹통 감시 ${S.runtime?.hangWatchdogSec || 180}초)`)),
-    h('div', { style: 'margin-top:16px' },
-      h('div', { class: 'small muted', style: 'margin-bottom:8px' }, '선택 메뉴 표시 (기본은 4개 핵심 메뉴만 깔끔하게 보여요)'),
-      h('div', { class: 'chk-wrap' },
-        h('label', { class: 'chk-l' }, fAppr, '결재함 탭'),
-        h('label', { class: 'chk-l' }, fMsg, '사내 메신저 탭'),
-        h('label', { class: 'chk-l' }, fRev, '매출 · 채널 탭'))),
-    h('div', { class: 'bp-bar' },
-      h('div', { class: 'small muted' }, `대표님 담당 선택 기억: ${memCount}개 패턴`),
-      memCount ? h('button', { type: 'button', class: 'btn sm', onclick: async () => { await act('PATCH', '/api/ui/settings', { resetAssignMemory: true }, '담당 선택 기억을 초기화했어요'); openSettingsModal(); } }, '기억 초기화') : null),
-    h('div', { class: 'bp-bar' },
-      h('button', { type: 'button', class: 'btn sm', onclick: () => { dlg.className = ''; dlg.close(); openConnectModal(); } }, 'AI 도구 연결 (MCP · 스킬)'),
-      h('button', { type: 'button', class: 'btn sm', onclick: async () => { if (confirm('1분 시작하기 안내를 다시 열어 볼까요? (기존 데이터는 유지돼요)')) { dlg.className = ''; dlg.close(); ui.ob = null; await act('PATCH', '/api/ui/settings', { onboarded: false }); } } }, '처음 시작하기 다시 보기')),
+      h('label', { class: 'field' }, '방해 금지 시작', qFrom),
+      h('label', { class: 'field' }, '방해 금지 종료', qTo)),
+    h('div', { class: 'set-rows' },
+      swRow('자동 실행', fAutoAdd),
+      swRow('알림', fNotify),
+      swRow('효과음', fSound),
+      swRow('자동 최적화', fOpt)),
+    h('details', { class: 'clean-fold sm', style: 'margin-top:12px' },
+      h('summary', null, '고급'),
+      h('div', { class: 'set-adv' },
+        swRow('잠자기 방지', fSleep),
+        h('div', { class: 'set-row' },
+          h('span', { class: 'set-lbl' }, '추가 메뉴'),
+          h('div', { class: 'row', style: 'gap:10px' },
+            h('label', { class: 'chk-l small' }, fAppr, '결재함'),
+            h('label', { class: 'chk-l small' }, fMsg, '메신저'),
+            h('label', { class: 'chk-l small' }, fRev, '매출'))),
+        h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;padding-top:8px' },
+          h('button', { type: 'button', class: 'btn sm', onclick: () => { dlg.className = ''; dlg.close(); openConnectModal(); } }, '도구 연결'),
+          h('button', { type: 'button', class: 'btn sm', onclick: async () => { if (confirm('처음 설정을 다시 열까요?')) { dlg.className = ''; dlg.close(); ui.ob = null; await act('PATCH', '/api/ui/settings', { onboarded: false }); } } }, '처음 설정'),
+          memCount ? h('button', { type: 'button', class: 'btn sm', onclick: async () => { await act('PATCH', '/api/ui/settings', { resetAssignMemory: true }, '초기화했어요'); openSettingsModal(); } }, `학습 초기화 (${memCount})`) : null))),
     h('div', { class: 'bar' },
       h('button', { class: 'btn', onclick: () => { dlg.className = ''; dlg.close(); } }, '취소'),
       h('button', { class: 'btn dark', onclick: save }, '저장')));

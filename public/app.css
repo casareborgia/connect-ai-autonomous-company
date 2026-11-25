@@ -3605,3 +3605,18 @@ dialog.stamp-dlg::backdrop { background: rgba(10, 10, 12, 0.56); backdrop-filter
   background: #fafaf8;
   border: 1px solid var(--line);
 }
+.set-rows {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 2px;
+  border-bottom: 1px solid #f2f2ef;
+}
+.set-row:last-child { border-bottom: none; }
+.set-lbl { font-size: 13.5px; font-weight: 500; color: var(--ink); }
+.set-adv { margin-top: 6px; }
