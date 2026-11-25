@@ -240,7 +240,7 @@ test('통합 내 RAG 허브 E2E: 로컬 폴더 인덱싱(.env 차단) · HTTP RA
     assert.match(prev.body.prompt, /notebooklm\.google\.com\/notebook\/connect-ai-demo/);
     assert.match(prev.body.prompt, /search_rag/);
 
-    // 7) Agent/MCP search_rag 엔드포인트 검증
+    // 7) Agent/MCP search_rag 엔드포인트 + 3계층(나의 RAG / 공용 RAG / AI 직원별 전용 RAG 격리) 검증
     const agentSearch = await srv.agent('POST', '/api/agent/rag/search', {
       from: 'codex',
       query: '옵시디언 로컬 RAG 강의 커리큘럼',
@@ -248,6 +248,32 @@ test('통합 내 RAG 허브 E2E: 로컬 폴더 인덱싱(.env 차단) · HTTP RA
     });
     assert.equal(agentSearch.status, 200);
     assert.ok(agentSearch.body.hits.some((h) => h.file === 'course-curriculum.md'));
+
+    // Claude 전용 RAG를 등록하면 Codex는 목록과 search_rag(ragId 명시 포함)에서 모두 격리되어야 함
+    const claudeOnlyRag = await srv.ui('POST', '/api/ui/rag', {
+      name: 'Claude 전용 리서치 MCP',
+      type: 'mcp',
+      layer: 'agent',
+      scope: 'claude',
+      mcpServer: 'claude-private-mcp',
+      mcpTool: 'search',
+    });
+    assert.equal(claudeOnlyRag.status, 200);
+    assert.equal(claudeOnlyRag.body.layer, 'agent');
+    assert.equal(claudeOnlyRag.body.scope, 'claude');
+
+    const codexSources = await srv.agent('GET', '/api/agent/rag/sources?emp=codex');
+    assert.equal(codexSources.body.some((r) => r.id === claudeOnlyRag.body.id), false, 'Codex는 Claude 전용 RAG 목록을 볼 수 없어야 함');
+    const codexBypass = await srv.agent('POST', '/api/agent/rag/search', {
+      from: 'codex',
+      query: '리서치',
+      ragId: claudeOnlyRag.body.id,
+    });
+    assert.equal(codexBypass.status, 200);
+    assert.equal(codexBypass.body.directives.length, 0, 'ragId를 직접 지정해도 타 AI 전용 RAG는 격리되어야 함');
+
+    const claudeSources = await srv.agent('GET', '/api/agent/rag/sources?emp=claude');
+    assert.equal(claudeSources.body.some((r) => r.id === claudeOnlyRag.body.id), true, 'Claude는 자기 전용 RAG를 조회할 수 있어야 함');
     assert.ok(agentSearch.body.directives.some((d) => d.mcpServer === 'qmd'));
 
     // 8) RAG 삭제 시 직원 ragIds 정리 + 인덱스 파일 삭제 확인

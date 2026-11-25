@@ -176,28 +176,33 @@ const TOOLS = [
   },
   {
     name: 'list_knowledge',
-    description: '회사 공용 지식 베이스(내 지식: 브랜드 톤, 채널 정보, 업무 규칙, 참고 자료, AI 학습 메모)를 검색·조회한다.',
+    description: '지식 베이스를 계층별로 검색·조회한다. owner=나의 지식(대표 노하우), shared=공용 지식(전체 AI 협업 공유), agent=내 전용 지식.',
     inputSchema: {
       type: 'object',
-      properties: { q: str('검색어 (생략 시 전체 조회)') },
+      properties: {
+        q: str('검색어 (생략 시 전체 조회)'),
+        layer: { type: 'string', enum: ['owner', 'shared', 'agent'], description: 'owner=대표 노하우, shared=공용 지식, agent=내 전용 지식 (생략 시 전체)' },
+      },
     },
     run: async (a) => {
       const q = new URLSearchParams();
       if (ME) q.set('emp', ME);
       if (a?.q) q.set('q', a.q);
+      if (a?.layer) q.set('layer', a.layer);
       return call('GET', `/api/agent/knowledge?${q}`);
     },
   },
   {
     name: 'save_knowledge',
-    description: '작업 중 새로 파악한 운영 노하우나 참고 정보를 회사 지식 베이스(AI 학습 메모)에 저장한다. 대표가 작성한 문서는 덮어쓸 수 없다.',
+    description: '작업 중 파악한 노하우나 협업 메모를 지식 베이스에 저장한다. 다른 AI 직원과 소통·협업할 내용은 layer="shared"(공용 지식), 나만 참고할 전문 메모는 layer="agent"(내 전용 지식)로 저장한다. 대표의 나의 지식(owner)은 작성·덮어쓰기 불가.',
     inputSchema: {
       type: 'object',
       properties: {
         title: str('지식 제목'),
         content: str('지식 내용 (마크다운/텍스트)'),
         tags: str('태그 (쉼표 구분, 선택)'),
-        scope: { type: 'string', enum: ['all', 'self'], description: 'all=전체 AI 공유, self=나만 참고 (기본 all)' },
+        layer: { type: 'string', enum: ['shared', 'agent'], description: 'shared=전체 AI 공용 지식(기본), agent=내 전용 지식' },
+        scope: { type: 'string', enum: ['all', 'self'], description: '(하위호환) all=공용, self=내 전용' },
       },
       required: ['title', 'content'],
     },
@@ -206,7 +211,8 @@ const TOOLS = [
       title: a.title,
       content: a.content,
       tags: a.tags || '',
-      scope: a.scope || 'all',
+      layer: a.layer || (a.scope === 'self' ? 'agent' : 'shared'),
+      scope: a.scope || (a.layer === 'agent' ? 'self' : 'all'),
     }),
   },
   {

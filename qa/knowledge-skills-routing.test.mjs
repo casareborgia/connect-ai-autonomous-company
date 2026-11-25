@@ -153,19 +153,22 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     });
     assert.equal(badUrl.status, 400);
 
-    // 2) 내 지식 베이스 (대표 저장 → AI 조회/메모 저장 → 대표 문서 덮어쓰기 403 차단 → 청사진 격리)
+    // 2) 3계층 지식 베이스 (나의 지식[owner] · 공용 지식[shared] · AI 직원별[agent] 격리 + 권한 경계)
     const kb = await srv.ui('POST', '/api/ui/knowledge', {
       title: 'CONNECT AI LAB 브랜드 톤',
       category: '브랜드',
+      layer: 'owner',
       tags: '유튜브, 강의, 톤',
       content: '군더더기 없이 직관적이고 실전 중심의 한국어로 답한다. 시그니처 컬러는 매트 블랙과 샴페인 골드.',
     });
     assert.equal(kb.status, 200);
     assert.equal(kb.body.category, '브랜드');
+    assert.equal(kb.body.layer, 'owner');
 
     const agentKbList = await srv.agent('GET', '/api/agent/knowledge?emp=codex&q=매트');
     assert.equal(agentKbList.status, 200);
     assert.equal(agentKbList.body.length, 1);
+    assert.equal(agentKbList.body[0].layer, 'owner');
 
     const overwriteBlocked = await srv.agent('POST', '/api/agent/knowledge', {
       from: 'codex',
@@ -174,15 +177,45 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     });
     assert.equal(overwriteBlocked.status, 403, '대표가 작성한 지식은 AI가 덮어쓸 수 없어야 함');
 
+    const ownerWriteBlocked = await srv.agent('POST', '/api/agent/knowledge', {
+      from: 'codex',
+      title: '대표 노하우 사칭 시도',
+      layer: 'owner',
+      content: 'AI가 나의 지식 계층에 직접 쓰기 시도',
+    });
+    assert.equal(ownerWriteBlocked.status, 403, 'AI 직원은 나의 지식(owner) 계층에 직접 작성할 수 없어야 함');
+
     const aiMemo = await srv.agent('POST', '/api/agent/knowledge', {
       from: 'codex',
       title: '쇼츠 자막 안전영역 메모',
+      layer: 'shared',
       content: '상단 1/3 및 하단 240px 안전영역 준수',
-      tags: '쇼츠, 자막',
+      tags: '쇼츠, 자막, 강의',
     });
     assert.equal(aiMemo.status, 200);
     assert.equal(aiMemo.body.item.category, 'AI 학습 메모');
+    assert.equal(aiMemo.body.item.layer, 'shared');
     assert.equal(aiMemo.body.item.updatedBy, 'codex');
+
+    const claudeSecret = await srv.agent('POST', '/api/agent/knowledge', {
+      from: 'claude',
+      title: 'Claude 전용 강의 분석 체크리스트',
+      layer: 'agent',
+      content: 'CLAUDE_PRIVATE_ONLY_TOKEN_999',
+      tags: '강의, 분석',
+    });
+    assert.equal(claudeSecret.status, 200);
+    assert.equal(claudeSecret.body.item.layer, 'agent');
+    assert.equal(claudeSecret.body.item.scope, 'claude');
+
+    // 계층별 필터 + 타 AI 전용 지식 격리 검증
+    const codexAll = await srv.agent('GET', '/api/agent/knowledge?emp=codex');
+    assert.equal(codexAll.body.some((x) => x.title === 'Claude 전용 강의 분석 체크리스트'), false, 'Codex는 Claude 전용 지식을 열람할 수 없어야 함');
+    const codexShared = await srv.agent('GET', '/api/agent/knowledge?emp=codex&layer=shared');
+    assert.ok(codexShared.body.every((x) => x.layer === 'shared') && codexShared.body.length >= 1);
+    const claudeOwn = await srv.agent('GET', '/api/agent/knowledge?emp=claude&layer=agent');
+    assert.equal(claudeOwn.body.length, 1);
+    assert.equal(claudeOwn.body[0].scope, 'claude');
 
     // 3) 선제적 멤버십 최적화 라우팅: 메인 AI를 claude(한도 100%)로 지정해도 일반 작업은 여유 있는 codex(5%)로 선제 우회!
     await srv.ui('PATCH', '/api/ui/settings', { mainAi: 'claude' });
@@ -193,12 +226,14 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     assert.equal(del.body.assignee, 'codex', 'Claude 100% 한도일 때 여유 있는 Codex(5%)로 선제 우회해야 함');
     assert.match(del.body.reason, /멤버십 최적화/);
 
-    // 4) 최종 프롬프트 미리보기에 주요·세부 스킬 + 내 지식(브랜드 톤)이 모두 자동 주입되는지 확인
+    // 4) 최종 프롬프트 미리보기에 나의 지식(대표) + 공용 지식(AI 협업) 라벨 주입, 타 AI(Claude) 전용 지식은 비노출 확인
     const prev = await srv.ui('GET', `/api/ui/tasks/${del.body.id}/prompt-preview`);
     assert.equal(prev.status, 200);
     assert.match(prev.body.prompt, /★ \[주요\] connect-ai-video-motion/);
     assert.match(prev.body.prompt, /9:16 숏폼 크롭/);
-    assert.match(prev.body.prompt, /CONNECT AI LAB 브랜드 톤/);
+    assert.match(prev.body.prompt, /나의 지식\(대표 노하우\).*CONNECT AI LAB 브랜드 톤/);
+    assert.match(prev.body.prompt, /공용 지식\(AI 협업\).*쇼츠 자막 안전영역 메모/);
+    assert.doesNotMatch(prev.body.prompt, /CLAUDE_PRIVATE_ONLY_TOKEN_999/, '다른 AI 직원(Claude)의 전용 지식은 Codex 프롬프트에 섞이면 안 됨');
     assert.match(prev.body.prompt, /npx connect-ai-video-motion install-skill/);
 
     // 4-b) CONNECT AI 콘텐츠 스킬 7종 일괄 등록 + 공개 전(준비 중) 스킬 자동 배분 제외 + doctor 점검 검증
@@ -299,7 +334,7 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     assert.match(rtPrev.body.prompt, /대표가 지정한 필수 스킬/);
     assert.match(rtPrev.body.prompt, /connect-ai-marketer/);
     assert.match(rtPrev.body.prompt, /connect-ai-video-motion/);
-    assert.match(rtPrev.body.prompt, /★ \[필수 지식 · 참고 자료\] 다국어 응답 기준서/);
+    assert.match(rtPrev.body.prompt, /★ \[필수 · 나의 지식\(대표 노하우\) · 참고 자료\] 다국어 응답 기준서/);
     assert.match(rtPrev.body.prompt, /스페인어·영어·일본어/);
     assert.ok(rtPrev.body.linked.skills.some((s) => s.key === 'connect-ai-marketer'));
     assert.ok(rtPrev.body.linked.knowledge.some((k) => k.id === kbId && k.pinned === true));
@@ -312,7 +347,7 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     assert.deepEqual(spawned.knowledgeIds, [kbId]);
     const taskPrev = await srv.ui('GET', `/api/ui/tasks/${spawned.id}/prompt-preview`);
     assert.equal(taskPrev.status, 200);
-    assert.match(taskPrev.body.prompt, /★ \[필수 지식 · 참고 자료\] 다국어 응답 기준서/);
+    assert.match(taskPrev.body.prompt, /★ \[필수 · 나의 지식\(대표 노하우\) · 참고 자료\] 다국어 응답 기준서/);
     assert.match(taskPrev.body.prompt, /connect-ai-marketer/);
 
     // 루틴에서 지정 스킬 수정 시 오늘 할 일에도 동기화, 지식 삭제 시 참조 정리
@@ -399,7 +434,7 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     assert.equal(plainTask.status, 200);
     const empPrev = await srv.ui('GET', `/api/ui/tasks/${plainTask.body.id}/prompt-preview`);
     assert.equal(empPrev.status, 200);
-    assert.match(empPrev.body.prompt, /★ \[필수 지식 · 참고 자료\] 코덱스 전용 배포 체크리스트/);
+    assert.match(empPrev.body.prompt, /★ \[필수 · .*참고 자료\] 코덱스 전용 배포 체크리스트/);
     assert.match(empPrev.body.prompt, /npm test/);
 
     const delEmpKb = await srv.ui('DELETE', `/api/ui/knowledge/${empKbId}`);

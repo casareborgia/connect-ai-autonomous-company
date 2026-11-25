@@ -9,7 +9,7 @@ const ui = {
   route: 'home', param: '', open: null, picking: null, rtPicking: null, editingEmp: null, openAccount: null, resTab: 'machines',
   taskPick: 'auto', rtPick: 'auto', rtSched: 'time', homeFilter: 'all', doneOpen: false, insertOpen: {}, empDraftEngine: {},
   autoTab: 'list', autoQuery: '', autoFilter: 'all', autoRunsFilter: 'all',
-  kbCat: 'all', kbQuery: '',
+  kbCat: 'all', kbLayer: 'all', kbEmp: 'all', kbQuery: '', ragLayer: 'all',
   swarmTeam: 'all', swarmSelected: 'all',
   archiveRange: 'today', archiveDay: '', archiveMore: false,
   hanokStage: (() => { try { return localStorage.getItem('aihq_hanok_stage') !== '0'; } catch { return true; } })(),
@@ -203,15 +203,34 @@ function skillPillsEl(empObj, { onDark = false, max = 6 } = {}) {
     h('button', { type: 'button', class: `skill-pill-add${onDark ? ' on-dark' : ''}`, onclick: () => openEmployeeSkillsModal(empObj.id, { tab: 'arsenal' }) }, '+ 스킬 도감'));
 }
 
+function kbLayerOf(k) {
+  if (k?.layer === 'owner' || k?.layer === 'shared' || k?.layer === 'agent') return k.layer;
+  if (k?.scope && k.scope !== 'all') return 'agent';
+  if ((k?.updatedBy && k.updatedBy !== 'jay') || k?.category === 'AI 학습 메모') return 'shared';
+  return 'owner';
+}
+
+function ragLayerOf(r) {
+  if (r?.layer === 'owner' || r?.layer === 'shared' || r?.layer === 'agent') return r.layer;
+  return r?.scope && r.scope !== 'all' ? 'agent' : 'shared';
+}
+
+function kbLayerPill(item, isRag = false) {
+  const layer = isRag ? ragLayerOf(item) : kbLayerOf(item);
+  if (layer === 'owner') return h('span', { class: 'kb-layer-pill is-owner' }, isRag ? '나의 RAG' : '나의 지식');
+  if (layer === 'agent') return h('span', { class: 'kb-layer-pill is-agent' }, `${shortName(item.scope)} 전용${isRag ? ' RAG' : ''}`);
+  return h('span', { class: 'kb-layer-pill is-shared' }, isRag ? '공용 RAG' : '공용 지식');
+}
+
 function empKnowledgeDocs(empObj) {
   const allKb = Array.isArray(S.data?.knowledge) ? S.data.knowledge : [];
   const pinnedIds = Array.isArray(empObj?.knowledgeIds) ? empObj.knowledgeIds : [];
   const pinned = pinnedIds.map((id) => allKb.find((k) => k.id === id)).filter(Boolean);
-  const scoped = allKb.filter((k) => k.scope === empObj?.id && !pinnedIds.includes(k.id));
+  const scoped = allKb.filter((k) => kbLayerOf(k) === 'agent' && k.scope === empObj?.id && !pinnedIds.includes(k.id));
   const allRag = Array.isArray(S.data?.ragSources) ? S.data.ragSources : [];
   const pinnedRagIds = Array.isArray(empObj?.ragIds) ? empObj.ragIds : [];
   const pinnedRags = pinnedRagIds.map((id) => allRag.find((r) => r.id === id && r.enabled !== false)).filter(Boolean);
-  const scopedRags = allRag.filter((r) => r.enabled !== false && r.scope === empObj?.id && !pinnedRagIds.includes(r.id));
+  const scopedRags = allRag.filter((r) => r.enabled !== false && ragLayerOf(r) === 'agent' && r.scope === empObj?.id && !pinnedRagIds.includes(r.id));
   const rags = [...pinnedRags, ...scopedRags];
   return { pinned, scoped, all: [...pinned, ...scoped], pinnedRags, scopedRags, rags, total: pinned.length + scoped.length + rags.length };
 }
@@ -270,8 +289,10 @@ function openEmployeeKnowledgeModal(empOrId) {
   const newDrawer = h('div', { class: 'kb-inline-add' });
 
   const renderList = () => {
-    const allKb = Array.isArray(S.data?.knowledge) ? S.data.knowledge : [];
-    const allRag = (Array.isArray(S.data?.ragSources) ? S.data.ragSources : []).filter((r) => r.enabled !== false);
+    const allKb = (Array.isArray(S.data?.knowledge) ? S.data.knowledge : [])
+      .filter((k) => kbLayerOf(k) !== 'agent' || k.scope === e.id);
+    const allRag = (Array.isArray(S.data?.ragSources) ? S.data.ragSources : [])
+      .filter((r) => r.enabled !== false && (ragLayerOf(r) !== 'agent' || r.scope === e.id));
     const q = query.trim().toLowerCase();
     const filtered = q
       ? allKb.filter((k) => `${k.title} ${k.category} ${(k.tags || []).join(' ')} ${k.content}`.toLowerCase().includes(q))
@@ -282,7 +303,7 @@ function openEmployeeKnowledgeModal(empOrId) {
       ragListWrap.replaceChildren(
         h('div', { class: 'row', style: 'justify-content:space-between;align-items:center;margin-bottom:2px' },
           h('span', { class: 'small', style: 'font-weight:700;color:var(--ink)' }, '연결된 내 RAG (우선 검색)'),
-          h('button', { type: 'button', class: 'btn link', onclick: () => { closeDlg(); openRagModal(); } }, '+ 새 RAG 연결 →')),
+          h('button', { type: 'button', class: 'btn link', onclick: () => { closeDlg(); openRagModal(null, 'folder', { layer: 'agent', scope: e.id }); } }, `+ ${shortName(e.id)} 전용 RAG →`)),
         ...allRag.map((rg) => {
           const on = selectedRagIds.has(rg.id);
           const sub = rg.type === 'folder'
@@ -303,6 +324,7 @@ function openEmployeeKnowledgeModal(empOrId) {
           h('div', { class: 'kb-pick-top' },
             h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
               h('span', { class: 'rag-type-pill' }, ragTypeLabel(rg.type)),
+              kbLayerPill(rg, true),
               h('b', { class: 'kb-pick-title' }, rg.name)),
             h('span', { class: `kb-pick-chk${on ? ' is-on' : ''}` }, on ? '✓ 연결됨' : '+ 선택')),
           h('div', { class: 'kb-pick-preview' }, sub || rg.note || ''));
@@ -310,43 +332,64 @@ function openEmployeeKnowledgeModal(empOrId) {
     } else {
       ragListWrap.replaceChildren(
         h('div', { class: 'rag-empty-inline' },
-          h('span', { class: 'small muted' }, '연결된 내 RAG가 아직 없어요 (옵시디언 폴더 · HTTP RAG API · MCP · NotebookLM)'),
-          h('button', { type: 'button', class: 'btn sm', onclick: () => { closeDlg(); openRagModal(); } }, '+ 내 RAG 연결')));
+          h('span', { class: 'small muted' }, '연결된 내 RAG가 아직 없어요 (옵시디언 · API · MCP · NotebookLM)'),
+          h('button', { type: 'button', class: 'btn sm', onclick: () => { closeDlg(); openRagModal(null, 'folder', { layer: 'agent', scope: e.id }); } }, '+ 내 RAG 연결')));
     }
 
     if (!filtered.length) {
       listWrap.replaceChildren(h('div', { class: 'small muted', style: 'padding:10px 4px' },
-        allKb.length ? '검색어와 일치하는 지식이 없어요.' : '아직 등록된 내 지식이 없어요. 위 "+ 새 지식 바로 추가"로 바로 넣을 수 있어요.'));
+        allKb.length ? '검색어와 일치하는 지식이 없어요.' : '아직 등록된 지식이 없어요. 위 "+ 새 지식 바로 추가"로 바로 넣을 수 있어요.'));
       return;
     }
-    listWrap.replaceChildren(...filtered.map((kb) => {
-      const on = selectedIds.has(kb.id);
-      const isScoped = kb.scope === e.id;
-      return h('button', {
-        type: 'button',
-        class: `kb-pick-item${on ? ' is-on' : ''}`,
-        'aria-pressed': on ? 'true' : 'false',
-        onclick: () => {
-          if (selectedIds.has(kb.id)) selectedIds.delete(kb.id);
-          else selectedIds.add(kb.id);
-          renderList();
+    const groups = [
+      { key: 'agent', title: `${shortName(e.id)} 전용 지식`, items: filtered.filter((k) => kbLayerOf(k) === 'agent') },
+      { key: 'owner', title: '나의 지식 · 대표 노하우', items: filtered.filter((k) => kbLayerOf(k) === 'owner') },
+      { key: 'shared', title: '공용 지식 · 전체 AI 협업', items: filtered.filter((k) => kbLayerOf(k) === 'shared') },
+    ].filter((g) => g.items.length);
+
+    listWrap.replaceChildren(...groups.flatMap((g) => [
+      h('div', { class: 'kb-group-h' }, g.title, h('span', { class: 'small muted' }, `${g.items.length}`)),
+      ...g.items.map((kb) => {
+        const on = selectedIds.has(kb.id);
+        return h('button', {
+          type: 'button',
+          class: `kb-pick-item${on ? ' is-on' : ''}`,
+          'aria-pressed': on ? 'true' : 'false',
+          onclick: () => {
+            if (selectedIds.has(kb.id)) selectedIds.delete(kb.id);
+            else selectedIds.add(kb.id);
+            renderList();
+          },
         },
-      },
-      h('div', { class: 'kb-pick-top' },
-        h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
-          h('span', { class: `kb-cat-pill${kb.category === '브랜드' || kb.category === '업무 규칙' ? ' is-core' : ''}` }, kb.category),
-          h('b', { class: 'kb-pick-title' }, kb.title),
-          isScoped ? h('span', { class: 'tag' }, '이 직원 전용') : null),
-        h('span', { class: `kb-pick-chk${on ? ' is-on' : ''}` }, on ? '✓ 연결됨' : '+ 선택')),
-      h('div', { class: 'kb-pick-preview' }, String(kb.content || '').slice(0, 120)));
-    }));
+        h('div', { class: 'kb-pick-top' },
+          h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
+            kbLayerPill(kb),
+            h('span', { class: `kb-cat-pill${kb.category === '브랜드' || kb.category === '업무 규칙' ? ' is-core' : ''}` }, kb.category),
+            h('b', { class: 'kb-pick-title' }, kb.title)),
+          h('span', { class: `kb-pick-chk${on ? ' is-on' : ''}` }, on ? '✓ 연결됨' : '+ 선택')),
+        h('div', { class: 'kb-pick-preview' }, String(kb.content || '').slice(0, 120)));
+      }),
+    ]));
   };
 
   const cats = S.options?.knowledgeCategories || ['브랜드', '비즈니스', '업무 규칙', '참고 자료', 'AI 학습 메모'];
   const newTitle = h('input', { class: 'in sm', placeholder: '새 지식 제목 (예: 유튜브 숏폼 대본 공식, 코딩 스타일 가이드)', 'aria-label': '새 지식 제목' });
-  const newCat = h('select', { class: 'in sm', 'aria-label': '카테고리' }, cats.map((c) => h('option', { value: c }, c)));
-  const newOnlyEmp = h('input', { type: 'checkbox' });
-  const newContent = h('textarea', { class: 'in sm', rows: 3, placeholder: '이 에이전트가 일할 때 꼭 알아야 할 규칙, 말투, URL, 참고 노하우를 적어 주세요.', 'aria-label': '새 지식 내용' });
+  const newCat = h('select', { class: 'in sm', style: 'width:auto;min-width:120px', 'aria-label': '카테고리' }, cats.map((c) => h('option', { value: c }, c)));
+  let newLayer = 'agent';
+  const newLayerPicker = h('div', { class: 'picker' });
+  const renderNewLayerPicker = () => {
+    const opts = [
+      ['agent', `${shortName(e.id)} 전용`],
+      ['shared', '공용 (AI 협업)'],
+      ['owner', '나의 지식 (대표)'],
+    ];
+    newLayerPicker.replaceChildren(...opts.map(([k, lbl]) => h('button', {
+      type: 'button', class: `chip sm${newLayer === k ? ' on' : ''}`,
+      onclick: () => { newLayer = k; renderNewLayerPicker(); },
+    }, lbl)));
+  };
+  renderNewLayerPicker();
+  const newContent = h('textarea', { class: 'in sm', rows: 3, placeholder: '이 AI 직원이 일할 때 꼭 알아야 할 규칙, 말투, URL, 참고 노하우를 적어 주세요.', 'aria-label': '새 지식 내용' });
 
   const renderNewDrawer = () => {
     newDrawer.classList.toggle('hidden', !addOpen);
@@ -360,7 +403,8 @@ function openEmployeeKnowledgeModal(empOrId) {
     const created = await api('POST', '/api/ui/knowledge', {
       title: t,
       category: newCat.value,
-      scope: newOnlyEmp.checked ? e.id : 'all',
+      layer: newLayer,
+      scope: newLayer === 'agent' ? e.id : 'all',
       content: c,
     });
     if (created && created.id) {
@@ -369,23 +413,24 @@ function openEmployeeKnowledgeModal(empOrId) {
       selectedIds.add(created.id);
       newTitle.value = '';
       newContent.value = '';
-      newOnlyEmp.checked = false;
+      newLayer = 'agent';
+      renderNewLayerPicker();
       addOpen = false;
       renderNewDrawer();
       renderList();
-      toast(`"${t}" 지식을 만들고 연결 후보에 추가했어요`);
+      toast(`"${t}" 지식을 저장하고 연결했어요`);
     }
   });
 
   newDrawer.replaceChildren(
-    h('div', { class: 'kb-inline-h' }, '새 지식 바로 만들고 이 직원에게 연결'),
+    h('div', { class: 'kb-inline-h' }, '새 지식 바로 만들고 연결'),
     h('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' },
       h('div', { style: 'flex:1;min-width:190px' }, newTitle),
       newCat),
     newContent,
-    h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;margin-top:6px' },
-      h('label', { class: 'chk-l small' }, newOnlyEmp, `${shortName(e.id)} 전용 지식으로 저장`),
-      h('button', { type: 'button', class: 'btn sm dark', onclick: createAndAttach }, '+ 지식 저장하고 연결')));
+    h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;margin-top:6px;gap:8px' },
+      newLayerPicker,
+      h('button', { type: 'button', class: 'btn sm dark', onclick: createAndAttach }, '+ 저장하고 연결')));
   renderNewDrawer();
 
   const searchIn = h('input', {
@@ -403,6 +448,16 @@ function openEmployeeKnowledgeModal(empOrId) {
 
   renderList();
 
+  const addToggleBtn = h('button', {
+    type: 'button', class: 'btn sm gold',
+    onclick: () => {
+      addOpen = !addOpen;
+      renderNewDrawer();
+      addToggleBtn.textContent = addOpen ? '새 지식 닫기' : '+ 새 지식 바로 추가';
+      if (addOpen) setTimeout(() => newTitle.focus(), 20);
+    },
+  }, addOpen ? '새 지식 닫기' : '+ 새 지식 바로 추가');
+
   setDlg(dlg,
     h('div', { class: 'auto-m-top' },
       h('div', { class: 'auto-m-head' },
@@ -414,10 +469,7 @@ function openEmployeeKnowledgeModal(empOrId) {
       ragListWrap,
       h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:4px' },
         h('div', { style: 'flex:1;min-width:180px' }, searchIn),
-        h('button', {
-          type: 'button', class: 'btn sm gold',
-          onclick: () => { addOpen = !addOpen; renderNewDrawer(); if (addOpen) setTimeout(() => newTitle.focus(), 20); },
-        }, addOpen ? '새 지식 닫기' : '+ 새 지식 바로 추가')),
+        addToggleBtn),
       newDrawer,
       listWrap),
     h('div', { class: 'auto-m-foot' },
@@ -8506,17 +8558,37 @@ function ragTypeLabel(type) {
   return m[type] || type || 'RAG';
 }
 
-function openRagModal(existing = null, defaultType = 'folder') {
+function openRagModal(existing = null, defaultType = 'folder', prefill = null) {
   const dlg = document.getElementById('dlg');
   dlg.className = 'auto-dlg';
 
   const types = (S.options?.ragTypes || RAG_TYPE_FALLBACK);
   let curType = existing?.type || defaultType || 'folder';
+  let curLayer = existing ? ragLayerOf(existing) : (prefill?.layer || 'shared');
+  const emps = S.data.employees || [];
+  let curEmpScope = (existing?.scope && existing.scope !== 'all')
+    ? existing.scope
+    : (prefill?.scope && prefill.scope !== 'all' ? prefill.scope : (emps[0]?.id || 'all'));
 
   const nameIn = h('input', { class: 'in auto-m-title', value: existing?.name || '', placeholder: '예: 옵시디언 강의 노트 · 내 RAG API · NotebookLM 리서치', 'aria-label': 'RAG 이름' });
-  const scopeSel = h('select', { class: 'in', 'aria-label': 'AI 공유 범위' },
-    h('option', { value: 'all', selected: !existing?.scope || existing.scope === 'all' }, '전체 AI 직원 공유'),
-    ...S.data.employees.map((e) => h('option', { value: e.id, selected: existing?.scope === e.id }, `${shortName(e.id)} 전용`)));
+  const empScopeSel = h('select', { class: 'in sm', 'aria-label': '전용 AI 직원' },
+    emps.map((e) => h('option', { value: e.id, selected: curEmpScope === e.id }, `${shortName(e.id)} 전용`)));
+  empScopeSel.addEventListener('change', () => { curEmpScope = empScopeSel.value; });
+  const layerPickWrap = h('div', { class: 'kb-layer-pick' });
+  const renderLayerPick = () => {
+    const opts = [
+      ['owner', '나의 RAG (대표)'],
+      ['shared', '공용 RAG (전체 AI)'],
+      ['agent', 'AI 직원 전용'],
+    ];
+    layerPickWrap.replaceChildren(
+      h('div', { class: 'picker' }, opts.map(([k, lbl]) => h('button', {
+        type: 'button', class: `chip sm${curLayer === k ? ' on' : ''}`,
+        onclick: () => { curLayer = k; renderLayerPick(); },
+      }, lbl))),
+      curLayer === 'agent' && emps.length ? empScopeSel : null);
+  };
+  renderLayerPick();
   const noteIn = h('input', { class: 'in', value: existing?.note || '', placeholder: '어떤 자료가 들어 있는지 1줄 메모 (선택)', 'aria-label': '설명' });
 
   // folder fields
@@ -8600,7 +8672,8 @@ function openRagModal(existing = null, defaultType = 'folder') {
     const payload = {
       name: nm,
       type: curType,
-      scope: scopeSel.value,
+      layer: curLayer,
+      scope: curLayer === 'agent' ? (empScopeSel.value || curEmpScope || 'all') : 'all',
       note: noteIn.value.trim(),
     };
     if (curType === 'folder') {
@@ -8644,9 +8717,8 @@ function openRagModal(existing = null, defaultType = 'folder') {
       h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: closeDlg }, '×')),
     h('div', { class: 'auto-m-body' },
       h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'RAG 연결 방식'), typeTabs),
-      h('div', { class: 'auto-m-grid2' },
-        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'RAG 이름'), nameIn),
-        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'AI 공유 범위'), scopeSel)),
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'RAG 이름'), nameIn),
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '지식 계층 · 공유 범위'), layerPickWrap),
       dynamicWrap,
       h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '메모 (선택)'), noteIn)),
     h('div', { class: 'auto-m-foot' },
@@ -8716,7 +8788,6 @@ function ragPanel() {
   const bodyEl = list.length
     ? h('div', { class: 'rag-wrap' },
       h('div', { class: 'rag-grid' }, list.map((rg) => {
-        const scopeLabel = !rg.scope || rg.scope === 'all' ? '전체 AI 공유' : `${shortName(rg.scope)} 전용`;
         const targetTxt = rg.type === 'folder' ? rg.folderPath
           : rg.type === 'http' ? `${rg.method || 'POST'} ${rg.endpoint}`
             : rg.type === 'mcp' ? `MCP: ${rg.mcpServer}${rg.mcpTool ? ` / ${rg.mcpTool}` : ''}`
@@ -8732,7 +8803,7 @@ function ragPanel() {
           h('div', { class: 'rag-card-top' },
             h('div', { class: 'kb-badges' },
               h('span', { class: `rag-type-pill is-${rg.type}` }, ragTypeLabel(rg.type)),
-              h('span', { class: 'tag' }, scopeLabel),
+              kbLayerPill(rg, true),
               rg.type === 'folder' && rg.stats?.embedModel ? h('span', { class: 'tag solid' }, '하이브리드 벡터') : null),
             h('div', { class: 'row', style: 'gap:6px' },
               h('label', { class: 'switch', title: '활성화 / 일시 중지' },
@@ -8790,21 +8861,51 @@ function ragPanel() {
     bodyEl);
 }
 
-// ───────── 내 지식 (회사 공용 지식 베이스 · 모든 AI 프롬프트 자동 주입) ─────────
+// ───────── 3계층 지식 베이스 (나의 지식[대표 노하우] · 공용 지식[AI 협업] · AI 직원별) ─────────
 
 function openKnowledgeModal(existing = null, prefill = null) {
   const dlg = document.getElementById('dlg');
   const cats = S.options.knowledgeCategories || ['브랜드', '비즈니스', '업무 규칙', '참고 자료', 'AI 학습 메모'];
-  const titleIn = h('input', { class: 'in auto-m-title', value: existing?.title || prefill?.title || '', placeholder: '예: CONNECT AI LAB 브랜드 톤 · 채널 소개 · 12월 강의 커리큘럼', 'aria-label': '지식 제목' });
+  const emps = S.data.employees || [];
+  let curLayer = existing ? kbLayerOf(existing) : (prefill?.layer || 'owner');
+  let curEmpScope = (existing?.scope && existing.scope !== 'all')
+    ? existing.scope
+    : (prefill?.scope && prefill.scope !== 'all' ? prefill.scope : (emps[0]?.id || 'all'));
+
+  const titleIn = h('input', { class: 'in auto-m-title', value: existing?.title || prefill?.title || '', placeholder: '예: CONNECT AI LAB 브랜드 톤 · 협업 규칙 · 담당 AI 전용 가이드', 'aria-label': '지식 제목' });
   const catSel = h('select', { class: 'in', 'aria-label': '카테고리' },
-    cats.map((c) => h('option', { value: c, selected: (existing?.category || prefill?.category || '브랜드') === c }, c)));
-  const scopeSel = h('select', { class: 'in', 'aria-label': '공유 범위' },
-    h('option', { value: 'all', selected: !existing?.scope || existing.scope === 'all' }, '전체 AI 직원 공유'),
-    ...S.data.employees.map((e) => h('option', { value: e.id, selected: existing?.scope === e.id }, `${shortName(e.id)} 전용`)));
-  const tagsIn = h('input', { class: 'in', value: (existing?.tags || []).join(', '), placeholder: '쉼표로 구분 · 예: 유튜브, 강의, 톤앤매너, 가격', 'aria-label': '태그' });
+    cats.map((c) => h('option', { value: c, selected: (existing?.category || prefill?.category || (curLayer === 'shared' ? '업무 규칙' : '브랜드')) === c }, c)));
+  const empScopeSel = h('select', { class: 'in sm', 'aria-label': '전용 AI 직원' },
+    emps.map((e) => h('option', { value: e.id, selected: curEmpScope === e.id }, `${shortName(e.id)} 전용`)));
+  empScopeSel.addEventListener('change', () => { curEmpScope = empScopeSel.value; });
+
+  const layerHintEl = h('span', { class: 'small muted' });
+  const layerPickWrap = h('div', { class: 'kb-layer-pick' });
+  const LAYER_HINTS = {
+    owner: '대표님 원천 노하우 · 브랜드 기준 (AI 수정 불가 · 모든 실행 최우선 참고)',
+    shared: '전체 AI 직원이 서로 소통 · 협업 · 릴레이할 때 함께 참고하고 쌓는 팀 지식',
+    agent: '선택한 AI 직원만 단독으로 참고하는 전문 지식 (타 직원 토큰에 섞이지 않음)',
+  };
+  const renderLayerPick = () => {
+    const opts = [
+      ['owner', '나의 지식 (대표)'],
+      ['shared', '공용 지식 (AI 협업)'],
+      ['agent', 'AI 직원 전용'],
+    ];
+    layerPickWrap.replaceChildren(
+      h('div', { class: 'picker' }, opts.map(([k, lbl]) => h('button', {
+        type: 'button', class: `chip sm${curLayer === k ? ' on' : ''}`,
+        onclick: () => { curLayer = k; renderLayerPick(); },
+      }, lbl))),
+      curLayer === 'agent' && emps.length ? empScopeSel : null);
+    layerHintEl.textContent = LAYER_HINTS[curLayer] || '';
+  };
+  renderLayerPick();
+
+  const tagsIn = h('input', { class: 'in', value: (existing?.tags || []).join(', '), placeholder: '쉼표로 구분 · 예: 유튜브, 강의, 톤앤매너, 협업', 'aria-label': '태그' });
   const contentIn = h('textarea', {
     class: 'in kb-content-in', rows: 7, 'aria-label': '지식 내용',
-    placeholder: '브랜드 소개, 채널 링크, 말투 규칙, 상품 가격, 자주 쓰는 SOP 등을 자유롭게 적어 주세요.\nAI 직원들이 일할 때 자동으로 이 지식을 참고합니다.',
+    placeholder: '브랜드 철학, 협업 규칙, AI 직원 전용 작업 공식 등을 자유롭게 적어 주세요.',
   }, existing?.content || prefill?.content || '');
 
   const submit = async () => {
@@ -8812,10 +8913,17 @@ function openKnowledgeModal(existing = null, prefill = null) {
     const contentVal = contentIn.value.trim();
     if (!titleVal) { titleIn.focus(); toast('지식 제목을 입력해 주세요'); return; }
     if (!contentVal) { contentIn.focus(); toast('지식 내용을 입력해 주세요'); return; }
-    const body = { title: titleVal, category: catSel.value, scope: scopeSel.value, tags: tagsIn.value.trim(), content: contentVal };
+    const body = {
+      title: titleVal,
+      category: catSel.value,
+      layer: curLayer,
+      scope: curLayer === 'agent' ? (empScopeSel.value || curEmpScope) : 'all',
+      tags: tagsIn.value.trim(),
+      content: contentVal,
+    };
     const r = existing
       ? await once(`kb-edit-${existing.id}`, () => act('PATCH', `/api/ui/knowledge/${existing.id}`, body, '지식을 수정했어요'))
-      : await once('kb-add', () => act('POST', '/api/ui/knowledge', body, '내 지식에 저장했어요'));
+      : await once('kb-add', () => act('POST', '/api/ui/knowledge', body, '지식에 저장했어요'));
     if (r) { closeDlg(); render(); }
   };
   contentIn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); submit(); } });
@@ -8825,14 +8933,14 @@ function openKnowledgeModal(existing = null, prefill = null) {
     h('div', { class: 'auto-m-top' },
       h('div', { class: 'auto-m-head' },
         h('span', { class: 'auto-tpl-kicker' }, 'CONNECT AI · KNOWLEDGE BASE'),
-        h('h3', { class: 'auto-m-title-h' }, existing ? '내 지식 편집' : '새 지식 추가')),
+        h('h3', { class: 'auto-m-title-h' }, existing ? '지식 편집' : '새 지식 추가')),
       h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: closeDlg }, '×')),
     h('div', { class: 'auto-m-body' },
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '지식 계층'), layerPickWrap, layerHintEl),
       h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '제목'), titleIn),
       h('div', { class: 'auto-m-grid2' },
         h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '카테고리'), catSel),
-        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'AI 공유 범위'), scopeSel)),
-      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '자동 매칭 태그 (쉼표 구분 · 선택)'), tagsIn),
+        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '자동 매칭 태그 (쉼표 구분)'), tagsIn)),
       h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '내용 (마크다운 · 텍스트)'), contentIn)),
     h('div', { class: 'auto-m-foot' },
       h('span', { class: 'small muted' }, '로컬에만 저장 · 청사진 공유 시 비공개 제외'),
@@ -8845,7 +8953,21 @@ function openKnowledgeModal(existing = null, prefill = null) {
 
 function knowledgePanel() {
   const list = Array.isArray(S.data.knowledge) ? S.data.knowledge : [];
+  const emps = S.data.employees || [];
   const cats = ['all', ...(S.options.knowledgeCategories || ['브랜드', '비즈니스', '업무 규칙', '참고 자료', 'AI 학습 메모'])];
+  const curLayer = ui.kbLayer || 'all';
+  const curEmp = ui.kbEmp || 'all';
+
+  const ownerCnt = list.filter((k) => kbLayerOf(k) === 'owner').length;
+  const sharedCnt = list.filter((k) => kbLayerOf(k) === 'shared').length;
+  const agentCnt = list.filter((k) => kbLayerOf(k) === 'agent').length;
+
+  const defaultPrefill = () => {
+    const layer = curLayer === 'all' ? 'owner' : curLayer;
+    const scope = layer === 'agent' && curEmp !== 'all' ? curEmp : undefined;
+    return { layer, ...(scope ? { scope } : {}) };
+  };
+
   const fileIn = h('input', { type: 'file', accept: '.md,.txt,.json', class: 'is-hidden' });
   fileIn.addEventListener('change', async () => {
     const f = fileIn.files?.[0];
@@ -8853,33 +8975,41 @@ function knowledgePanel() {
     if (!f) return;
     const raw = (await f.text()).slice(0, 6000).trim();
     if (!raw) { toast('비어 있는 파일입니다'); return; }
-    openKnowledgeModal(null, { title: f.name.replace(/\.(md|txt|json)$/i, ''), category: '참고 자료', content: raw });
+    openKnowledgeModal(null, { ...defaultPrefill(), title: f.name.replace(/\.(md|txt|json)$/i, ''), category: '참고 자료', content: raw });
   });
 
   const gridWrap = h('div', { class: 'kb-list-wrap' });
   const renderList = () => {
     const q = String(ui.kbQuery || '').trim().toLowerCase();
     const cat = ui.kbCat || 'all';
+    const layer = ui.kbLayer || 'all';
+    const empPick = ui.kbEmp || 'all';
     const filtered = list.filter((k) => {
+      const kl = kbLayerOf(k);
+      if (layer !== 'all' && kl !== layer) return false;
+      if (layer === 'agent' && empPick !== 'all' && k.scope !== empPick) return false;
       if (cat !== 'all' && k.category !== cat) return false;
       if (q && !`${k.title} ${k.category} ${(k.tags || []).join(' ')} ${k.content}`.toLowerCase().includes(q)) return false;
       return true;
     });
     if (!filtered.length) {
+      const emptyLabel = layer === 'owner' ? '아직 등록된 나의 지식(대표 노하우)이 없어요'
+        : layer === 'shared' ? '아직 공용 지식(AI 협업)이 없어요'
+          : layer === 'agent' ? (empPick !== 'all' ? `${shortName(empPick)} 전용 지식이 아직 없어요` : '아직 AI 직원별 전용 지식이 없어요')
+            : (list.length ? '조건에 맞는 지식 문서가 없어요' : '아직 저장된 지식이 없어요');
+      const addLabel = layer === 'agent' && empPick !== 'all' ? `+ ${shortName(empPick)} 전용 지식 추가` : '+ 지식 추가';
       gridWrap.replaceChildren(h('div', { class: 'auto-empty-center compact' },
-        h('div', { class: 'auto-empty-title' }, list.length ? '조건에 맞는 지식 문서가 없어요' : '아직 저장된 내 지식이 없어요'),
-        h('p', { class: 'small muted' }, '브랜드 소개, 채널 정보, 업무 규칙, 강의 커리큘럼을 넣어두면 모든 AI 직원이 일할 때 자동으로 참고합니다.'),
-        h('button', { type: 'button', class: 'btn dark sm', onclick: () => openKnowledgeModal() }, '+ 첫 지식 추가하기')));
+        h('div', { class: 'auto-empty-title' }, emptyLabel),
+        h('button', { type: 'button', class: 'btn dark sm', onclick: () => openKnowledgeModal(null, defaultPrefill()) }, addLabel)));
       return;
     }
     gridWrap.replaceChildren(h('div', { class: 'kb-grid' }, filtered.map((k) => {
       const byAi = k.updatedBy && k.updatedBy !== 'jay';
-      const scopeLabel = !k.scope || k.scope === 'all' ? '전체 AI 공유' : `${shortName(k.scope)} 전용`;
       return h('article', { class: 'kb-card' },
         h('div', { class: 'kb-card-top' },
           h('div', { class: 'kb-badges' },
+            kbLayerPill(k),
             h('span', { class: `kb-cat-pill${k.category === '브랜드' || k.category === '업무 규칙' ? ' is-core' : ''}` }, k.category),
-            h('span', { class: 'tag' }, scopeLabel),
             byAi ? h('span', { class: 'skill-ai-tag' }, `${shortName(k.updatedBy)} 정리`) : null),
           h('div', { class: 'row' },
             h('button', { type: 'button', class: 'btn sm', onclick: () => openKnowledgeModal(k) }, '편집'),
@@ -8893,9 +9023,35 @@ function knowledgePanel() {
     })));
   };
 
+  const layerTabs = [
+    ['all', `전체 (${list.length})`],
+    ['owner', `나의 지식 · 대표 (${ownerCnt})`],
+    ['shared', `공용 지식 · AI 협업 (${sharedCnt})`],
+    ['agent', `AI 직원별 (${agentCnt})`],
+  ];
+  const layerBar = h('div', { class: 'picker kb-layer-tabs', role: 'tablist', 'aria-label': '지식 계층' },
+    layerTabs.map(([k, lbl]) => h('button', {
+      type: 'button', role: 'tab', 'aria-selected': curLayer === k ? 'true' : 'false',
+      class: `chip sm kb-ltab${k === 'owner' ? ' is-owner' : ''}${curLayer === k ? ' on' : ''}`,
+      onclick: () => { ui.kbLayer = k; if (k !== 'agent') ui.kbEmp = 'all'; render(); },
+    }, lbl)));
+
+  const empStrip = curLayer === 'agent' ? h('div', { class: 'picker kb-emp-strip', role: 'group', 'aria-label': 'AI 직원 필터' },
+    h('button', {
+      type: 'button', class: `chip sm${curEmp === 'all' ? ' on' : ''}`,
+      onclick: () => { ui.kbEmp = 'all'; render(); },
+    }, `전체 AI 직원 (${agentCnt})`),
+    ...emps.map((e) => {
+      const cnt = list.filter((k) => kbLayerOf(k) === 'agent' && k.scope === e.id).length;
+      return h('button', {
+        type: 'button', class: `chip sm${curEmp === e.id ? ' on' : ''}`,
+        onclick: () => { ui.kbEmp = e.id; render(); },
+      }, `${shortName(e.id)}${cnt ? ` (${cnt})` : ''}`);
+    })) : null;
+
   const searchIn = h('input', {
     class: 'in auto-search-in', type: 'search', value: ui.kbQuery || '',
-    placeholder: '내 지식 검색 (제목 · 태그 · 내용)...', 'aria-label': '내 지식 검색',
+    placeholder: '지식 검색 (제목 · 태그 · 내용)...', 'aria-label': '지식 검색',
   });
   searchIn.addEventListener('input', () => { ui.kbQuery = searchIn.value; renderList(); });
 
@@ -8906,15 +9062,17 @@ function knowledgePanel() {
       catBtns.forEach((b, i) => b.classList.toggle('on', cats[i] === c));
       renderList();
     },
-  }, c === 'all' ? `전체 (${list.length})` : c));
+  }, c === 'all' ? '전체 분류' : c));
 
   renderList();
 
   return h('section', { class: 'sec' },
-    secHead('내 지식', 'AI가 참고하는 브랜드 · 규칙 메모',
+    secHead('지식 베이스', '나의 지식(대표) · 공용(AI 협업) · AI 직원별',
       fileIn,
       h('button', { type: 'button', class: 'btn sm', onclick: () => fileIn.click() }, '.md 불러오기'),
-      h('button', { type: 'button', class: 'btn sm dark', onclick: () => openKnowledgeModal() }, '+ 지식 추가')),
+      h('button', { type: 'button', class: 'btn sm dark', onclick: () => openKnowledgeModal(null, defaultPrefill()) }, '+ 지식 추가')),
+    layerBar,
+    empStrip,
     h('div', { class: 'auto-toolbar kb-toolbar' }, searchIn, h('div', { class: 'auto-filters' }, catBtns)),
     gridWrap);
 }

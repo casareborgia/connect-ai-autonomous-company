@@ -3234,3 +3234,66 @@ dialog.stamp-dlg::backdrop { background: rgba(10, 10, 12, 0.56); backdrop-filter
 .rl-rw-pill.is-approved { background: #0a0a0c; color: #f6e2b4; }
 .rl-rw-pill.is-edited   { background: rgba(212, 163, 89, 0.22); color: #5c4014; }
 .rl-rw-pill.is-rejected { background: #fef3f2; color: #b42318; }
+
+/* ───────── 3계층 지식 (나의 지식 · 공용 지식 · AI 직원별) ───────── */
+.kb-layer-tabs {
+  margin-bottom: 10px;
+  gap: 6px;
+}
+.kb-ltab.is-owner:not(.on) {
+  border-color: rgba(212, 163, 89, 0.55);
+  color: #6b4b14;
+  background: #fdfbf6;
+}
+.kb-emp-strip {
+  margin: -2px 0 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: #fafaf8;
+  border: 1px solid var(--line);
+  gap: 6px;
+}
+.kb-layer-pick {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.kb-layer-pick select.in { width: auto; min-width: 145px; }
+.kb-layer-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.kb-layer-pill.is-owner {
+  background: #fdf7eb;
+  color: #7c5412;
+  border: 1px solid rgba(212, 163, 89, 0.55);
+}
+.kb-layer-pill.is-shared {
+  background: #f2f2f0;
+  color: #222;
+  border: 1px solid var(--line);
+}
+.kb-layer-pill.is-agent {
+  background: #eef2ff;
+  color: #3730a3;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+.kb-group-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-2);
+  margin: 8px 2px 2px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--line);
+}
+.kb-group-h:first-child { margin-top: 2px; }
