@@ -57,6 +57,10 @@ import {
   sanitizeRagSourceForClient, indexFolderRag, removeRagIndex, queryRagSources, searchHttpRag,
   formatRagPromptBlock,
 } from './lib/rag.mjs';
+import {
+  createDecisionRecord, pushDecisionMemory, appendRlTrajectory, checkAutoPromoteSuggestion,
+  resolveDecisionPolicyHints, formatDecisionPolicyBlock, summarizeRlStats, readRlJsonl,
+} from './lib/rl.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -81,7 +85,7 @@ const store = new Store(path.join(DATA_DIR, 'hq.json'), () => (['jay', 'example'
 
 // 예전 데이터에 없는 칸을 채운다
 function migrate(d) {
-  for (const k of ['metrics', 'worklog', 'handoffs', 'approvals', 'messages', 'resources', 'routines', 'recipes', 'knowledge', 'ragSources']) d[k] = d[k] || [];
+  for (const k of ['metrics', 'worklog', 'handoffs', 'approvals', 'messages', 'resources', 'routines', 'recipes', 'knowledge', 'ragSources', 'decisionMemory']) d[k] = d[k] || [];
   const empIdList = (d.employees || []).map((e) => e.id);
   d.ragSources = d.ragSources
     .filter((r) => r && typeof r === 'object' && String(r.name || '').trim())
@@ -273,11 +277,18 @@ function isAgentRequest(req) {
   return Boolean(req.headers['x-hq-agent']) || /aihq-(cli|mcp)/i.test(String(req.headers['user-agent'] || ''));
 }
 
-// 사람용 쓰기 요청 검사. 하나라도 어긋나면 거절한다.
+// 사람용 요청 검사. 하나라도 어긋나면 거절한다.
+// (브라우저는 같은 출처 GET/HEAD 에서 Origin 머리말을 생략하므로, 읽기 요청은 X-HQ-UI + 세션 쿠키 + Sec-Fetch-Site로 검증)
 function requireHuman(req) {
   if (isAgentRequest(req)) throw new HttpError(403, 'AI 직원 경로에서는 할 수 없는 일입니다. 대표가 화면에서 직접 눌러야 합니다.');
   const origin = req.headers.origin;
-  if (!origin || origin !== `http://${req.headers.host}`) throw new HttpError(403, '본사 화면에서 보낸 요청이 아닙니다.');
+  const isRead = req.method === 'GET' || req.method === 'HEAD';
+  const expected = `http://${req.headers.host}`;
+  if (origin) {
+    if (origin !== expected) throw new HttpError(403, '본사 화면에서 보낸 요청이 아닙니다.');
+  } else if (!isRead) {
+    throw new HttpError(403, '본사 화면에서 보낸 요청이 아닙니다.');
+  }
   // 예전 폰 브라우저는 Sec-Fetch 머리말이 없다. 있으면 같은 출처여야 한다 (출처, 전용 머리말, 쿠키는 늘 확인)
   if (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin') throw new HttpError(403, '브라우저 화면에서 보낸 요청이 아닙니다.');
   if (req.headers['x-hq-ui'] !== '1') throw new HttpError(403, '본사 화면에서 보낸 요청이 아닙니다.');
@@ -625,6 +636,16 @@ function syncTaskFromSteps(d, t, { prevActiveId = null, actor = 'jay', note = ''
     if (t.status !== '완료') {
       t.status = '완료';
       t.runStartedAt = null;
+      if (!t.completedAt) t.completedAt = nowIso();
+      if (!t.completedBy) t.completedBy = actor;
+      if (!t.resultSummary) {
+        const merged = t.steps
+          .map((s) => `${s.title}: ${summarizeText(s.output || '완료', 80)}`)
+          .filter(Boolean)
+          .join(' / ')
+          .slice(0, 320);
+        t.resultSummary = merged || `협업 ${total}/${total}단계 완료`;
+      }
       pushHistory(t, actor, '완료', note || `협업 ${total}/${total}단계 모두 완료`);
       sys(d, `task:${t.id}`, `협업 완료: 모든 단계(${total}/${total})가 끝났습니다.`);
       syncRoutineLog(d, t);
@@ -664,14 +685,17 @@ function syncTaskFromSteps(d, t, { prevActiveId = null, actor = 'jay', note = ''
   }
 }
 
-function completeActiveStepFromRun(d, t, empId, output, note) {
+function completeActiveStepFromRun(d, t, empId, output, note, stepId = null) {
   const act = activeSteps(t);
-  const s = act.find((x) => x.assignee === empId) || act[0];
+  const s = (stepId ? act.find((x) => x.id === stepId) : null) || act.find((x) => x.assignee === empId) || act[0];
   if (!s) {
     t.status = '완료';
+    if (!t.completedAt) t.completedAt = nowIso();
+    if (!t.completedBy) t.completedBy = empId;
+    if (!t.resultSummary && output) t.resultSummary = summarizeText(output, 240);
     pushHistory(t, empId, '완료', note || '실행 끝');
     syncRoutineLog(d, t);
-    return;
+    return { taskDone: true, nextStep: null };
   }
   const prevActiveId = act[0]?.id || null;
   s.status = '완료';
@@ -679,6 +703,8 @@ function completeActiveStepFromRun(d, t, empId, output, note) {
   s.doneBy = empId;
   if (output) s.output = String(output).slice(0, 2000);
   syncTaskFromSteps(d, t, { prevActiveId, actor: empId, note: note || `${s.title} 완료` });
+  const nextAct = activeSteps(t);
+  return { taskDone: t.status === '완료', nextStep: nextAct[0] || null };
 }
 
 function syncTodayTasksFromRoutine(d, r) {
@@ -954,7 +980,7 @@ function pickKnowledgeForTask(d, emp, fullText, explicitIds = []) {
   return resolveTaskKnowledge(d, emp, fullText, explicitIds).map((x) => x.chunk);
 }
 
-function taskPromptCommon(d, emp, t, ragBundle = null) {
+function taskPromptCommon(d, emp, t, ragBundle = null, targetStepId = null) {
   const routine = t.routineId ? d.routines.find((r) => r.id === t.routineId) : null;
   const res = t.resource ? d.resources.find((r) => r.id === t.resource) : null;
   const { browser, oss, accountBlock, phoneBlock, designBlock } = taskToolsInfo(d, t);
@@ -1026,7 +1052,7 @@ function taskPromptCommon(d, emp, t, ragBundle = null) {
     accountBlock,
     approvedGateBlock,
     designBlock,
-    stepsPromptBlock(d, t, emp?.id || null),
+    stepsPromptBlock(d, t, emp?.id || null, targetStepId),
     pinnedSkills.length ? `이 오토메이션/작업에 대표가 지정한 필수 스킬 (반드시 우선 활용):\n${pinnedSkills.map(fmtSkill).join('\n')}` : '',
     matchedEmpSkills.length ? `이 직원의 핵심 스킬 · GitHub 오픈소스 (우선 활용):\n${matchedEmpSkills.map(fmtSkill).join('\n')}` : '',
     sharedTeamSkills.length ? `회사 공용 매칭 스킬 (동료 스킬 참고 · 자동 우회/협업 활용):\n${sharedTeamSkills.slice(0, 4).map(fmtSkill).join('\n')}` : '',
@@ -1034,6 +1060,7 @@ function taskPromptCommon(d, emp, t, ragBundle = null) {
     extraOss.length ? `반드시 사용할 오픈소스 도구:\n${extraOss.map((x) => `- ${x.name}${x.command ? ` · 명령: ${x.command}` : ''}${x.repo ? ` · GitHub: ${x.repo}` : ''}${x.skillPath ? ` · 스킬: ${x.skillPath}` : ''}${x.note ? ` · ${x.note}` : ''}`).join('\n')}` : '',
     kbLines.length ? `${hasPinnedKb ? '대표가 지정한 필수 지식 · 회사 지식 베이스 (반드시 준수)' : '회사 공용 지식 (내 지식 베이스 · 참고 자료)'}:\n${kbLines.join('\n')}` : '',
     formatRagPromptBlock(ragBundle),
+    formatDecisionPolicyBlock(resolveDecisionPolicyHints(d, { task: t, routine })),
     showInst ? `루틴 지시서:\n${instTrim}` : '',
   ].filter(Boolean);
 }
@@ -1051,7 +1078,7 @@ const CREW_VOICE_HINTS = {
   som: '마스코트 솜이("멍! 솜이가 반짝 살펴왔어요!")',
 };
 
-function runPrompt(d, emp, t, ragBundle = null) {
+function runPrompt(d, emp, t, ragBundle = null, targetStepId = null) {
   const isLocal = emp.engine === 'local';
   const voiceOn = d.settings?.joseonVoice !== false;
   const voiceRole = voiceOn ? CREW_VOICE_HINTS[emp.avatar] : '';
@@ -1069,7 +1096,7 @@ function runPrompt(d, emp, t, ragBundle = null) {
       : '- 결제, 업로드, 게시, 삭제, 메시지 발송은 직접 하지 않는다. 필요하면 승인을 요청하고 멈춘다.';
   const lines = isLocal
     ? [
-      ...taskPromptCommon(d, emp, t, ragBundle),
+      ...taskPromptCommon(d, emp, t, ragBundle, targetStepId),
       voiceRule,
       d.settings.quietHours ? `대표 자는 시간: ${d.settings.quietHours.from}~${d.settings.quietHours.to} (이 시간에는 대표를 부르지 않는다)` : '',
       '',
@@ -1093,7 +1120,7 @@ function runPrompt(d, emp, t, ragBundle = null) {
       voiceRule,
       '- 마지막에 대표가 읽을 짧은 한국어 결과 요약을 출력한다.',
       '',
-      ...taskPromptCommon(d, emp, t, ragBundle),
+      ...taskPromptCommon(d, emp, t, ragBundle, targetStepId),
       '',
       '이 할 일의 대화 기록:',
       quoteThread(threadLines(d, t.id)),
@@ -1174,11 +1201,43 @@ async function currentLocalStat(fresh = false) {
   return st;
 }
 
-async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = false } = {}) {
+async function startParallelSteps(taskId, trigger, { force = false } = {}) {
+  const d = store.data;
+  const t = getTask(d, taskId);
+  const pending = activeSteps(t).filter((s) => s.status !== '완료' && s.status !== '진행' && s.assignee && s.assignee !== 'jay');
+  if (!pending.length) return { started: false, startedSteps: [] };
+  const startedSteps = [];
+  const usedEmps = new Set();
+  for (const st of pending) {
+    if (usedEmps.has(st.assignee)) continue;
+    const emp = d.employees.find((e) => e.id === st.assignee);
+    if (!emp || !canRun(emp) || working.has(emp.id)) continue;
+    usedEmps.add(emp.id);
+    try {
+      const r = await startRun(taskId, trigger, { force, stepId: st.id, empIdOverride: emp.id });
+      if (r?.started) startedSteps.push({ stepId: st.id, empId: emp.id });
+    } catch (err) {
+      console.log(`[병렬 협업 단계 건너뜀] ${taskId}/${st.id} ${err.message}`);
+    }
+  }
+  return { started: startedSteps.length > 0, parallel: true, startedSteps };
+}
+
+async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = false, stepId = null, empIdOverride = null } = {}) {
   const tried = triedEmps instanceof Set ? triedEmps : new Set();
   let d = store.data;
   let t = getTask(d, taskId);
-  let emp = d.employees.find((e) => e.id === t.assignee);
+  // 동시(병렬) 협업 할 일이면 배정된 모든 AI 직원을 동시에 가동한다
+  if (!stepId && t.stepMode === 'parallel' && Array.isArray(t.steps) && activeSteps(t).length >= 2) {
+    assertAccountAllowed(d, t);
+    if (t.gate && !t.gateApprovedAt) throw new HttpError(403, `${gateK(t.gate)} 들어간 일입니다. 대표가 먼저 확인을 눌러야 합니다.`);
+    return startParallelSteps(taskId, trigger, { force });
+  }
+  const activeStep = stepId
+    ? (t.steps || []).find((s) => s.id === stepId) || null
+    : (Array.isArray(t.steps) && t.steps.length ? activeSteps(t)[0] || null : null);
+  const effectiveEmpId = empIdOverride || activeStep?.assignee || t.assignee;
+  let emp = d.employees.find((e) => e.id === effectiveEmpId);
   if (!emp) throw new HttpError(400, '이 할 일은 AI 직원에게 배분되지 않았습니다.');
   assertAccountAllowed(d, t);
   if (t.gate && !t.gateApprovedAt) throw new HttpError(403, `${gateK(t.gate)} 들어간 일입니다. 대표가 먼저 확인을 눌러야 합니다.`);
@@ -1312,11 +1371,12 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
 
   const thread = `task:${t.id}`;
   const ragBundle = await resolveTaskRag(d, emp, t);
-  const prompt = runPrompt(d, emp, t, ragBundle);
+  const prompt = runPrompt(d, emp, t, ragBundle, activeStep?.id || stepId || null);
   const label = emp.engine === 'local' ? `로컬 모델 ${emp.model.replace(/^(ollama|lmstudio):/, '')}` : runnerInfo(emp.engine).label;
   const runModel = emp.engine === 'local' ? emp.model.replace(/^(ollama|lmstudio):/, '') : (modelFor(emp)?.name || modelOf(emp) || MODEL_UNKNOWN);
   const ctrl = new AbortController();
-  const job = { emp: emp.id, thread, taskId: t.id, title: t.title, resourceId: t.resource || null, kind: emp.engine === 'local' ? 'local' : 'run', since: nowIso(), label, statusLine: '작업 준비 중', liveLines: [{ at: hm(), text: `${emp.name} (${label}) 실행 시작` }] };
+  const jobTitle = activeStep ? `${activeStep.title} (${t.title})` : t.title;
+  const job = { emp: emp.id, thread, taskId: t.id, stepId: activeStep?.id || stepId || null, title: jobTitle, resourceId: t.resource || null, kind: emp.engine === 'local' ? 'local' : 'run', since: nowIso(), label, statusLine: '작업 준비 중', liveLines: [{ at: hm(), text: `${emp.name} (${label}) 실행 시작` }] };
   working.set(emp.id, job);
   workingAborts.set(emp.id, ctrl);
   syncPower();
@@ -1327,12 +1387,17 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
     tt.queued = false;
     tt.queueReason = '';
     tt.retryAfter = null;
-    pushHistory(tt, emp.id, '진행', trigger === 'auto' ? '자동 실행' : '대표가 실행');
-    sys(x, thread, `실행 시작: ${emp.name} (${label}${emp.engine === 'local' ? '' : ` · 모델 ${runModel}`}${emp.engine === 'local' ? '' : `, 작업 폴더 workspaces/${emp.id}`}, ${trigger === 'auto' ? '자동 실행' : '대표가 누름'})`);
+    if (activeStep) {
+      const st = (tt.steps || []).find((s) => s.id === activeStep.id);
+      if (st && st.status !== '완료') st.status = '진행';
+    }
+    pushHistory(tt, emp.id, '진행', trigger === 'auto' ? (activeStep ? `협업 자동 실행 · ${activeStep.title}` : '자동 실행') : '대표가 실행');
+    sys(x, thread, `실행 시작: ${emp.name}${activeStep ? ` [${activeStep.title}]` : ''} (${label}${emp.engine === 'local' ? '' : ` · 모델 ${runModel}`}${emp.engine === 'local' ? '' : `, 작업 폴더 workspaces/${emp.id}`}, ${trigger === 'auto' ? '자동 실행' : '대표가 누름'})`);
   });
 
   // 3) 실행 도중 토큰 한도 · 먹통 · 일반 실행 실패 시 다른 실행 가능 AI 에게 자동 인계
   let nextFailover = null;
+  let nextRelayTaskId = null;
   const isRunnableNow = (cand) => canRun(cand) && (cand.engine === 'local' || Boolean(runnerInfo(cand.engine)?.bin));
   const recordFailover = (tt, fromEmp, toEmp, reason) => {
     if (!Array.isArray(tt.failoverTrail)) tt.failoverTrail = [];
@@ -1442,7 +1507,16 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
       if (meta.hung && handleFailureHang(x, tt, meta.hangSec || Math.round(DEFAULT_HANG_MS / 1000))) return;
       if (!effectiveOk && handleFailureGeneral(x, tt, blockedInText ? '실행 미완료(브라우저/권한 막힘)' : `실행 실패 (코드 ${code})`)) return;
       if (effectiveOk && Array.isArray(tt.steps) && tt.steps.length) {
-        completeActiveStepFromRun(x, tt, emp.id, String(output || '').slice(0, 2000), '실행 끝');
+        const resStep = completeActiveStepFromRun(x, tt, emp.id, String(output || '').slice(0, 2000), '실행 끝', activeStep?.id || stepId || null);
+        if (resStep.taskDone) {
+          const empLabel = emp.avatarName || emp.name;
+          notifyOwner(x, `CONNECT AI HQ · 협업 완료 (${empLabel})`, tt.title);
+        } else if (resStep.nextStep && resStep.nextStep.status !== '진행' && resStep.nextStep.assignee && resStep.nextStep.assignee !== 'jay' && !tt.gate) {
+          const nextEmp = x.employees.find((e) => e.id === resStep.nextStep.assignee);
+          if (nextEmp && nextEmp.runMode === 'auto' && canRun(nextEmp) && !working.has(nextEmp.id)) {
+            nextRelayTaskId = tt.id;
+          }
+        }
       } else {
         tt.status = effectiveOk ? '완료' : '막힘';
         tt.resultSummary = summarizeText(outText, 240);
@@ -1507,6 +1581,9 @@ async function startRun(taskId, trigger, { depth = 0, triedEmps = null, force = 
     if (nextFailover) {
       const f = nextFailover;
       setTimeout(() => startRun(f.taskId, f.trigger, { depth: f.depth, triedEmps: f.triedEmps }).catch((err) => console.log(`[자동 우회 실패] ${f.taskId} ${err.message}`)), 150);
+    } else if (nextRelayTaskId) {
+      const relayId = nextRelayTaskId;
+      setTimeout(() => startRun(relayId, 'auto').catch((err) => console.log(`[협업 바통 자동 착수 실패] ${relayId} ${err.message}`)), 180);
     } else {
       // 작업 1건 종료 즉시 대기열 재확인 (30초 기다리지 않고 바로 여유 슬롯 활용)
       setTimeout(() => autoRun(new Date()).catch(() => {}), 300);
@@ -1571,6 +1648,8 @@ async function autoRun(now) {
     if (t.runAt) return Date.parse(t.runAt) <= nowMs;
     if (!t.routineId) {
       if (d.settings?.autoStartAdded === false) return false;
+      // 릴레이 협업 바통 터치로 넘어온 다음 단계는 예약 시각이 없어도 즉시 자동 실행
+      if (Array.isArray(t.steps) && t.steps.length > 0 && t.steps.some((s) => s.status === '완료')) return true;
       if (!t.time || minutes(t.time) > cur) return false;
       return true;
     }
@@ -1704,9 +1783,11 @@ async function stateView(viaLan = false) {
     data: {
       ...d,
       health: undefined,
+      decisionMemory: undefined,
       ragSources: (d.ragSources || []).map(sanitizeRagSourceForClient),
       settings: { ...d.settings, instanceId: undefined, muse: { ...d.settings.muse, seen: undefined } },
     },
+    rl: summarizeRlStats(d),
     revenue: f.revenue ? summarize(d, connectors) : null,
     health: {
       ...healthSummary,
@@ -2595,19 +2676,41 @@ route('POST', '/api/ui/assign/preview', async ({ body }) => {
 }, UI);
 
 // 승인 요청 (AI 가 올린 것) 결정: 오직 사람 세션으로만
-route('POST', '/api/ui/approvals/:id/decide', async ({ params, body }) => store.mutate((d) => {
-  const a = d.approvals.find((x) => x.id === params.id);
-  if (!a) throw new HttpError(404, '승인 요청이 없습니다.');
-  if (a.status !== '대기') throw new HttpError(409, `이미 ${a.status} 된 건입니다.`);
-  if (!['승인', '반려'].includes(body.decision)) throw new HttpError(400, '승인 또는 반려만 고를 수 있습니다.');
-  a.status = body.decision;
-  a.decidedAt = nowIso();
-  a.decidedBy = 'jay';
-  a.decisionNote = text(body.note, 1000);
-  if (a.draft !== null && a.draft !== undefined && body.decision === '승인') a.finalText = text(body.finalText, 5000) || a.draft;
-  sys(d, a.taskId ? `task:${a.taskId}` : 'all', `대표 ${a.status}: ${a.what}`);
-  return a;
-}), UI);
+route('POST', '/api/ui/approvals/:id/decide', async ({ params, body }) => {
+  let rlRec = null;
+  let autoPromote = null;
+  const out = await store.mutate((d) => {
+    const a = d.approvals.find((x) => x.id === params.id);
+    if (!a) throw new HttpError(404, '승인 요청이 없습니다.');
+    if (a.status !== '대기') throw new HttpError(409, `이미 ${a.status} 된 건입니다.`);
+    if (!['승인', '반려'].includes(body.decision)) throw new HttpError(400, '승인 또는 반려만 고를 수 있습니다.');
+    a.status = body.decision;
+    a.decidedAt = nowIso();
+    a.decidedBy = 'jay';
+    a.decisionNote = text(body.note, 1000);
+    if (a.draft !== null && a.draft !== undefined && body.decision === '승인') a.finalText = text(body.finalText, 5000) || a.draft;
+    const linkedTask = a.taskId ? d.tasks.find((t) => t.id === a.taskId) || null : null;
+    rlRec = createDecisionRecord(a, { decision: body.decision, finalText: a.finalText, note: a.decisionNote, task: linkedTask });
+    pushDecisionMemory(d, rlRec);
+    autoPromote = checkAutoPromoteSuggestion(d, rlRec);
+    const rlTag = rlRec.outcome === 'edited' ? ' (수정 선호 학습)' : rlRec.outcome === 'rejected' && rlRec.reason ? ` (${rlRec.reason})` : '';
+    sys(d, a.taskId ? `task:${a.taskId}` : 'all', `대표 ${a.status}: ${a.what}${rlTag}`);
+    return a;
+  });
+  if (rlRec) await appendRlTrajectory(DATA_DIR, rlRec).catch(() => {});
+  return {
+    ...out,
+    rl: rlRec ? { id: rlRec.id, outcome: rlRec.outcome, reward: rlRec.reward, hasPair: Boolean(rlRec.chosen && rlRec.rejected) } : null,
+    autoPromote,
+  };
+}, UI);
+
+route('GET', '/api/ui/rl/export', async () => {
+  const stats = summarizeRlStats(store.data);
+  const raw = await readRlJsonl(DATA_DIR);
+  const rows = raw.split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+  return { ...stats, filename: 'connect-ai-dpo.jsonl', jsonl: raw, rows };
+}, UI);
 
 // ── 매일 할 일 ──
 
@@ -3731,17 +3834,22 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
   const LIGHT_TASK_RE = /(요약|번역|문서\s*정리|메모\s*정리|분류|체크리스트)/i;
   const HEAVY_CODE_RE = /(코딩|코드|버그|개발|리모션|remotion|모션|블렌더|blender|영상|브라우저|크롤링|분석|해부|깃허브|github)/i;
   const isRunnable = (e) => Boolean(e && e.runMode !== 'off' && canRun(e));
-  const pickBestEmp = (d, clause, teamKey, usedIds) => {
+  const pickBestEmp = (d, clause, teamKey, usedIds, { preferDistinct = false } = {}) => {
     const needsLocalCu = LOCAL_CU_RE.test(clause);
     const wantsLocalOnly = LOCAL_ONLY_HINT_RE.test(clause);
     const needsTools = !wantsLocalOnly && (needsLocalCu || NEEDS_TOOLS_RE.test(clause));
     const hasToolAgent = d.employees.some((e) => isRunnable(e) && e.engine !== 'local');
     const isLight = LIGHT_TASK_RE.test(clause) && !needsLocalCu && !needsTools && !HEAVY_CODE_RE.test(clause);
     const autoOpt = d.settings?.autoOptimize !== false;
+    const distinctPool = (arr) => {
+      if (!preferDistinct || !usedIds?.size) return arr;
+      const fresh = arr.filter((e) => !usedIds.has(e.id));
+      return fresh.length ? fresh : arr;
+    };
     const score = (e) => {
       const liveBonus = isRunnable(e) ? 10 : -8;
       const autoBonus = e.runMode === 'auto' && canRun(e) ? 4 : canRun(e) ? 2 : 0;
-      const freshBonus = usedIds.has(e.id) ? 0 : 3;
+      const freshBonus = usedIds.has(e.id) ? (preferDistinct ? -18 : 0) : 3;
       const coolPenalty = isCoolingDown(e) ? -12 : 0;
       const pct = autoOpt ? pctOf(e.id) : null;
       const quotaScore = typeof pct === 'number'
@@ -3761,10 +3869,10 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       const names = [e.name, e.avatarName, e.id].filter(Boolean).map((x) => String(x).toLowerCase().split(/\s/)[0]).filter((x) => x.length >= 2 && x !== '내가' && x !== '로컬');
       return names.some((nm) => (/^[a-z0-9]+$/.test(nm) ? new RegExp(`(?<![a-z0-9])${nm}(?![a-z0-9])`, 'i').test(low) : low.includes(nm)));
     });
-    if (mentioned) return mentioned;
+    if (mentioned && !(preferDistinct && usedIds?.has(mentioned.id))) return mentioned;
 
     // 1순위: 해당 작업에 딱 맞는 주요·세부 스킬(GitHub·npx 포함)을 장착한 직원 우선 배정
-    const skillPool = d.employees
+    const skillPool = distinctPool(d.employees)
       .map((e) => ({ e, hits: matchEmployeeSkills(clause, e, tokens) }))
       .filter((x) => x.hits.length > 0 && !(needsTools && hasToolAgent && x.e.engine === 'local'));
     if (skillPool.length) {
@@ -3773,12 +3881,12 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
     }
     // 2순위: Ego Lite · 컴퓨터 유즈 등 로컬 실행이 필수인 일은 이 컴퓨터에 실제 연결된 도구 가능 AI 우선
     if (needsLocalCu) {
-      const liveCu = d.employees.filter((e) => isRunnable(e) && (!hasToolAgent || e.engine !== 'local'));
+      const liveCu = distinctPool(d.employees.filter((e) => isRunnable(e) && (!hasToolAgent || e.engine !== 'local')));
       if (liveCu.length) return [...liveCu].sort((a, b) => score(b) - score(a))[0];
     }
     // 3순위: 해당 부서(팀)에 실제 연결·실행 가능하고 한도 여유 있는 직원 선택
     if (teamKey) {
-      const teamLive = d.employees.filter((e) => (e.team || defaultTeamFor(e)) === teamKey && isRunnable(e) && !(needsTools && hasToolAgent && e.engine === 'local'));
+      const teamLive = d.employees.filter((e) => (e.team || defaultTeamFor(e)) === teamKey && isRunnable(e) && !(needsTools && hasToolAgent && e.engine === 'local') && !(preferDistinct && usedIds?.has(e.id)));
       const teamFresh = teamLive.filter((e) => { const p = pctOf(e.id); return p === null || p < 85; });
       if (teamFresh.length) return [...teamFresh].sort((a, b) => score(b) - score(a))[0];
       if (teamLive.length && !d.employees.some((e) => isRunnable(e) && !(needsTools && hasToolAgent && e.engine === 'local') && (pctOf(e.id) ?? 0) < 80)) {
@@ -3790,7 +3898,7 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
     if (ruled?.assignee && ruled.assignee !== 'jay') {
       const hit = d.employees.find((e) => e.id === ruled.assignee);
       const hitPct = hit ? pctOf(hit.id) : null;
-      if (hit && isRunnable(hit) && !(needsTools && hasToolAgent && hit.engine === 'local') && (hitPct === null || hitPct < 85)) return hit;
+      if (hit && !(preferDistinct && usedIds?.has(hit.id)) && isRunnable(hit) && !(needsTools && hasToolAgent && hit.engine === 'local') && (hitPct === null || hitPct < 85)) return hit;
     }
     // 5순위: 실제 연결·실행 가능한 AI 직원 풀에서 멤버십 최적화(한도 여유·로컬 무료) 기준 선택
     const allLive = d.employees.filter((e) => isRunnable(e) && !(needsTools && hasToolAgent && e.engine === 'local'));
@@ -3880,21 +3988,38 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
     }
 
     const clauses = splitGoalClauses(goal);
-    const isParallel = /(동시에|한꺼번에|병렬로|같이\s*돌려)/.test(goal);
+    const wantCollab = Boolean(body.collab);
+    const isParallel = body.collabMode === 'parallel' || /(동시에|한꺼번에|병렬로|같이\s*돌려)/.test(goal);
     const usedIds = new Set();
 
-    if (clauses.length >= 2) {
-      const builtSteps = clauses.map((cl, idx) => {
-        const tKey = inferClauseTeam(cl);
-        const chosen = pickBestEmp(d, cl, tKey, usedIds);
+    // 복합 목표(2개 이상 절)이거나 대표가 '협업' 모드를 켠 경우 → 스킬·지식·토큰 여유가 다른 AI 직원 2~5명 자동 편성
+    const runnableCount = d.employees.filter((e) => isRunnable(e)).length;
+    const autoCollabPlan = clauses.length >= 2
+      ? clauses.map((cl) => ({ title: cl, note: `[메인 AI(${mainAiName}) 협업 배분] 전체 목표: ${goal}` }))
+      : (wantCollab && !isPersonalAlarm(goal) && runnableCount >= 2)
+        ? (isParallel
+          ? [
+            { title: `핵심 실행 · 초안 — ${goal}`, note: `[동시 협업 1] 보유 스킬·지식·RAG 기준으로 최선의 초안과 실행안을 작성하세요.` },
+            { title: `대안 · 교차 관점 — ${goal}`, note: `[동시 협업 2] 다른 시각·스킬로 보완 포인트, 리스크, 더 나은 대안을 제시하세요.` },
+          ]
+          : [
+            { title: `초안 · 실행 — ${goal}`, note: `[릴레이 협업 1단계] 보유 스킬·지식·RAG를 활용해 핵심 결과물을 먼저 완성하세요.` },
+            { title: `교차 검수 · 완성 — ${goal}`, note: `[릴레이 협업 2단계] 1단계 AI 직원의 결과물을 검수·보완해 대표가 바로 쓸 최종본으로 마무리하세요.` },
+          ])
+        : null;
+
+    if (autoCollabPlan && autoCollabPlan.length >= 2) {
+      const builtSteps = autoCollabPlan.map((planItem, idx) => {
+        const tKey = inferClauseTeam(planItem.title);
+        const chosen = pickBestEmp(d, planItem.title, tKey, usedIds, { preferDistinct: true });
         if (chosen) usedIds.add(chosen.id);
-        const opt = chosen ? pickOptimalMachine(d, { title: cl, note: '' }, chosen, { localStat, offices, workingList, preferredResId: mainRes?.id || null }) : null;
+        const opt = chosen ? pickOptimalMachine(d, { title: planItem.title, note: planItem.note }, chosen, { localStat, offices, workingList, preferredResId: mainRes?.id || null }) : null;
         return {
           id: `st_${idx + 1}`,
-          title: cl,
+          title: planItem.title,
           assignee: chosen ? chosen.id : 'jay',
           resource: opt?.resource?.id || mainRes?.id || null,
-          note: `[메인 AI(${mainAiName}) 자동 배분] 전체 목표: ${goal}`,
+          note: planItem.note,
           status: '대기',
         };
       });
@@ -3902,7 +4027,7 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       const taskObj = {
         id: nextId(d, 't'), order: 0, title: goal, kind: 'ai', assignee: builtSteps[0].assignee || 'jay',
         date: targetDate, time: parsedTime, runAt, isAlarm: false, alarmFiredAt: null, status: '대기',
-        note: `메인 AI(${mainAiName})가 ${builtSteps.length}단계로 자동 배분했습니다.${mainMachineName ? ` · 메인 컴퓨터: ${mainMachineName}` : ''}`,
+        note: `AI 직원 ${builtSteps.length}명 협업 (${stepMode === 'parallel' ? '동시' : '릴레이'})${mainMachineName ? ` · ${mainMachineName}` : ''}`,
         resource: builtSteps[0].resource || null, account: null, browser: null, design: null, tools: [], manualLinks: {}, estCost: null, intervalMin: null,
         stepMode, sharedFolder: '', steps: normalizeSteps(builtSteps, d, { asTemplate: false }),
         gate: detectGate(goal), gateApprovedAt: null, reason: '', assignSource: 'auto',
@@ -3913,11 +4038,11 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
       taskObj.order = orderFor(d, taskObj);
       syncTaskFromSteps(d, taskObj);
       const summary = builtSteps.map((st) => nameOf(d, st.assignee)).join(stepMode === 'parallel' ? ' + ' : ' → ');
-      taskObj.reason = `메인 AI(${mainAiName}) 자동 배분 · ${summary}${mainMachineName ? ` · ${mainMachineName}` : ''}`;
+      taskObj.reason = `AI 직원 협업 (${stepMode === 'parallel' ? '동시' : '릴레이'}) · ${summary}`;
       meta.stepSummary = summary;
       d.tasks.push(taskObj);
-      pushHistory(taskObj, 'jay', '자동 배분', taskObj.reason);
-      sys(d, `task:${taskObj.id}`, `메인 AI(${mainAiName}) 자동 배분 (${stepMode === 'parallel' ? '동시' : '릴레이'}): ${summary}`);
+      pushHistory(taskObj, 'jay', '협업 배분', taskObj.reason);
+      sys(d, `task:${taskObj.id}`, `AI 직원 협업 (${stepMode === 'parallel' ? '동시 가동' : '릴레이'}): ${summary}`);
       return taskObj;
     }
 

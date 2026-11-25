@@ -3171,3 +3171,66 @@ dialog.stamp-dlg::backdrop { background: rgba(10, 10, 12, 0.56); backdrop-filter
 .auto-tpl-fold-body { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
 .clean-more-btn { margin-top: 10px; }
 .dash-tabs { margin: 2px 0 4px; gap: 8px; }
+
+/* ───────── AI 협업 칩 + 대표 의사결정 RL 학습 ───────── */
+.collab-chip {
+  border-style: dashed;
+  border-color: #d4a359;
+  color: #6b4b14;
+  background: #fdfbf6;
+}
+.collab-chip.on {
+  border-style: solid;
+  border-color: #0a0a0c;
+  background: #0a0a0c;
+  color: #f6e2b4;
+}
+.collab-mode-chip {
+  background: rgba(212, 163, 89, 0.14);
+  border-color: rgba(212, 163, 89, 0.5);
+  color: #5c4014;
+  font-weight: 600;
+}
+
+.rl-rej-bar {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(212, 163, 89, 0.36);
+  background: #faf8f3;
+}
+.rl-rej-bar .row { margin-top: 8px !important; }
+.rl-bar-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 14px 16px;
+}
+.rl-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.rl-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: #fafaf8;
+}
+.rl-kpi b { font-size: 16px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.rl-rec-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.rl-rec-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.rl-rec-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.rl-rw-pill {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.rl-rw-pill.is-approved { background: #0a0a0c; color: #f6e2b4; }
+.rl-rw-pill.is-edited   { background: rgba(212, 163, 89, 0.22); color: #5c4014; }
+.rl-rw-pill.is-rejected { background: #fef3f2; color: #b42318; }

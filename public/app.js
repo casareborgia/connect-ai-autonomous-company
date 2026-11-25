@@ -2928,12 +2928,40 @@ function addBar() {
   });
 
   const whoBar = createWhoBar(title, 'taskPick');
+  const collabOn = Boolean(ui.addCollab);
+  const collabMode = ui.addCollabMode === 'parallel' ? 'parallel' : 'serial';
+  const collabBtn = h('button', {
+    type: 'button',
+    class: `chip sm collab-chip${collabOn ? ' on' : ''}`,
+    'aria-pressed': collabOn ? 'true' : 'false',
+    title: '켜면 AI 직원 2~3명이 스킬·지식·토큰 여유에 맞춰 나눠 협업합니다',
+    onclick: () => { ui.addCollab = !ui.addCollab; if (ui.addCollab) ui.taskPick = 'auto'; render(); },
+  }, collabOn ? '✦ AI 협업 ON' : '+ AI 협업');
+  const collabModeBtn = collabOn ? h('button', {
+    type: 'button',
+    class: 'chip sm collab-mode-chip',
+    title: '클릭해 릴레이(순서대로) / 동시(병렬) 전환',
+    onclick: () => { ui.addCollabMode = collabMode === 'parallel' ? 'serial' : 'parallel'; render(); },
+  }, collabMode === 'parallel' ? '동시 실행 ⇄' : '릴레이 ⇄') : null;
+  const whoPicker = whoBar.querySelector('.picker');
+  const goldChip = whoPicker?.querySelector('.gold-auto');
+  if (whoPicker && goldChip) {
+    goldChip.after(...[collabBtn, collabModeBtn].filter(Boolean));
+  } else {
+    (whoPicker || whoBar).append(...[collabBtn, collabModeBtn].filter(Boolean));
+  }
+
   const runDelegate = async () => {
     closePop();
     const tm = timeVal.value;
+    const useCollab = Boolean(ui.addCollab);
+    const useMode = ui.addCollabMode === 'parallel' ? 'parallel' : 'serial';
     const r = await submitInput(title, 'delegate-task', (v) => {
       setTime('', false);
-      return act('POST', '/api/ui/coordinator/delegate', { title: v, time: tm, date: S.today });
+      return act('POST', '/api/ui/coordinator/delegate', {
+        title: v, time: tm, date: S.today,
+        ...(useCollab ? { collab: true, collabMode: useMode } : {}),
+      });
     });
     if (r) {
       whoBar.resetSuggest();
@@ -2995,7 +3023,7 @@ function addBar() {
     closePop();
     const tm = timeVal.value;
     const picked = ui.taskPick || 'auto';
-    if (picked === 'auto') { await runDelegate(); return; }
+    if (picked === 'auto' || ui.addCollab) { await runDelegate(); return; }
     const r = await submitInput(title, 'add-task', (v) => {
       setTime('', false);
       return act('POST', '/api/ui/tasks', { title: v, time: tm, date: S.today, assignee: picked });
@@ -3241,6 +3269,27 @@ function approvalInlineCard(a) {
   const draftEl = hasDraft ? h('textarea', { class: 'in sm', rows: 3, 'data-k': `appr-draft-${a.id}`, 'aria-label': '보낼 초안 수정' }, a.draft) : null;
   const linkedTask = a.taskId ? S.data.tasks.find((t) => t.id === a.taskId) : null;
   const guardSvg = C.avatarSvg('sumunjang', { size: 38, state: 'working', style: 'pixel' });
+  const rejecting = ui.rejectingAppr === a.id;
+  const rejIn = rejecting ? h('input', { class: 'in sm', placeholder: '반려 이유 1줄 (선택 · AI가 다음부터 기억해요)', 'data-k': `appr-rej-${a.id}`, 'aria-label': '반려 이유' }) : null;
+  const submitReject = (noteVal = '') => once(`ap-r-${a.id}`, async () => {
+    const clean = String(noteVal || rejIn?.value || '').trim();
+    ui.rejectingAppr = null;
+    const res = await act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '반려', note: clean });
+    if (res) toast(clean ? `반려 완료 · "${clean}" 기준 학습됨` : '반려했어요 · 의사결정 학습 기록됨');
+  });
+  const submitApprove = () => once(`ap-a-${a.id}`, async () => {
+    ui.rejectingAppr = null;
+    triggerRoyalStampFx(a.kind || '결재');
+    const res = await act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인', ...(draftEl ? { finalText: draftEl.value } : {}) });
+    if (res) {
+      const msg = res.rl?.outcome === 'edited'
+        ? '도장 쾅! 승인 · 수정 스타일 AI 학습됨 (DPO)'
+        : res.autoPromote?.message
+          ? `도장 쾅! 승인 · ${res.autoPromote.message}`
+          : '도장 쾅! 승인했어요';
+      toast(msg);
+    }
+  });
   return h('div', { class: 'appr-inline' },
     h('div', { class: 'row', style: 'justify-content:space-between;align-items:flex-start' },
       h('div', { class: 'gate-guard', style: 'min-width:0;flex:1' },
@@ -3252,10 +3301,19 @@ function approvalInlineCard(a) {
           h('div', { class: 'small muted', style: 'margin-top:3px' }, ['대표 승인 대기', a.kind, nameOf(a.from), linkedTask ? `할 일: ${linkedTask.title}` : '', stamp(a.requestedAt)].filter(Boolean).join(' · ')))),
       linkedTask ? h('button', { type: 'button', class: 'btn link', onclick: () => openTaskById(linkedTask.id) }, '할 일 열기') : null),
     formatApprovalOriginal(a.original),
-    draftEl ? h('label', { class: 'field' }, h('span', { class: 'small muted' }, '보낼 초안 (수정 후 승인 가능)'), draftEl) : null,
-    h('div', { class: 'row', style: 'justify-content:flex-end' },
-      h('button', { type: 'button', class: 'btn sm', onclick: () => once(`ap-r-${a.id}`, () => act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '반려' }, '반려했어요')) }, '반려'),
-      h('button', { type: 'button', class: 'btn sm stamp-trig-btn', onclick: () => once(`ap-a-${a.id}`, async () => { triggerRoyalStampFx(a.kind || '결재'); await act('POST', `/api/ui/approvals/${a.id}/decide`, { decision: '승인', ...(draftEl ? { finalText: draftEl.value } : {}) }, '도장 쾅! 승인했어요'); }) }, '도장 쾅! 승인')));
+    draftEl ? h('label', { class: 'field' }, h('span', { class: 'small muted' }, '보낼 초안 · 수정 승인 시 자동 학습'), draftEl) : null,
+    rejecting ? h('div', { class: 'rl-rej-bar' },
+      h('div', { class: 'picker' }, ['톤 조정 필요', '내용 부정확', '민감 · 보류'].map((tag) => h('button', {
+        type: 'button', class: 'chip sm',
+        onclick: () => submitReject(tag),
+      }, tag))),
+      h('div', { class: 'row', style: 'gap:6px;margin-top:6px' },
+        h('div', { style: 'flex:1' }, rejIn),
+        h('button', { type: 'button', class: 'btn sm', onclick: () => { ui.rejectingAppr = null; render(); } }, '취소'),
+        h('button', { type: 'button', class: 'btn sm dark', onclick: () => submitReject() }, '반려 확정'))) : null,
+    !rejecting ? h('div', { class: 'row', style: 'justify-content:flex-end' },
+      h('button', { type: 'button', class: 'btn sm', onclick: () => { ui.rejectingAppr = a.id; render(); setTimeout(() => document.querySelector(`[data-k="appr-rej-${a.id}"]`)?.focus(), 20); } }, '반려'),
+      h('button', { type: 'button', class: 'btn sm stamp-trig-btn', onclick: submitApprove }, '도장 쾅! 승인')) : null);
 }
 
 // ───────── 조선 어보 · 한국식 대표 낙관 도장 ("쾅!") 결재 연출 ─────────
@@ -8926,6 +8984,40 @@ function machinesRoutingPanel() {
     })));
 }
 
+function rlDecisionPanel() {
+  const rl = S.rl || { total: 0, approved: 0, edited: 0, rejected: 0, dpoPairs: 0, avgReward: null, recent: [] };
+  const downloadDpo = () => once('rl-dl', async () => {
+    const res = await api('GET', '/api/ui/rl/export');
+    if (!res) return;
+    if (!res.jsonl) { toast('아직 누적된 의사결정 데이터가 없어요'); return; }
+    const blob = new Blob([res.jsonl], { type: 'application/x-ndjson;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = res.filename || 'connect-ai-dpo.jsonl';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`DPO 강화학습 데이터 ${res.rows?.length || rl.total}건을 저장했어요`);
+  });
+  return h('section', { class: 'sec rl-sec' },
+    secHead('대표 의사결정 학습 (RL · DPO)', '승인 · 수정 · 반려를 기억해 자동 반영하고 로컬 파인튜닝 데이터로 축적',
+      h('button', { type: 'button', class: 'btn sm', disabled: !rl.total, onclick: downloadDpo }, 'DPO JSONL 내보내기')),
+    h('div', { class: 'rl-bar-card' },
+      h('div', { class: 'rl-kpis' },
+        h('div', { class: 'rl-kpi' }, h('span', { class: 'small muted' }, '누적 결재'), h('b', null, `${rl.total}건`)),
+        h('div', { class: 'rl-kpi' }, h('span', { class: 'small muted' }, '그대로 승인'), h('b', null, `${rl.approved}`)),
+        h('div', { class: 'rl-kpi' }, h('span', { class: 'small muted' }, '수정 선호쌍 (DPO)'), h('b', { style: 'color:#8c621c' }, `${rl.dpoPairs}`)),
+        h('div', { class: 'rl-kpi' }, h('span', { class: 'small muted' }, '반려 기준'), h('b', null, `${rl.rejected}`))),
+      rl.recent?.length ? h('details', { class: 'clean-fold sm', style: 'margin-top:10px' },
+        h('summary', null, `최근 학습 기록 (${rl.recent.length})`),
+        h('div', { class: 'rl-rec-list' }, rl.recent.map((x) => {
+          const badge = x.outcome === 'edited' ? '+0.6 수정 학습' : x.outcome === 'rejected' ? '-1.0 반려' : '+1.0 승인';
+          return h('div', { class: 'rl-rec-row' },
+            h('span', { class: `rl-rw-pill is-${x.outcome}` }, badge),
+            h('span', { class: 'rl-rec-txt' }, `${x.accountName ? `[${x.accountName}] ` : ''}${x.what}${x.reason ? ` · ${x.reason}` : ''}`));
+        }))) : null));
+}
+
 function pageResources() {
   if (!ui.office) loadOffice();
   if (!ui.tools) loadTools();
@@ -8969,7 +9061,7 @@ function pageResources() {
         h('div', { class: 'addbar slim' }, kind, name, h('button', { class: 'btn dark', onclick: add }, '추가'))),
     ] : null,
     tab === 'web' ? [browserPanel(), accountsPanel()] : null,
-    tab === 'knowledge' ? [ragPanel(), knowledgePanel()] : null,
+    tab === 'knowledge' ? [ragPanel(), knowledgePanel(), rlDecisionPanel()] : null,
     tab === 'tools' ? [ossPanel(), designPanel()] : null,
     tab === 'mobile' ? [phonePanel(), healthPanel(), lanPanel(), musePanel()] : null);
 }
