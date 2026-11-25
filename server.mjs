@@ -73,6 +73,9 @@ import {
   verifyRunOutcome, buildRepairFeedbackBlock, recordVerificationStat, recordCompactionStat,
   summarizeHarnessStats,
 } from './lib/harness.mjs';
+import {
+  HANDOFF_SCHEMA, CONNECT_AI_TEAMS, normalizeHandoffPacket, writeHandoffPacket, readHandoffFromDirSync,
+} from './lib/handoff-protocol.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -2010,6 +2013,8 @@ async function stateView(viaLan = false) {
       permLabels: PERM_LABELS, hardGuardrails: HARD_GUARDRAILS,
       stepModes: STEP_MODES, stepModeLabels: STEP_MODE_LABELS,
       stepTemplates: STEP_TEMPLATES.map(({ key, label, mode, steps }) => ({ key, label, mode, count: steps.length })),
+      companyTeams: CONNECT_AI_TEAMS,
+      handoffSchema: HANDOFF_SCHEMA,
       intervalMins: INTERVAL_MINS,
       ossCatalog: OSS_CATALOG,
       designPresets: DESIGN_PRESETS,
@@ -2279,6 +2284,15 @@ route('POST', '/api/ui/tasks', async ({ body }) => {
         else if (opt.resource && !s.resource) s.resource = opt.resource.id;
       }
       applyAssign(t, s, 'rule');
+    }
+    if (body.stepTemplate) {
+      const built = buildTemplateSteps(String(body.stepTemplate), d);
+      if (built) {
+        t.stepMode = built.mode;
+        t.steps = built.steps;
+      }
+    } else if (Array.isArray(body.steps) && body.steps.length) {
+      t.steps = normalizeSteps(body.steps, d);
     }
     t.order = orderFor(d, t);
     d.tasks.push(t);
@@ -3550,10 +3564,10 @@ route('POST', '/api/ui/skills/connect-ai-pack', async ({ body }) => {
       if (pinnedEmp) return pinnedEmp;
       const byRole = targetPool.find((e) => {
         const txt = `${e.role || ''} ${e.name || ''} ${e.id || ''} ${e.team || ''}`.toLowerCase();
-        if (preset.key === 'connect-ai-marketer' || preset.key === 'connect-ai-slides-web') return /(마케팅|홍보|codex)/.test(txt);
-        if (preset.key === 'reversebusiness') return /(리서치|분석|antigravity|agy)/.test(txt);
+        if (preset.key === 'connect-ai-marketer' || preset.key === 'connect-ai-slides-web' || preset.key === 'connect-ai-translator') return /(마케팅|홍보|codex)/.test(txt);
+        if (preset.key === 'reversebusiness' || preset.key === 'connect-ai-xr') return /(리서치|분석|antigravity|agy)/.test(txt);
         if (preset.key === 'connect-ai-three') return /(opencode|터미널)/.test(txt);
-        return /(claude|영상|디자인|모션)/.test(txt);
+        return /(claude|글쓰기|영상|디자인|모션)/.test(txt);
       });
       return byRole || targetPool[0];
     };
@@ -5308,6 +5322,45 @@ route('POST', '/api/agent/handoffs', async ({ body }) => {
   });
   if (memEp) await flushMemoryArtifacts(memEp).catch(() => {});
   return out;
+});
+
+// 직원 간 표준 인계 패킷(connect-ai-handoff/v1) 읽기 · 쓰기 (알리는 팀 / 3팀 릴레이 공용)
+route('GET', '/api/agent/handoff-packet', async ({ query }) => {
+  const d = store.data;
+  const taskId = query.get('taskId') || '';
+  if (!taskId) throw new HttpError(400, 'taskId 가 필요합니다.');
+  const t = getTask(d, taskId);
+  const packet = t.handoffPacket || (t.sharedFolder ? readHandoffFromDirSync(t.sharedFolder) : null);
+  return { taskId: t.id, schema: HANDOFF_SCHEMA, packet };
+});
+
+route('POST', '/api/agent/handoff-packet', async ({ body }) => {
+  let savedPacket = null;
+  let sharedFolder = '';
+  await store.mutate((d) => {
+    const emp = requireAgent(d, body.from);
+    const t = getTask(d, body.taskId);
+    const rawPkt = body.packet || body;
+    const packet = normalizeHandoffPacket({ ...rawPkt, from: body.skill || rawPkt.from || emp.id }, {
+      from: body.skill || emp.id,
+      taskId: t.id,
+      stepId: body.stepId || '',
+      title: t.title,
+      sourceDir: t.sharedFolder || '',
+    });
+    t.handoffPacket = packet;
+    savedPacket = packet;
+    sharedFolder = t.sharedFolder || '';
+    sys(d, `task:${t.id}`, `표준 인계 패킷 저장 (${packet.from}${packet.next.length ? ` → ${packet.next.join(', ')}` : ''}) · 산출물 ${packet.artifacts.length}개`);
+  });
+  let filePath = null;
+  if (sharedFolder && savedPacket) {
+    try {
+      const wr = await writeHandoffPacket(sharedFolder, savedPacket);
+      filePath = wr.filePath;
+    } catch { /* 공유 폴더 접근 불가 시 메모리 저장만 유지 */ }
+  }
+  return { ok: true, schema: HANDOFF_SCHEMA, packet: savedPacket, filePath };
 });
 
 route('POST', '/api/agent/handoffs/:id/pickup', async ({ params, body }) => store.mutate((d) => {

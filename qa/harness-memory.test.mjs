@@ -317,9 +317,51 @@ if (prompt.includes('하네스 자동 검증 피드백')) {
     const delMem = await srv.ui('DELETE', `/api/ui/memory/${addMem.body.episode.id}`);
     assert.equal(delMem.status, 200);
 
-    // 5) 청사진(Blueprint) 내보내기에 자동 기억·비공개 데이터가 절대 포함되지 않는지 확인
+    // 5) 알리는 팀(growth-team) 4단계 협업 + 표준 handoff.json(connect-ai-handoff/v1) 인계 패킷 E2E 검증
+    const sharedDir = path.join(srv.dir, 'shared-growth');
+    const teamTask = await srv.ui('POST', '/api/ui/tasks', {
+      title: '영상 하나로 알리는 팀 릴레이',
+      assignee: 'claude',
+      sharedFolder: sharedDir,
+      stepTemplate: 'growth-team',
+    });
+    assert.equal(teamTask.status, 200);
+    assert.equal(teamTask.body.steps?.length, 4, 'growth-team 템플릿은 4단계여야 함');
+
+    const writePkt = await srv.agent('POST', '/api/agent/handoff-packet', {
+      from: 'claude',
+      taskId: teamTask.body.id,
+      stepId: 's1',
+      skill: 'connect-ai-writer',
+      next: ['connect-ai-translator', 'connect-ai-motion', 'connect-ai-marketer'],
+      summary: '네이버 블로그·쓰레드·X 초안 3종 완성 (토큰 sk-secret1234567890abcd 제거 테스트)',
+      artifacts: [
+        { kind: 'post', platform: 'naver', path: 'naver/post.txt', label: '네이버 블로그 초안' },
+        { kind: 'post', platform: 'bad', path: '../../etc/passwd', label: '차단될 탈출 경로' },
+      ],
+      notesForNext: '숫자 42% 유지 필수',
+    });
+    assert.equal(writePkt.status, 200);
+    assert.equal(writePkt.body.schema, 'connect-ai-handoff/v1');
+    assert.equal(writePkt.body.packet.artifacts.length, 1, '경로 탈출(../) 아티팩트는 차단되어야 함');
+    assert.doesNotMatch(writePkt.body.packet.summary, /sk-secret/);
+    assert.ok(writePkt.body.filePath && writePkt.body.filePath.endsWith('handoff.json'));
+    const diskPkt = JSON.parse(await fs.readFile(writePkt.body.filePath, 'utf8'));
+    assert.equal(diskPkt.schema, 'connect-ai-handoff/v1');
+
+    const readPkt = await srv.agent('GET', `/api/agent/handoff-packet?taskId=${teamTask.body.id}`);
+    assert.equal(readPkt.status, 200);
+    assert.equal(readPkt.body.packet.from, 'connect-ai-writer');
+
+    const teamPrev = await srv.ui('GET', `/api/ui/tasks/${teamTask.body.id}/prompt-preview`);
+    assert.equal(teamPrev.status, 200);
+    assert.match(teamPrev.body.prompt, /connect-ai-handoff\/v1/);
+    assert.match(teamPrev.body.prompt, /네이버 블로그 초안/);
+
+    // 6) 청사진(Blueprint) 내보내기에 자동 기억·비공개 데이터가 절대 포함되지 않는지 확인
     const stNow = await srv.ui('GET', '/api/state');
     assert.equal(stNow.body.data.memory, undefined, '원시 memory 객체는 stateView.data에 노출하지 않음');
+    assert.equal(stNow.body.options.companyTeams?.length, 3, '3개 팀(기획·분석 / 제작 / 알림) 메타가 포함되어야 함');
     assert.ok(stNow.body.harness?.verification?.repaired >= 1);
     const bpJson = JSON.stringify(exportBlueprint(stNow.body.data));
     assert.doesNotMatch(bpJson, /SECRET_MARKER_SHOULD_STAY_LOCAL/);

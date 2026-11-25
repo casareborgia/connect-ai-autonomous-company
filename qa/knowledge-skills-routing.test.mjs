@@ -236,25 +236,31 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     assert.doesNotMatch(prev.body.prompt, /CLAUDE_PRIVATE_ONLY_TOKEN_999/, '다른 AI 직원(Claude)의 전용 지식은 Codex 프롬프트에 섞이면 안 됨');
     assert.match(prev.body.prompt, /npx connect-ai-video-motion install-skill/);
 
-    // 4-b) CONNECT AI 콘텐츠 스킬 7종 일괄 등록 + 공개 전(준비 중) 스킬 자동 배분 제외 + doctor 점검 검증
+    // 4-b) CONNECT AI 직원 11종 일괄 등록 + 공개 전(준비 중) 스킬 자동 배분 제외 + doctor 점검 검증
     const packRes = await srv.ui('POST', '/api/ui/skills/connect-ai-pack', {});
     assert.equal(packRes.status, 200);
-    assert.equal(packRes.body.total, 7);
+    assert.equal(packRes.body.total, 11);
+    const writerInfo = packRes.body.assigned.find((a) => a.key === 'connect-ai-writer');
+    const xrInfo = packRes.body.assigned.find((a) => a.key === 'connect-ai-xr');
     const motionInfo = packRes.body.assigned.find((a) => a.key === 'connect-ai-motion');
     const videoInfo = packRes.body.assigned.find((a) => a.key === 'connect-ai-video-motion');
-    assert.equal(motionInfo?.published, false, 'connect-ai-motion은 아직 공개 전(준비 중)이어야 함');
-    assert.equal(motionInfo?.doctorStatus, 'upcoming');
+    const transInfo = packRes.body.assigned.find((a) => a.key === 'connect-ai-translator');
+    assert.equal(writerInfo?.published, true, 'connect-ai-writer는 공개 직원이어야 함');
+    assert.equal(xrInfo?.published, true, 'connect-ai-xr는 공개 직원이어야 함');
+    assert.equal(motionInfo?.published, true, 'connect-ai-motion은 GitHub 공개 완료');
     assert.equal(videoInfo?.published, true);
+    assert.equal(transInfo?.published, false, 'connect-ai-translator는 아직 공개 전(준비 중)이어야 함');
+    assert.equal(transInfo?.doctorStatus, 'upcoming');
 
-    // 공개 안 된 connect-ai-motion 스킬은 matchEmployeeSkills에서 완전히 제외되어야 함
+    // 공개 안 된 connect-ai-translator 스킬은 matchEmployeeSkills에서 완전히 제외되어야 함
     const stPack = await srv.ui('GET', '/api/state');
-    const motionOwner = stPack.body.data.employees.find((e) => e.id === motionInfo.empId);
-    const unpubHits = matchEmployeeSkills('connect-ai-motion 글 몇 줄 모션그래픽', motionOwner);
-    assert.equal(unpubHits.some((s) => s.preset === 'connect-ai-motion'), false, '공개 전 스킬은 자동 배분 매칭에서 제외되어야 함');
+    const transOwner = stPack.body.data.employees.find((e) => e.id === transInfo.empId);
+    const unpubHits = matchEmployeeSkills('connect-ai-translator 해외 번역 영어 버전', transOwner);
+    assert.equal(unpubHits.some((s) => s.preset === 'connect-ai-translator'), false, '공개 전 스킬은 자동 배분 매칭에서 제외되어야 함');
 
     // 공개 전 스킬 doctor 호출 시 upcoming 유지
-    const upSkill = motionOwner.skills.find((s) => s.preset === 'connect-ai-motion');
-    const upDoc = await srv.ui('POST', `/api/ui/employees/${motionOwner.id}/skills/${upSkill.id}/doctor`, {});
+    const upSkill = transOwner.skills.find((s) => s.preset === 'connect-ai-translator');
+    const upDoc = await srv.ui('POST', `/api/ui/employees/${transOwner.id}/skills/${upSkill.id}/doctor`, {});
     assert.equal(upDoc.status, 200);
     assert.equal(upDoc.body.doctor.status, 'upcoming');
 
