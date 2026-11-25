@@ -2072,7 +2072,6 @@ function stepsEditor(kind, item) {
       h('div', { class: 'wf-top' },
         isTask ? h('input', { type: 'checkbox', class: 'chk', checked: isDone, 'aria-label': `${s.title} 완료`, onchange: (ev) => patchStep({ status: ev.target.checked ? '완료' : '대기' }, ev.target.checked ? `${idx + 1}단계 완료` : '대기로 되돌렸어요') }) : null,
         h('span', { class: `wf-num${isAct ? ' on' : ''}` }, String(idx + 1)),
-        s.skill ? h('span', { class: 'wf-sk-ic', title: skillChipMeta(s.skill).titleKo }, skillPixelIconSvg(skillChipMeta(s.skill).icon, 14)) : null,
         h('span', { class: 'wf-title' }, s.title),
         isAct ? h('span', { class: 'tag solid' }, mode === 'parallel' ? '동시 진행' : '지금 차례') : null,
         h('div', { class: 'wf-ord' },
@@ -2125,17 +2124,6 @@ function stepsEditor(kind, item) {
           type: 'button', class: 'chip',
           onclick: () => once(`tpl-${kind}-${item.id}-${tpl.key}`, () => act('POST', `${base}/steps/template`, { key: tpl.key }, `${tpl.label}을 채웠어요`)),
         }, tpl.label))) : null,
-      h('div', { class: 'wf-quick-combo' },
-        h('span', { class: 'small muted' }, '클릭해 직원 추가'),
-        ...allSelectableSkills().filter((sk) => sk.connectAiPack && sk.published).map((sk) => h('button', {
-          type: 'button', class: 'chip sm bp-chip',
-          title: `${sk.titleKo} 단계 추가`,
-          onclick: () => act('POST', `${base}/steps`, { title: sk.shortTitle, skill: sk.key, note: sk.flow ? `${sk.titleKo} (${sk.flow}) — handoff.json(connect-ai-handoff/v1) 인계` : `${sk.titleKo} 실행 후 handoff.json 인계` }, `${sk.shortTitle} 단계를 추가했어요`),
-        }, skillPixelIconSvg(sk.icon, 13), `+ ${sk.shortTitle}`)),
-        h('button', {
-          type: 'button', class: 'chip sm',
-          onclick: () => act('POST', `${base}/steps`, { title: '대표 최종 확인', assignee: 'jay' }, '대표 확인 단계를 추가했어요'),
-        }, '+ 대표 확인')),
       steps.length ? h('ul', { class: 'wf-steps' }, steps.map(renderStep)) : null,
       h('div', { class: 'wf-add' }, stepInput, h('button', { type: 'button', class: 'btn sm dark', onclick: addStep }, '+ 추가'))));
 }
@@ -6358,55 +6346,11 @@ const AUTOMATION_TEMPLATES = [
   },
 ];
 
-const COMBO_QUICK_PRESETS = [
-  {
-    key: 'growth-team',
-    label: '알리는 팀 (글쓰기 → 번역 → 모션 → 마케터)',
-    mode: 'serial',
-    steps: [
-      { title: '글쓰기', skill: 'connect-ai-writer', assignee: 'auto', note: '영상·자료로 멀티채널 글 초안 작성 후 handoff.json 저장' },
-      { title: '해외 번역', skill: 'connect-ai-translator', assignee: 'auto', note: 'handoff.json을 읽어 원문 숫자·톤 유지해 영어·다국어 변환' },
-      { title: '모션그래픽', skill: 'connect-ai-motion', assignee: 'auto', note: '핵심 문구로 9:16·16:9 모션그래픽 클립 생성' },
-      { title: '마케터', skill: 'connect-ai-marketer', assignee: 'auto', note: 'Ego Lite로 전 채널 임시저장 준비 후 대표 확인 요청' },
-    ],
-  },
-  {
-    key: 'video-to-promo',
-    label: '영상 → 홍보 (영상편집 → 글쓰기 → 마케터)',
-    mode: 'serial',
-    steps: [
-      { title: '영상 편집', skill: 'connect-ai-video-motion', assignee: 'auto', note: '원본 영상에 모션 그래픽 오버레이 편집 후 handoff.json 저장' },
-      { title: '글쓰기', skill: 'connect-ai-writer', assignee: 'auto', note: '영상 자막·핵심 내용으로 블로그·SNS 글 초안 작성' },
-      { title: '마케터', skill: 'connect-ai-marketer', assignee: 'auto', note: '각 채널 임시저장 및 댓글·업로드 마무리 준비' },
-    ],
-  },
-  {
-    key: 'full-company-team',
-    label: '3팀 풀코스 (사업분석 → 모션 → 글쓰기 → 마케터)',
-    mode: 'serial',
-    steps: [
-      { title: '사업 분석', skill: 'reversebusiness', assignee: 'auto', note: '참고 서비스 6칸 해부 후 내 버전 기획안과 handoff.json 작성' },
-      { title: '모션그래픽', skill: 'connect-ai-motion', assignee: 'auto', note: '기획안 핵심을 홍보 모션그래픽 시안으로 제작' },
-      { title: '글쓰기', skill: 'connect-ai-writer', assignee: 'auto', note: '분석·시안 결과로 블로그·스레드·X 글 초안 작성' },
-      { title: '마케터', skill: 'connect-ai-marketer', assignee: 'auto', note: '전 채널 임시저장 준비 후 대표 보고' },
-    ],
-  },
-];
-
 function openNewAutomationModal(preset = null) {
   const dlg = document.getElementById('dlg');
   const d = S.data;
   const ivList = S.options.intervalMins || [5, 15, 30, 60, 120, 180, 360];
   let pickedAssignee = preset?.assignee || 'auto';
-  let comboMode = Boolean(Array.isArray(preset?.steps) && preset.steps.length);
-  let comboStepMode = preset?.stepMode === 'parallel' ? 'parallel' : 'serial';
-  let comboSteps = Array.isArray(preset?.steps) ? preset.steps.map((s) => ({
-    title: s.title || '',
-    skill: s.skill || null,
-    assignee: s.assignee || 'auto',
-    note: s.note || '',
-  })) : [];
-  let showSoonCombo = false;
   const pickedSkills = new Set(Array.isArray(preset?.skills) ? preset.skills : []);
   const pickedKbIds = new Set(Array.isArray(preset?.knowledgeIds) ? preset.knowledgeIds : []);
   const pickedRagIds = new Set(Array.isArray(preset?.ragIds) ? preset.ragIds : []);
@@ -6458,9 +6402,7 @@ function openNewAutomationModal(preset = null) {
     '대표 알람으로 등록됩니다. 지정한 요일·시각에 이 맥 알림과 사운드가 울립니다.');
 
   const blueprintBar = h('div', { class: 'auto-bp-summary' });
-  const assigneeHeadMeta = h('div', { class: 'auto-sec-meta' });
-  const assigneeRow = h('div', { class: `auto-m-chips${comboMode ? ' is-hidden' : ''}`, role: 'group', 'aria-label': '담당 선택' });
-  const comboBuilderWrap = h('div', { class: `combo-builder${comboMode ? '' : ' is-hidden'}` });
+  const assigneeRow = h('div', { class: 'auto-m-chips', role: 'group', 'aria-label': '담당 선택' });
   const skillHeadMeta = h('div', { class: 'auto-sec-meta' });
   const skillRow = h('div', { class: 'auto-m-chips auto-skill-chips', role: 'group', 'aria-label': '사용할 스킬 선택' });
   const kbHeadMeta = h('div', { class: 'auto-sec-meta' });
@@ -6510,16 +6452,12 @@ function openNewAutomationModal(preset = null) {
   const currentHintText = () => `${titleIn.value} ${promptIn.value}`;
 
   const renderSummary = () => {
-    if (!comboMode && pickedAssignee === 'jay') {
+    if (pickedAssignee === 'jay') {
       blueprintBar.classList.add('is-hidden');
       return;
     }
     blueprintBar.classList.remove('is-hidden');
     const whoLabel = pickedAssignee === 'auto' ? '자동 배분' : shortName(pickedAssignee);
-    const sep = comboStepMode === 'parallel' ? ' + ' : ' → ';
-    const comboText = comboSteps.length
-      ? comboSteps.map((st) => st.title).join(sep)
-      : '위에서 직원을 클릭해 조합하세요';
     const skArr = [...pickedSkills].map((k) => skillChipMeta(k).shortTitle);
     const skText = skArr.length ? (skArr.length <= 2 ? skArr.join(' · ') : `${skArr[0]} 외 ${skArr.length - 1}개`) : '자동 매칭';
     const kbArr = [...pickedKbIds].map((id) => (S.data.knowledge || []).find((k) => k.id === id)?.title).filter(Boolean);
@@ -6529,13 +6467,11 @@ function openNewAutomationModal(preset = null) {
     const accObj = pickedAccount ? accList.find((a) => a.id === pickedAccount) : null;
     const accText = accObj ? accObj.name.split(' · ')[0] : '자동 감지';
     blueprintBar.replaceChildren(
-      h('span', { class: 'auto-bp-kicker' }, comboMode ? 'TEAM COMBO' : 'BLUEPRINT'),
+      h('span', { class: 'auto-bp-kicker' }, 'BLUEPRINT'),
       h('div', { class: 'auto-bp-items' },
-        comboMode
-          ? h('span', { class: `auto-bp-seg${comboSteps.length ? ' is-pinned' : ''}` }, h('b', null, `${comboStepMode === 'parallel' ? '동시' : '릴레이'} ${comboSteps.length}명`), ' ', comboText)
-          : h('span', { class: 'auto-bp-seg' }, h('b', null, '직원'), ' ', whoLabel),
-        !comboMode ? h('span', { class: 'auto-bp-sep', 'aria-hidden': 'true' }, '×') : null,
-        !comboMode ? h('span', { class: `auto-bp-seg${skArr.length ? ' is-pinned' : ''}` }, h('b', null, '스킬'), ' ', skText) : null,
+        h('span', { class: 'auto-bp-seg' }, h('b', null, '직원'), ' ', whoLabel),
+        h('span', { class: 'auto-bp-sep', 'aria-hidden': 'true' }, '×'),
+        h('span', { class: `auto-bp-seg${skArr.length ? ' is-pinned' : ''}` }, h('b', null, '스킬'), ' ', skText),
         h('span', { class: 'auto-bp-sep', 'aria-hidden': 'true' }, '×'),
         h('span', { class: `auto-bp-seg${kbArr.length ? ' is-pinned' : ''}` }, h('b', null, '지식'), ' ', kbText),
         accList.length ? h('span', { class: 'auto-bp-sep', 'aria-hidden': 'true' }, '×') : null,
@@ -6660,195 +6596,22 @@ function openNewAutomationModal(preset = null) {
       }));
   };
 
-  const skillSecEl = h('div', { class: `auto-bp-sec${comboMode ? ' is-hidden' : ''}` },
-    h('div', { class: 'auto-sec-head' },
-      h('label', { class: 'auto-m-lbl' }, '② 사용할 스킬 (무엇을 할 줄 아는가)'),
-      skillHeadMeta),
-    skillRow);
-  const aiPillarsWrap = h('div', { class: `auto-bp-stack${!comboMode && pickedAssignee === 'jay' ? ' is-hidden' : ''}` },
-    skillSecEl,
+  const aiPillarsWrap = h('div', { class: `auto-bp-stack${pickedAssignee === 'jay' ? ' is-hidden' : ''}` },
     h('div', { class: 'auto-bp-sec' },
       h('div', { class: 'auto-sec-head' },
-        h('label', { class: 'auto-m-lbl' }, '참고할 내 지식 (우리 브랜드 톤 · 규칙 · 기준)'),
+        h('label', { class: 'auto-m-lbl' }, '② 사용할 스킬 (무엇을 할 줄 아는가)'),
+        skillHeadMeta),
+      skillRow),
+    h('div', { class: 'auto-bp-sec' },
+      h('div', { class: 'auto-sec-head' },
+        h('label', { class: 'auto-m-lbl' }, '③ 참고할 내 지식 (우리 브랜드 톤 · 규칙 · 기준)'),
         kbHeadMeta),
       kbRow,
       quickKbWrap),
     accList.length ? h('div', { class: 'auto-bp-sec' },
       h('div', { class: 'auto-sec-head' },
-        h('label', { class: 'auto-m-lbl' }, '연결 계정 (선택 · 어느 채널에서 일할까)')),
+        h('label', { class: 'auto-m-lbl' }, '④ 연결 계정 (선택 · 어느 채널에서 일할까)')),
       accRow) : null);
-
-  const syncModeVisibility = () => {
-    const isHuman = !comboMode && pickedAssignee === 'jay';
-    assigneeRow.classList.toggle('is-hidden', comboMode);
-    comboBuilderWrap.classList.toggle('is-hidden', !comboMode);
-    skillSecEl.classList.toggle('is-hidden', comboMode);
-    promptField.classList.toggle('is-hidden', isHuman);
-    aiPillarsWrap.classList.toggle('is-hidden', isHuman);
-    autoApproveWrap.classList.toggle('is-hidden', isHuman);
-    alarmHint.classList.toggle('is-hidden', !isHuman);
-    if (isHuman && schedSel.value !== 'time') {
-      schedSel.value = 'time';
-      timeIn.classList.remove('is-hidden');
-      timeWrap.classList.remove('is-hidden');
-    }
-  };
-
-  const setComboMode = (on) => {
-    comboMode = Boolean(on);
-    syncModeVisibility();
-    renderAssigneeHead();
-    renderAssigneeChips();
-    renderComboBuilder();
-    renderSummary();
-  };
-
-  const renderAssigneeHead = () => {
-    assigneeHeadMeta.replaceChildren(
-      h('div', { class: 'seg combo-mode-seg', role: 'group', 'aria-label': '직원 배정 방식' },
-        h('button', { type: 'button', class: !comboMode ? 'on' : '', onclick: () => setComboMode(false) }, '혼자'),
-        h('button', { type: 'button', class: comboMode ? 'on' : '', onclick: () => setComboMode(true) }, comboSteps.length ? `직원 조합 (${comboSteps.length})` : '직원 조합')));
-  };
-
-  const appendComboSkill = (sk) => {
-    if (comboSteps.length >= 10) { toast('조합은 최대 10단계까지 담을 수 있어요'); return; }
-    comboSteps.push({
-      title: sk.shortTitle,
-      skill: sk.key,
-      assignee: 'auto',
-      note: sk.flow ? `${sk.titleKo} (${sk.flow}) — handoff.json(connect-ai-handoff/v1) 인계` : `${sk.titleKo} 실행 후 handoff.json 인계`,
-    });
-    SND()?.play('tick');
-    renderAssigneeHead();
-    renderComboBuilder();
-    renderSummary();
-  };
-
-  const appendComboBrain = (empId, label) => {
-    if (comboSteps.length >= 10) { toast('조합은 최대 10단계까지 담을 수 있어요'); return; }
-    comboSteps.push({
-      title: empId === 'jay' ? '대표 최종 확인' : `${label} 담당`,
-      skill: null,
-      assignee: empId,
-      note: empId === 'jay' ? '앞 단계 결과물 확인 및 최종 승인' : `${label}에서 앞 단계 결과물을 이어받아 처리`,
-    });
-    SND()?.play('tick');
-    renderAssigneeHead();
-    renderComboBuilder();
-    renderSummary();
-  };
-
-  const renderComboBuilder = () => {
-    const packSkills = skillPool.filter((s) => s.connectAiPack);
-    const pubRoles = packSkills.filter((s) => s.published);
-    const soonRoles = packSkills.filter((s) => !s.published);
-    const roleList = showSoonCombo ? [...pubRoles, ...soonRoles] : pubRoles;
-    const countBySkill = new Map();
-    for (const st of comboSteps) {
-      if (st.skill) countBySkill.set(st.skill, (countBySkill.get(st.skill) || 0) + 1);
-    }
-
-    const presetRow = h('div', { class: 'combo-sec' },
-      h('span', { class: 'combo-sub-lbl' }, '1클릭 조합'),
-      h('div', { class: 'auto-m-chips' }, COMBO_QUICK_PRESETS.map((pr) => h('button', {
-        type: 'button',
-        class: 'chip sm combo-preset-chip',
-        onclick: () => {
-          comboStepMode = pr.mode;
-          comboSteps = pr.steps.map((s) => ({ ...s }));
-          SND()?.play('ok');
-          renderAssigneeHead();
-          renderComboBuilder();
-          renderSummary();
-        },
-      }, pr.label))));
-
-    const roleRow = h('div', { class: 'combo-sec' },
-      h('div', { class: 'combo-sub-head' },
-        h('span', { class: 'combo-sub-lbl' }, '전문 AI 직원 클릭해서 담기'),
-        soonRoles.length ? h('button', {
-          type: 'button', class: 'btn link auto-more-btn',
-          onclick: () => { showSoonCombo = !showSoonCombo; renderComboBuilder(); },
-        }, showSoonCombo ? '공개만 보기' : `+ 준비 중 (${soonRoles.length})`) : null),
-      h('div', { class: 'auto-m-chips' }, roleList.map((sk) => {
-        const cnt = countBySkill.get(sk.key) || 0;
-        return h('button', {
-          type: 'button',
-          class: `chip bp-chip combo-pick-chip${cnt ? ' on' : ''}${!sk.published ? ' is-soon' : ''}`,
-          title: `${sk.titleKo}${sk.flow ? ` · ${sk.flow}` : ''}`,
-          onclick: () => appendComboSkill(sk),
-        },
-        skillPixelIconSvg(sk.icon, 15),
-        h('span', null, sk.shortTitle),
-        cnt ? h('span', { class: 'combo-cnt-dot' }, String(cnt)) : h('span', { class: 'combo-plus' }, '+'));
-      })));
-
-    const brainRow = h('div', { class: 'combo-sec' },
-      h('span', { class: 'combo-sub-lbl' }, '실행 AI · 대표 확인 추가'),
-      h('div', { class: 'auto-m-chips' },
-        ...d.employees.filter((e) => e.id !== 'jay' && shortName(e.id) !== '나').map((e) => h('button', {
-          type: 'button',
-          class: 'chip sm bp-who-chip',
-          onclick: () => appendComboBrain(e.id, shortName(e.id)),
-        }, avatarEl(e, { size: 16 }), `+ ${shortName(e.id)}`)),
-        h('button', {
-          type: 'button',
-          class: 'chip sm',
-          onclick: () => appendComboBrain('jay', '대표 확인'),
-        }, '+ 나 (대표 확인)')));
-
-    const sepChar = comboStepMode === 'parallel' ? '+' : '→';
-    const chainItems = [];
-    comboSteps.forEach((st, idx) => {
-      if (idx > 0) chainItems.push(h('span', { class: 'combo-arrow', 'aria-hidden': 'true' }, sepChar));
-      const skMeta = st.skill ? skillChipMeta(st.skill) : null;
-      const empObj = st.assignee && st.assignee !== 'auto' && st.assignee !== 'jay' ? emp(st.assignee) : null;
-      const whoSel = h('select', {
-        class: 'combo-who-sel',
-        'aria-label': `${st.title} 실행 AI`,
-        onchange: (ev) => {
-          comboSteps[idx].assignee = ev.target.value || 'auto';
-          renderSummary();
-        },
-      },
-      h('option', { value: 'auto', selected: !st.assignee || st.assignee === 'auto' }, 'AI 자동'),
-      h('option', { value: 'jay', selected: st.assignee === 'jay' }, '나 (대표)'),
-      ...d.employees.map((e) => h('option', { value: e.id, selected: st.assignee === e.id }, shortName(e.id))));
-      chainItems.push(h('div', { class: 'combo-node' },
-        h('span', { class: 'combo-step-num' }, String(idx + 1)),
-        skMeta ? skillPixelIconSvg(skMeta.icon, 14) : (empObj ? avatarEl(empObj, { size: 15 }) : null),
-        h('span', { class: 'combo-node-title' }, st.title),
-        whoSel,
-        h('span', { class: 'combo-node-acts' },
-          idx > 0 ? h('button', {
-            type: 'button', class: 'combo-act-btn', 'aria-label': '앞으로', title: '앞으로 이동',
-            onclick: () => { [comboSteps[idx - 1], comboSteps[idx]] = [comboSteps[idx], comboSteps[idx - 1]]; renderComboBuilder(); renderSummary(); },
-          }, '←') : null,
-          idx < comboSteps.length - 1 ? h('button', {
-            type: 'button', class: 'combo-act-btn', 'aria-label': '뒤로', title: '뒤로 이동',
-            onclick: () => { [comboSteps[idx + 1], comboSteps[idx]] = [comboSteps[idx], comboSteps[idx + 1]]; renderComboBuilder(); renderSummary(); },
-          }, '→') : null,
-          h('button', {
-            type: 'button', class: 'combo-act-btn is-del', 'aria-label': `${st.title} 제거`, title: '빼기',
-            onclick: () => { comboSteps.splice(idx, 1); renderAssigneeHead(); renderComboBuilder(); renderSummary(); },
-          }, '×'))));
-    });
-
-    const chainBox = h('div', { class: 'combo-chain-box' },
-      h('div', { class: 'combo-chain-head' },
-        h('div', { class: 'seg', role: 'group', 'aria-label': '실행 순서' },
-          h('button', { type: 'button', class: comboStepMode === 'serial' ? 'on' : '', onclick: () => { comboStepMode = 'serial'; renderComboBuilder(); renderSummary(); } }, '순서대로 →'),
-          h('button', { type: 'button', class: comboStepMode === 'parallel' ? 'on' : '', onclick: () => { comboStepMode = 'parallel'; renderComboBuilder(); renderSummary(); } }, '동시에 +')),
-        comboSteps.length ? h('button', {
-          type: 'button', class: 'btn link auto-more-btn',
-          onclick: () => { comboSteps = []; renderAssigneeHead(); renderComboBuilder(); renderSummary(); },
-        }, '비우기') : null),
-      comboSteps.length
-        ? h('div', { class: 'combo-chain-flow' }, chainItems)
-        : h('div', { class: 'small muted combo-chain-empty' }, '위 직원을 클릭클릭해서 원하는 순서대로 조합해 보세요.'));
-
-    comboBuilderWrap.replaceChildren(presetRow, roleRow, brainRow, chainBox);
-  };
 
   const renderAssigneeChips = () => {
     const opts = [
@@ -6856,26 +6619,29 @@ function openNewAutomationModal(preset = null) {
       { id: 'jay', label: '나 (대표 알람)', empObj: null, live: false },
       ...d.employees.map((e) => ({ id: e.id, label: shortName(e.id), empObj: e, live: canRun(e) && e.runMode !== 'off' })),
     ];
-    assigneeRow.replaceChildren(
-      ...opts.map((o) => h('button', {
-        type: 'button',
-        class: `chip bp-who-chip${pickedAssignee === o.id ? ' on' : ''}`,
-        'aria-pressed': pickedAssignee === o.id ? 'true' : 'false',
-        onclick: () => {
-          pickedAssignee = o.id;
-          syncModeVisibility();
-          renderAssigneeChips();
-          renderSummary();
-        },
+    assigneeRow.replaceChildren(...opts.map((o) => h('button', {
+      type: 'button',
+      class: `chip bp-who-chip${pickedAssignee === o.id ? ' on' : ''}`,
+      'aria-pressed': pickedAssignee === o.id ? 'true' : 'false',
+      onclick: () => {
+        pickedAssignee = o.id;
+        const isHuman = pickedAssignee === 'jay';
+        promptField.classList.toggle('is-hidden', isHuman);
+        aiPillarsWrap.classList.toggle('is-hidden', isHuman);
+        autoApproveWrap.classList.toggle('is-hidden', isHuman);
+        alarmHint.classList.toggle('is-hidden', !isHuman);
+        if (isHuman && schedSel.value !== 'time') {
+          schedSel.value = 'time';
+          timeIn.classList.remove('is-hidden');
+          timeWrap.classList.remove('is-hidden');
+        }
+        renderAssigneeChips();
+        renderSummary();
       },
-      o.empObj ? avatarEl(o.empObj, { size: 18, onDark: pickedAssignee === o.id }) : null,
-      o.live ? h('i', { class: 'auto-eng-dot', title: '실행 연결됨' }) : null,
-      o.label)),
-      h('button', {
-        type: 'button',
-        class: 'chip combo-open-chip',
-        onclick: () => setComboMode(true),
-      }, '+ 직원 조합'));
+    },
+    o.empObj ? avatarEl(o.empObj, { size: 18, onDark: pickedAssignee === o.id }) : null,
+    o.live ? h('i', { class: 'auto-eng-dot', title: '실행 연결됨' }) : null,
+    o.label)));
   };
 
   const syncSuggestions = () => {
@@ -6885,6 +6651,12 @@ function openNewAutomationModal(preset = null) {
   };
   titleIn.addEventListener('input', syncSuggestions);
   promptIn.addEventListener('input', syncSuggestions);
+
+  renderAssigneeChips();
+  renderSkillChips();
+  renderKnowledgeChips();
+  renderAccountChips();
+  renderSummary();
 
   const autoApproveChk = h('input', {
     type: 'checkbox',
@@ -6900,60 +6672,39 @@ function openNewAutomationModal(preset = null) {
   const autoApproveHint = h('span', { class: 'auto-ap-txt' }, autoApproveOn
     ? '⚡ 게시·댓글·업로드는 확인 없이 바로 실행 (결제·삭제만 대표 승인 보호)'
     : '게시·업로드 승인 없이 바로 실행 (끄면 게시 전 대표 확인)');
-  const autoApproveWrap = h('label', { class: `switch auto-ap-sw${autoApproveOn ? ' is-on' : ''}${!comboMode && pickedAssignee === 'jay' ? ' is-hidden' : ''}` },
+  const autoApproveWrap = h('label', { class: `switch auto-ap-sw${autoApproveOn ? ' is-on' : ''}${pickedAssignee === 'jay' ? ' is-hidden' : ''}` },
     autoApproveChk,
     h('span', { class: 'tr' }),
     autoApproveHint);
-
-  renderAssigneeHead();
-  renderAssigneeChips();
-  renderComboBuilder();
-  renderSkillChips();
-  renderKnowledgeChips();
-  renderAccountChips();
-  syncModeVisibility();
-  renderSummary();
 
   const submitBtn = h('button', { type: 'button', class: 'btn dark' }, '만들기 ⌘↵');
   const submit = async () => {
     const v = titleIn.value.trim();
     if (!v) { titleIn.focus(); toast('오토메이션 이름을 입력해 주세요'); return; }
-    if (comboMode && !comboSteps.length) { toast('조합할 직원을 1명 이상 클릭해 주세요'); return; }
     const iv = schedSel.value === 'time' ? null : Number(schedSel.value);
     const tm = iv ? '' : timeIn.value;
-    const isHuman = !comboMode && pickedAssignee === 'jay';
-    const comboSkills = comboMode ? [...new Set(comboSteps.map((s) => s.skill).filter(Boolean))] : [];
+    const isHuman = pickedAssignee === 'jay';
     const body = {
       title: v,
       time: tm,
       intervalMin: iv,
       days: days.getDays(),
-      assignee: comboMode ? 'auto' : pickedAssignee,
+      assignee: pickedAssignee,
       instruction: isHuman ? '' : promptIn.value.trim(),
-      skills: isHuman ? [] : (comboMode ? comboSkills : [...pickedSkills]),
+      skills: isHuman ? [] : [...pickedSkills],
       knowledgeIds: isHuman ? [] : [...pickedKbIds],
       ragIds: isHuman ? [] : [...pickedRagIds],
       autoApprove: isHuman ? false : autoApproveOn,
       ...(pickedAccount && !isHuman ? { account: pickedAccount } : {}),
-      ...(comboMode ? {
-        stepMode: comboStepMode,
-        steps: comboSteps.map((s) => ({
-          title: s.title,
-          skill: s.skill || null,
-          assignee: s.assignee || 'auto',
-          note: s.note || '',
-        })),
-      } : {}),
     };
     const r = await once('modal-add-routine', () => act('POST', '/api/ui/routines', body));
     if (r) {
       closeDlg();
       ui.autoTab = 'list';
-      const stCnt = (r.steps || []).length;
       const skCnt = (r.skills || []).length;
       const kbCnt = (r.knowledgeIds || []).length;
-      const extra = [stCnt ? `${stCnt}명 조합` : '', !stCnt && skCnt ? `스킬 ${skCnt}` : '', kbCnt ? `지식 ${kbCnt}` : '', r.autoApprove ? '⚡ 바로 실행' : ''].filter(Boolean).join(' · ');
-      toast(stCnt ? `${stCnt}명 직원 조합 오토메이션을 추가했어요` : `${shortName(r.assignee)} 오토메이션을 추가했어요${extra ? ` (${extra})` : ''}`);
+      const extra = [skCnt ? `스킬 ${skCnt}` : '', kbCnt ? `지식 ${kbCnt}` : '', r.autoApprove ? '⚡ 바로 실행' : ''].filter(Boolean).join(' · ');
+      toast(`${shortName(r.assignee)} 오토메이션을 추가했어요${extra ? ` (${extra})` : ''}`);
       render();
     }
   };
@@ -6989,11 +6740,8 @@ function openNewAutomationModal(preset = null) {
           h('label', { class: 'auto-m-lbl' }, '실행 요일'),
           days)),
       h('div', { class: 'auto-m-field' },
-        h('div', { class: 'auto-sec-head' },
-          h('label', { class: 'auto-m-lbl' }, '① 담당 AI 직원 / 조합'),
-          assigneeHeadMeta),
-        assigneeRow,
-        comboBuilderWrap),
+        h('label', { class: 'auto-m-lbl' }, '① 담당 AI 직원 / 알람'),
+        assigneeRow),
       aiPillarsWrap,
       promptField,
       alarmHint,
@@ -7209,11 +6957,7 @@ function pageDaily() {
 
     const openRow = ui.openRoutine === r.id;
     const whoName = human ? '나' : shortName(r.assignee);
-    const rSteps = Array.isArray(r.steps) ? r.steps : [];
-    const comboSummary = rSteps.length >= 2
-      ? `${rSteps.length}명 조합 (${rSteps.slice(0, 4).map((s) => (s.skill ? skillChipMeta(s.skill).shortTitle : (s.title || shortName(s.assignee)))).join(r.stepMode === 'parallel' ? ' + ' : ' → ')}${rSteps.length > 4 ? ` 외 ${rSteps.length - 4}` : ''})`
-      : '';
-    const metaLine = [daysText(r.days), schedText, comboSummary || whoName].filter(Boolean).join(' · ');
+    const metaLine = [daysText(r.days), schedText, whoName].filter(Boolean).join(' · ');
 
     return h('li', { class: `routine auto-item auto-calm${r.enabled === false ? ' off' : ''}` },
       h('div', { class: 'r-top auto-calm-row' },
