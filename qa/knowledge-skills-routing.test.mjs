@@ -430,6 +430,7 @@ test('주요/세부 스킬 · AI 도구 자가 등록 · 내 지식 베이스(�
     const plainTask = await srv.ui('POST', '/api/ui/tasks', {
       title: '오늘 회의 안건 3줄로 정리',
       assignee: 'codex',
+      date: '2099-12-31',
     });
     assert.equal(plainTask.status, 200);
     const empPrev = await srv.ui('GET', `/api/ui/tasks/${plainTask.body.id}/prompt-preview`);

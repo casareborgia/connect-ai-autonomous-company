@@ -1588,6 +1588,8 @@ async function openPromptPreview(kind, id, flushFn = null) {
     }
     for (const dName of p.linked?.designs || []) badges.push(h('span', { class: 'tag' }, `디자인: ${dName}`));
     for (const tObj of p.linked?.tools || []) badges.push(h('span', { class: 'tag' }, tObj.name));
+    if (p.linked?.memory?.count) badges.push(h('span', { class: 'tag bp-prev-kb' }, `자동 기억 ${p.linked.memory.count}`));
+    if (p.linked?.compaction?.compacted) badges.push(h('span', { class: 'tag' }, `스레드 압축 (${p.linked.compaction.originalCount}→${p.linked.compaction.keptCount})`));
     if (p.linked?.estCost) badges.push(h('span', { class: 'tag' }, `예상 ${won(p.linked.estCost)}`));
     if (p.linked?.autoApprove) badges.push(h('span', { class: 'tag bp-prev-sk' }, '⚡ 게시·업로드 바로 실행'));
     if (p.linked?.gate) badges.push(h('span', { class: 'tag' }, `${p.linked.gate} ${p.linked.gateApproved ? '확인됨' : '확인 필요'}`));
@@ -1656,6 +1658,8 @@ function openSettingsModal() {
   const fMsg = h('input', { type: 'checkbox', checked: Boolean(f.messenger) });
   const fRev = h('input', { type: 'checkbox', checked: Boolean(f.revenue) });
   const fOpt = h('input', { type: 'checkbox', checked: d.settings.autoOptimize !== false });
+  const fAutoMem = h('input', { type: 'checkbox', checked: d.settings.autoMemory !== false });
+  const fAutoVer = h('input', { type: 'checkbox', checked: d.settings.autoVerify !== false });
   const fSleep = h('input', { type: 'checkbox', checked: d.settings.preventSleep !== false });
   const fAutoAdd = h('input', { type: 'checkbox', checked: d.settings.autoStartAdded !== false });
   const fNotify = h('input', { type: 'checkbox', checked: d.settings.desktopNotify !== false });
@@ -1670,6 +1674,8 @@ function openSettingsModal() {
       ownerName: ownerName.value.trim() || undefined,
       companyName: companyName.value.trim(),
       autoOptimize: fOpt.checked,
+      autoMemory: fAutoMem.checked,
+      autoVerify: fAutoVer.checked,
       preventSleep: fSleep.checked,
       autoStartAdded: fAutoAdd.checked,
       desktopNotify: fNotify.checked,
@@ -1697,6 +1703,8 @@ function openSettingsModal() {
     h('details', { class: 'clean-fold sm', style: 'margin-top:12px' },
       h('summary', null, '고급'),
       h('div', { class: 'set-adv' },
+        swRow('자동 기억', fAutoMem),
+        swRow('자동 검증', fAutoVer),
         swRow('잠자기 방지', fSleep),
         h('div', { class: 'set-row' },
           h('span', { class: 'set-lbl' }, '추가 메뉴'),
@@ -2385,6 +2393,7 @@ function taskDetail(t, e) {
           h('div', { class: 'row', style: 'gap:6px' },
             h('b', { style: 'font-size:13px' }, t.status === '완료' ? '결과' : '최근 결과'),
             h('span', { class: 'small muted' }, `${latestRes.by === 'jay' ? '나' : shortName(latestRes.by)}${latestRes.at ? ` · ${stamp(latestRes.at)}` : ''}`),
+            t.lastVerification ? h('span', { class: `tag${t.lastVerification.repaired ? ' warn' : ''}`, title: (t.lastVerification.issues || []).join(' · ') || '검증 완료' }, t.lastVerification.repaired ? '자동 보완' : (t.lastVerification.passed ? '검증 통과' : '검증 확인')) : null,
             trail.length ? h('span', { class: 'tag' }, `${trail.map((x) => x.fromName).join(' → ')} → ${trail[trail.length - 1].toName}`) : null),
           h('button', { type: 'button', class: 'btn sm', onclick: async () => { await copyText(latestRes.text); toast('복사했어요'); } }, '복사')),
         renderCleanResult(latestRes.text))
@@ -9117,6 +9126,77 @@ function machinesRoutingPanel() {
     })));
 }
 
+function openQuickMemoryModal() {
+  const dlg = document.getElementById('dlg');
+  dlg.className = '';
+  const factIn = h('textarea', { class: 'in', rows: 3, placeholder: '예: 유튜브 댓글은 이모지 없이 짧고 정중하게 답하기', 'aria-label': '기억할 내용' });
+  const kindSel = h('select', { class: 'in sm', style: 'width:120px', 'aria-label': '분류' },
+    h('option', { value: 'rule' }, '규칙 · 기준'),
+    h('option', { value: 'manual' }, '일반 기억'));
+  const save = () => once('add-mem', async () => {
+    const val = factIn.value.trim();
+    if (!val) { factIn.focus(); return; }
+    dlg.close();
+    await act('POST', '/api/ui/memory', { fact: val, kind: kindSel.value }, '기억에 저장했어요');
+  });
+  setDlg(dlg,
+    h('h3', null, '자동 기억 추가'),
+    h('div', { class: 'row', style: 'gap:8px;margin-bottom:8px' }, kindSel),
+    factIn,
+    h('div', { class: 'bar' },
+      h('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, '취소'),
+      h('button', { type: 'button', class: 'btn dark', onclick: save }, '저장')));
+  dlg.showModal();
+  setTimeout(() => factIn.focus(), 30);
+}
+
+function autoMemoryPanel() {
+  const hr = S.harness || {};
+  const mem = hr.memory || { totalEpisodes: 0, totalEntities: 0, totalLessons: 0, entities: [], recentEpisodes: [] };
+  const ver = hr.verification || { total: 0, passed: 0, repaired: 0, passRate: null };
+  const filter = ui.memFilter || 'all';
+  const types = [['all', '전체'], ['rule', '규칙·교훈'], ['channel', '채널'], ['person', '사람'], ['project', '프로젝트']];
+  const entities = (mem.entities || []).filter((e) => filter === 'all' || e.type === filter);
+  const episodes = (mem.recentEpisodes || []).filter((ep) => {
+    if (filter === 'all') return true;
+    if (filter === 'rule') return ['rule', 'lesson', 'handoff', 'decision'].includes(ep.kind);
+    return (ep.entities || []).some((x) => x.type === filter);
+  });
+  const consolidateNow = () => once('mem-consolidate', () => act('POST', '/api/ui/memory/consolidate', {}, '기억을 정리했어요'));
+  return h('section', { class: 'sec mem-sec' },
+    secHead('자동 기억', '',
+      h('div', { class: 'row', style: 'gap:6px' },
+        h('button', { type: 'button', class: 'btn sm', disabled: !mem.totalEpisodes, onclick: consolidateNow }, '지금 정리'),
+        h('button', { type: 'button', class: 'btn sm dark', onclick: openQuickMemoryModal }, '+ 추가'))),
+    h('div', { class: 'rl-bar-card' },
+      h('div', { class: 'rl-kpis' },
+        h('div', { class: 'rl-kpi' }, h('span', { class: 'small muted' }, '자동 기록'), h('b', null, `${mem.totalEpisodes || 0}`)),
+        h('div', { class: 'rl-kpi' }, h('span', { class: 'small muted' }, '정리된 대상'), h('b', { style: 'color:#8c621c' }, `${mem.totalEntities || 0}`)),
+        h('div', { class: 'rl-kpi' }, h('span', { class: 'small muted' }, '규칙 · 교훈'), h('b', null, `${mem.totalLessons || 0}`)),
+        h('div', { class: 'rl-kpi' }, h('span', { class: 'small muted' }, '자동 검증'), h('b', null, ver.passRate != null ? `${ver.passRate}%` : '-'))),
+      (mem.totalEntities || mem.totalEpisodes) ? h('div', { class: 'picker mem-filters' }, types.map(([k, lbl]) => h('button', {
+        type: 'button', class: `chip sm${filter === k ? ' on' : ''}`,
+        onclick: () => { ui.memFilter = k; render(); },
+      }, lbl))) : null,
+      entities.length ? h('div', { class: 'flat-list mem-list' }, entities.slice(0, 12).map((ent) => h('div', { class: 'mem-row' },
+        h('span', { class: `mem-kind is-${ent.type}` }, ent.typeLabel || ent.type),
+        h('b', { class: 'mem-nm' }, ent.name),
+        h('span', { class: 'mem-txt' }, ent.facts?.[0]?.text || ''),
+        h('button', {
+          type: 'button', class: 'x', 'aria-label': '삭제',
+          onclick: () => act('DELETE', `/api/ui/memory/${encodeURIComponent(ent.id)}`, undefined, '기억을 지웠어요'),
+        }, '×')))) : null,
+      episodes.length ? h('details', { class: 'clean-fold sm', style: 'margin-top:8px' },
+        h('summary', null, `일일 기록 (${episodes.length})`),
+        h('div', { class: 'flat-list mem-list' }, episodes.slice(0, 12).map((ep) => h('div', { class: 'mem-row' },
+          h('span', { class: 'flat-meta' }, String(ep.date || '').slice(5)),
+          h('span', { class: 'mem-txt' }, `${ep.empName ? `[${ep.empName}] ` : ''}${ep.summary}`),
+          h('button', {
+            type: 'button', class: 'x', 'aria-label': '삭제',
+            onclick: () => act('DELETE', `/api/ui/memory/${encodeURIComponent(ep.id)}`, undefined, '기억을 지웠어요'),
+          }, '×'))))) : null));
+}
+
 function rlDecisionPanel() {
   const rl = S.rl || { total: 0, approved: 0, edited: 0, rejected: 0, dpoPairs: 0, avgReward: null, recent: [] };
   const downloadDpo = () => once('rl-dl', async () => {
@@ -9193,7 +9273,7 @@ function pageResources() {
         h('div', { class: 'addbar slim' }, kind, name, h('button', { class: 'btn dark', onclick: add }, '추가'))),
     ] : null,
     tab === 'web' ? [browserPanel(), accountsPanel()] : null,
-    tab === 'knowledge' ? [ragPanel(), knowledgePanel(), rlDecisionPanel()] : null,
+    tab === 'knowledge' ? [ragPanel(), knowledgePanel(), autoMemoryPanel(), rlDecisionPanel()] : null,
     tab === 'tools' ? [ossPanel(), designPanel()] : null,
     tab === 'mobile' ? [phonePanel(), healthPanel(), lanPanel(), musePanel()] : null);
 }

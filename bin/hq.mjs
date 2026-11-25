@@ -352,6 +352,38 @@ async function main() {
     return fail('knowledge list [--q "<검색어>"] | save --from <직원> --title "<제목>" --content "<내용>" [--tags "태그1,태그2"]');
   }
 
+  if (cmd === 'memory') {
+    if (sub === 'search' || sub === 'list' || !sub) {
+      const q = new URLSearchParams();
+      if (flags.from && flags.from !== true) q.set('emp', flags.from);
+      else if (process.env.HQ_EMPLOYEE) q.set('emp', process.env.HQ_EMPLOYEE);
+      const qStr = flags.q === true ? '' : (flags.q || rest[0] || '');
+      if (qStr) q.set('q', qStr);
+      if (flags.type && flags.type !== true) q.set('type', flags.type);
+      const res = await call('GET', `/api/agent/memory?${q}`);
+      if (res.block) return console.log(res.block);
+      const ents = res.entities || [];
+      const eps = res.recentEpisodes || res.episodes || [];
+      if (!ents.length && !eps.length) return console.log('저장된 자동 기억이 없습니다.');
+      for (const e of ents) console.log(`[${e.typeLabel || e.type}] ${e.name}: ${e.facts?.[0]?.text || ''}`);
+      for (const ep of eps) console.log(`- [${ep.date} · ${ep.kind}] ${ep.summary}`);
+      return;
+    }
+    if (sub === 'add' || sub === 'save') {
+      const fact = flags.fact === true ? '' : (flags.fact || rest[0] || '');
+      if (!fact) return fail('memory add "<기억할 내용>" --from <직원> [--kind episode|lesson]');
+      const r = await call('POST', '/api/agent/memory', {
+        from: need(flags, 'from'),
+        fact,
+        title: flags.title === true ? '' : (flags.title || ''),
+        kind: flags.kind === 'lesson' ? 'lesson' : 'episode',
+        taskId: flags.task === true ? '' : (flags.task || ''),
+      });
+      return console.log(`자동 기억 저장 (${r.episode?.id || 'ok'}): ${r.episode?.summary || fact}`);
+    }
+    return fail('memory search [검색어] [--type person|channel|project|rule] | add "<내용>" --from <직원> [--kind episode|lesson]');
+  }
+
   console.log(HELP);
   process.exit(1);
 }
