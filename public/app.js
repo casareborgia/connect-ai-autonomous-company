@@ -326,25 +326,23 @@ function openEmployeeKnowledgeModal(empOrId) {
               h('span', { class: 'rag-type-pill' }, ragTypeLabel(rg.type)),
               kbLayerPill(rg, true),
               h('b', { class: 'kb-pick-title' }, rg.name)),
-            h('span', { class: `kb-pick-chk${on ? ' is-on' : ''}` }, on ? '✓ 연결됨' : '+ 선택')),
-          h('div', { class: 'kb-pick-preview' }, sub || rg.note || ''));
+            h('span', { class: `kb-pick-chk${on ? ' is-on' : ''}` }, on ? '✓' : '+')));
         }));
     } else {
       ragListWrap.replaceChildren(
         h('div', { class: 'rag-empty-inline' },
-          h('span', { class: 'small muted' }, '연결된 내 RAG가 아직 없어요 (옵시디언 · API · MCP · NotebookLM)'),
-          h('button', { type: 'button', class: 'btn sm', onclick: () => { closeDlg(); openRagModal(null, 'folder', { layer: 'agent', scope: e.id }); } }, '+ 내 RAG 연결')));
+          h('span', { class: 'small', style: 'font-weight:600' }, '내 RAG'),
+          h('button', { type: 'button', class: 'btn sm', onclick: () => { closeDlg(); openRagModal(null, 'folder', { layer: 'agent', scope: e.id }); } }, '+ 연결')));
     }
 
     if (!filtered.length) {
-      listWrap.replaceChildren(h('div', { class: 'small muted', style: 'padding:10px 4px' },
-        allKb.length ? '검색어와 일치하는 지식이 없어요.' : '아직 등록된 지식이 없어요. 위 "+ 새 지식 바로 추가"로 바로 넣을 수 있어요.'));
+      listWrap.replaceChildren(h('div', { class: 'small muted', style: 'padding:10px 4px' }, '등록된 지식 없음'));
       return;
     }
     const groups = [
-      { key: 'agent', title: `${shortName(e.id)} 전용 지식`, items: filtered.filter((k) => kbLayerOf(k) === 'agent') },
-      { key: 'owner', title: '나의 지식 · 대표 노하우', items: filtered.filter((k) => kbLayerOf(k) === 'owner') },
-      { key: 'shared', title: '공용 지식 · 전체 AI 협업', items: filtered.filter((k) => kbLayerOf(k) === 'shared') },
+      { key: 'agent', title: `${shortName(e.id)} 전용`, items: filtered.filter((k) => kbLayerOf(k) === 'agent') },
+      { key: 'owner', title: '나의 지식 · 대표', items: filtered.filter((k) => kbLayerOf(k) === 'owner') },
+      { key: 'shared', title: '공용 지식 · AI 협업', items: filtered.filter((k) => kbLayerOf(k) === 'shared') },
     ].filter((g) => g.items.length);
 
     listWrap.replaceChildren(...groups.flatMap((g) => [
@@ -355,6 +353,7 @@ function openEmployeeKnowledgeModal(empOrId) {
           type: 'button',
           class: `kb-pick-item${on ? ' is-on' : ''}`,
           'aria-pressed': on ? 'true' : 'false',
+          title: String(kb.content || '').slice(0, 140),
           onclick: () => {
             if (selectedIds.has(kb.id)) selectedIds.delete(kb.id);
             else selectedIds.add(kb.id);
@@ -364,10 +363,8 @@ function openEmployeeKnowledgeModal(empOrId) {
         h('div', { class: 'kb-pick-top' },
           h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap' },
             kbLayerPill(kb),
-            h('span', { class: `kb-cat-pill${kb.category === '브랜드' || kb.category === '업무 규칙' ? ' is-core' : ''}` }, kb.category),
             h('b', { class: 'kb-pick-title' }, kb.title)),
-          h('span', { class: `kb-pick-chk${on ? ' is-on' : ''}` }, on ? '✓ 연결됨' : '+ 선택')),
-        h('div', { class: 'kb-pick-preview' }, String(kb.content || '').slice(0, 120)));
+          h('span', { class: `kb-pick-chk${on ? ' is-on' : ''}` }, on ? '✓' : '+')));
       }),
     ]));
   };
@@ -461,11 +458,9 @@ function openEmployeeKnowledgeModal(empOrId) {
   setDlg(dlg,
     h('div', { class: 'auto-m-top' },
       h('div', { class: 'auto-m-head' },
-        h('span', { class: 'auto-tpl-kicker' }, 'CONNECT AI · AGENT KNOWLEDGE & RAG'),
-        h('h3', { class: 'auto-m-title-h' }, `${shortName(e.id)} · 참고 지식 · 내 RAG 설정`)),
+        h('h3', { class: 'auto-m-title-h' }, `${shortName(e.id)} · 지식 · RAG`)),
       h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: closeDlg }, '×')),
     h('div', { class: 'auto-m-body' },
-      h('p', { class: 'small muted', style: 'margin:0' }, `선택한 지식과 RAG는 ${shortName(e.id)}가 작업할 때마다 프롬프트에 자동 주입되며, 작업 중 search_rag 도구로 추가 검색도 가능합니다.`),
       ragListWrap,
       h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:4px' },
         h('div', { style: 'flex:1;min-width:180px' }, searchIn),
@@ -725,8 +720,8 @@ function buildSkillArsenal({ catalog = [], isSelected, onToggle, compact = false
   const tabsBar = h('div', { class: 'ars-tabs', role: 'tablist' });
   const searchIn = h('input', {
     class: 'in sm ars-search',
-    placeholder: '스킬 검색 (예: 2강, 쇼츠, 댓글, 사업 해부, 3D, ffmpeg...)',
-    'aria-label': '스킬 도감 검색',
+    placeholder: '스킬 검색',
+    'aria-label': '스킬 검색',
   });
   const readyBtn = h('button', { type: 'button', class: 'ars-ready-btn' }, '사용 가능만');
   const gridWrap = h('div', { class: 'ars-grid' });
@@ -739,17 +734,20 @@ function buildSkillArsenal({ catalog = [], isSelected, onToggle, compact = false
 
   const renderArsenal = () => {
     const selectedItems = catalog.filter((c) => isSelected(c));
-    loadoutBar.replaceChildren(
-      h('span', { class: 'ars-loadout-lbl' }, `⚡ 장착 슬롯 (${selectedItems.length})`),
-      selectedItems.length
-        ? h('div', { class: 'ars-loadout-chips' }, selectedItems.map((c) => {
+    loadoutBar.classList.toggle('hidden', !selectedItems.length);
+    if (selectedItems.length) {
+      loadoutBar.replaceChildren(
+        h('span', { class: 'ars-loadout-lbl' }, `장착 (${selectedItems.length})`),
+        h('div', { class: 'ars-loadout-chips' }, selectedItems.map((c) => {
           const v = skillVisualInfo(c);
           return h('button', {
-            type: 'button', class: 'ars-slot-chip', title: `${c.name} 장착 해제`,
+            type: 'button', class: 'ars-slot-chip', title: `${c.name} 해제`,
             onclick: () => onToggle(c, renderArsenal),
           }, skillPixelIconSvg(v.icon, 14), h('span', null, v.titleKo.split('·')[0].trim()), h('i', { class: 'ars-slot-x' }, '×'));
-        }))
-        : h('span', { class: 'ars-loadout-empty' }, '아래 비급 카드를 클릭해 장착하세요 · 스킬이 수십 개 늘어나도 카테고리와 검색으로 바로 찾습니다'));
+        })));
+    } else {
+      loadoutBar.replaceChildren();
+    }
 
     tabsBar.replaceChildren(...SKILL_CATEGORIES.map((cat) => {
       const cnt = catalog.filter((c) => matchCat(c, cat.key) && (!onlyReady || c.published !== false)).length;
@@ -775,7 +773,7 @@ function buildSkillArsenal({ catalog = [], isSelected, onToggle, compact = false
     });
 
     if (!visible.length) {
-      gridWrap.replaceChildren(h('div', { class: 'ars-empty' }, '조건에 맞는 스킬이 없어요. 검색어를 지우거나 다른 카테고리를 눌러 보세요.'));
+      gridWrap.replaceChildren(h('div', { class: 'ars-empty' }, '결과 없음'));
       return;
     }
 
@@ -783,24 +781,18 @@ function buildSkillArsenal({ catalog = [], isSelected, onToggle, compact = false
       const on = isSelected(c);
       const upcoming = c.published === false;
       const v = skillVisualInfo(c);
-      const subNames = (c.subSkills || []).map((s) => (typeof s === 'string' ? s : s.name)).filter(Boolean);
       return h('button', {
         type: 'button',
-        class: `ars-card${on ? ' on' : ''}${upcoming ? ' is-upcoming' : ''}${c.connectAiPack ? ' is-official' : ''}`,
+        class: `ars-card is-tile${on ? ' on' : ''}${upcoming ? ' is-upcoming' : ''}${c.connectAiPack ? ' is-official' : ''}`,
+        title: [c.name, c.hint].filter(Boolean).join(' · '),
         onclick: () => onToggle(c, renderArsenal),
       },
       h('div', { class: 'ars-card-top' },
-        h('div', { class: `ars-ic-box ic-${v.icon}` }, skillPixelIconSvg(v.icon, 24)),
+        h('div', { class: `ars-ic-box sm ic-${v.icon}` }, skillPixelIconSvg(v.icon, 20)),
         h('div', { class: 'ars-titles' },
-          h('div', { class: 'ars-title-ko' }, v.titleKo),
-          h('div', { class: 'ars-slug' }, c.name)),
+          h('div', { class: 'ars-title-ko' }, v.titleKo)),
         h('span', { class: `ars-state${on ? ' on' : ''}${upcoming ? ' locked' : ''}` },
-          on ? '✓ 장착됨' : (upcoming ? '🔒 준비 중' : '+ 장착'))),
-      h('div', { class: 'ars-desc' }, c.hint || ''),
-      v.flow ? h('div', { class: 'ars-flow' }, v.flow) : null,
-      subNames.length
-        ? h('div', { class: 'ars-subs' }, subNames.slice(0, 3).map((sn) => h('span', { class: 'ars-sub-tag' }, sn)))
-        : null);
+          on ? '✓ 장착됨' : (upcoming ? '준비 중' : '+ 장착'))));
     }));
   };
 
@@ -878,9 +870,9 @@ function openEmployeeSkillsModal(empOrId, opts = {}) {
     const catCnt = (S.options?.ossCatalog || []).length;
     tabBar.replaceChildren(
       ...[
-        ['equipped', `⚡ 장착된 스킬 (${skCnt})`],
-        ['arsenal', `📜 스킬 비급 도감 (${catCnt})`],
-        ['custom', editingSkillId ? '✎ 스킬 편집 중' : '+ 직접 등록'],
+        ['equipped', `장착 (${skCnt})`],
+        ['arsenal', `도감 (${catCnt})`],
+        ['custom', editingSkillId ? '편집' : '+ 등록'],
       ].map(([tk, tl]) => h('button', {
         type: 'button',
         class: `sk-modal-tab${activeTab === tk ? ' on' : ''}`,
@@ -942,8 +934,7 @@ function openEmployeeSkillsModal(empOrId, opts = {}) {
 
     if (!skills.length) {
       listWrap.replaceChildren(h('div', { class: 'skill-empty' },
-        '아직 장착된 스킬이 없어요. ',
-        h('button', { type: 'button', class: 'btn sm gold', onclick: () => { activeTab = 'arsenal'; syncTabs(); } }, '📜 스킬 비급 도감에서 1클릭 장착 →')));
+        h('button', { type: 'button', class: 'btn sm dark', onclick: () => { activeTab = 'arsenal'; syncTabs(); } }, '+ 도감에서 추가')));
     } else {
       const eq = equippedQuery.trim().toLowerCase();
       const filteredSkills = eq
@@ -997,22 +988,12 @@ function openEmployeeSkillsModal(empOrId, opts = {}) {
           else openIds.add(sk.id);
           renderBody();
         };
-        const compactSummary = !expanded
-          ? h('div', { class: 'sk-compact-meta' },
-            vis.flow ? h('span', { class: 'ars-flow' }, vis.flow) : null,
-            subs.length ? h('div', { class: 'ars-subs' }, subs.slice(0, 4).map((sub) => h('span', { class: 'ars-sub-tag' }, sub.name))) : null)
-          : null;
         return h('div', { class: `skill-row${sk.primary && !isUpcoming ? ' is-primary' : ''}${isUpcoming ? ' is-upcoming' : ''}${expanded ? '' : ' is-collapsed'}` },
           h('div', { class: 'skill-row-main' },
-            h('div', { class: 'skill-row-top is-clickable', onclick: toggleExpand, title: expanded ? '접기' : '클릭해 설치·doctor·세부 스킬 펼치기' },
+            h('div', { class: 'skill-row-top is-clickable', onclick: toggleExpand, title: sk.name },
               h('span', { class: `ars-ic-box sm ic-${vis.icon}` }, skillPixelIconSvg(vis.icon, 18)),
-              sk.primary && !isUpcoming ? h('span', { class: 'skill-primary-tag' }, '★ 주요') : null,
               h('b', null, sk.roleLabel || vis.titleKo || sk.name),
-              h('span', { class: 'skill-slug-mini' }, sk.name),
-              statusBadge,
-              sk.addedBy === 'ai' ? h('span', { class: 'skill-ai-tag', title: 'AI 직원이 작업 중 스스로 등록한 도구' }, 'AI 자동 등록') : null,
-              sk.repo ? h('a', { class: 'skill-repo-badge', href: sk.repo, target: '_blank', rel: 'noopener noreferrer', title: sk.repo, onclick: (ev) => ev.stopPropagation() }, `GitHub ↗`) : null),
-            compactSummary,
+              statusBadge),
             expanded && specRows.length ? h('div', { class: 'sk-spec-box' }, specRows) : null,
             expanded
               ? h('div', { class: 'sk-subs-box' },
@@ -1153,28 +1134,29 @@ function openEmployeeSkillsModal(empOrId, opts = {}) {
   };
 
   formWrap.replaceChildren(
-    h('div', { class: 'skill-sec-h' }, '주요 스킬 → 세부 스킬 직접 추가 / 편집'),
     h('div', { class: 'grid2' },
-      h('label', { class: 'field' }, '주요 스킬 이름', nameIn),
-      h('label', { class: 'field' }, '담당 · 강의 라벨 (예: 영상 편집 직원 · 2강)', roleIn)),
-    h('div', { class: 'grid2 coord-dlg-gap' },
-      h('label', { class: 'field' }, '설치 명령 (최초 1회)', installIn),
-      h('label', { class: 'field' }, '점검 명령 (doctor → Ready)', doctorIn)),
-    h('div', { class: 'grid2 coord-dlg-gap' },
-      h('label', { class: 'field' }, '넣는 것 (입력)', inputSpecIn),
-      h('label', { class: 'field' }, '나오는 것 (결과물)', outputSpecIn)),
-    h('label', { class: 'field coord-dlg-gap' }, '이렇게 말하면 이 스킬 (트리거 문구 · 쉼표 구분)', whenIn),
-    h('label', { class: 'field coord-dlg-gap' }, '세부 스킬 (한 줄에 "이름: 설명" · 나중에 추가 편집 가능)', subIn),
-    h('div', { class: 'grid2 coord-dlg-gap' },
-      h('label', { class: 'field' }, '실행할 컴퓨터', computeIn),
-      h('label', { class: 'field' }, '공개 메모 (npm · GitHub)', publishNoteIn)),
-    h('div', { class: 'grid2 coord-dlg-gap' },
-      h('label', { class: 'field' }, 'GitHub 주소 / 실행 명령', repoIn),
-      h('label', { class: 'field' }, '기본 실행 명령 (선택)', cmdIn)),
+      h('label', { class: 'field' }, '스킬 이름', nameIn),
+      h('label', { class: 'field' }, 'GitHub / 명령', repoIn)),
+    h('details', { class: 'clean-fold sm', style: 'margin-top:8px' },
+      h('summary', null, '상세 옵션'),
+      h('div', { class: 'grid2 coord-dlg-gap' },
+        h('label', { class: 'field' }, '표시 이름', roleIn),
+        h('label', { class: 'field' }, '실행 명령', cmdIn)),
+      h('div', { class: 'grid2 coord-dlg-gap' },
+        h('label', { class: 'field' }, '설치 명령', installIn),
+        h('label', { class: 'field' }, '점검 명령', doctorIn)),
+      h('div', { class: 'grid2 coord-dlg-gap' },
+        h('label', { class: 'field' }, '입력', inputSpecIn),
+        h('label', { class: 'field' }, '출력', outputSpecIn)),
+      h('label', { class: 'field coord-dlg-gap' }, '트리거 키워드', whenIn),
+      h('label', { class: 'field coord-dlg-gap' }, '세부 스킬', subIn),
+      h('div', { class: 'grid2 coord-dlg-gap' },
+        h('label', { class: 'field' }, '실행 컴퓨터', computeIn),
+        h('label', { class: 'field' }, '상태 메모', publishNoteIn))),
     h('div', { class: 'skill-form-foot' },
       h('div', { class: 'row' },
-        h('label', { class: 'skill-pri-chk' }, primaryChk, '★ 주요 스킬'),
-        h('label', { class: 'skill-pri-chk' }, publishedChk, '공개 중 (끄면 준비 중 · 자동 배분 제외)')),
+        h('label', { class: 'skill-pri-chk' }, primaryChk, '주요'),
+        h('label', { class: 'skill-pri-chk' }, publishedChk, '공개')),
       h('div', { class: 'skill-form-acts' }, cancelEditBtn, submitBtn)));
 
   const e0 = emp(empId);
@@ -1184,13 +1166,9 @@ function openEmployeeSkillsModal(empOrId, opts = {}) {
 
   setDlg(dlg,
     h('div', { class: 'row codex-top' },
-      h('div', null,
-        h('div', { class: 'swarm-kicker' }, 'CONNECT AI · SKILL ARSENAL'),
-        h('h3', { class: 'coord-dlg-h' }, `${shortName(empId)} · 스킬 비급서`,
-          tInfo ? h('span', { class: `team-pill tm-${tInfo.key}` }, h('i'), tInfo.short) : null)),
-      h('div', { class: 'skill-head-right' },
-        headCount,
-        h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: finish }, '×'))),
+      h('h3', { class: 'coord-dlg-h' }, `${shortName(empId)} · 스킬`,
+        tInfo ? h('span', { class: `team-pill tm-${tInfo.key}` }, h('i'), tInfo.short) : null),
+      h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: finish }, '×')),
     tabBar,
     listWrap,
     presetWrap,
@@ -1614,7 +1592,6 @@ async function openPromptPreview(kind, id, flushFn = null) {
     if (p.linked?.gate) badges.push(h('span', { class: 'tag' }, `${p.linked.gate} ${p.linked.gateApproved ? '확인됨' : '확인 필요'}`));
     setDlg(dlg, 
       h('h3', null, 'AI에게 전달되는 최종 지시서'),
-      h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '실행하거나 복사할 때 AI 직원에게 그대로 전달되는 전체 지시문입니다. (읽기 전용 미리보기)'),
       badges.length ? h('div', { class: 'row', style: 'margin-bottom:12px' }, badges) : null,
       p.linked?.account?.blocked ? h('div', { class: 'warn', style: 'margin-bottom:12px' }, p.linked.account.message) : null,
       h('pre', { class: 'report-pre' }, p.prompt),
@@ -1651,9 +1628,8 @@ async function openConnectModal() {
               t.skill && !t.skill.installed ? copyBlock('터미널에 붙여넣기 · 직원 수첩(스킬)', t.skill.line) : null)) : null);
       }) : [h('div', { class: 'empty' }, '이 컴퓨터에서 바이브코딩 툴(Claude Code · Codex · Antigravity · Cursor · OpenCode · Gemini CLI · Windsurf · Claude Desktop · LM Studio)을 찾지 못했어요. 웹 AI는 지시문 복사로 바로 쓸 수 있어요.')];
       setDlg(dlg,
-        h('h3', null, 'AI 도구 연결 (MCP · 스킬)'),
-        h('p', { class: 'small muted', style: 'margin:-6px 0 12px' }, '터미널에 아래 한 줄을 실행하면 감지된 바이브코딩 툴 전체에 안전하게(.bak 백업 후) 한 번에 연결됩니다.'),
-        pending.length ? copyBlock(`터미널 한 줄로 감지된 ${pending.length}개 툴 한 번에 연결`, oneLineCmd) : null,
+        h('h3', null, 'AI 도구 연결'),
+        pending.length ? copyBlock(`터미널 1줄 연결 (${pending.length}개)`, oneLineCmd) : null,
         ...rows,
         h('div', { class: 'bar' },
           h('button', { class: 'btn', onclick: loadView }, '연결 다시 확인'),
@@ -2881,7 +2857,7 @@ function addMinutesHm(mins) {
 }
 
 function addBar() {
-  const title = h('input', { class: 'in big', placeholder: '할 일을 적어 주세요 (예: 10분 뒤 이메일 체크 · 오후 6시 반 보고서)', 'data-k': 'add-title', 'aria-label': '새 할 일' });
+  const title = h('input', { class: 'in big', placeholder: '할 일을 적어 주세요', 'data-k': 'add-title', 'aria-label': '새 할 일' });
   const timeVal = h('input', { type: 'hidden', value: ui.addTime || '', 'data-k': 'add-time' });
   let manualTime = Boolean(ui.addTimeManual);
   const pop = h('div', { class: 'time-pop', role: 'dialog', 'aria-label': '시간 선택' });
@@ -3322,7 +3298,7 @@ function approvalInlineCard(a) {
   const linkedTask = a.taskId ? S.data.tasks.find((t) => t.id === a.taskId) : null;
   const guardSvg = C.avatarSvg('sumunjang', { size: 38, state: 'working', style: 'pixel' });
   const rejecting = ui.rejectingAppr === a.id;
-  const rejIn = rejecting ? h('input', { class: 'in sm', placeholder: '반려 이유 1줄 (선택 · AI가 다음부터 기억해요)', 'data-k': `appr-rej-${a.id}`, 'aria-label': '반려 이유' }) : null;
+  const rejIn = rejecting ? h('input', { class: 'in sm', placeholder: '반려 이유 (선택)', 'data-k': `appr-rej-${a.id}`, 'aria-label': '반려 이유' }) : null;
   const submitReject = (noteVal = '') => once(`ap-r-${a.id}`, async () => {
     const clean = String(noteVal || rejIn?.value || '').trim();
     ui.rejectingAppr = null;
@@ -3353,7 +3329,7 @@ function approvalInlineCard(a) {
           h('div', { class: 'small muted', style: 'margin-top:3px' }, ['대표 승인 대기', a.kind, nameOf(a.from), linkedTask ? `할 일: ${linkedTask.title}` : '', stamp(a.requestedAt)].filter(Boolean).join(' · ')))),
       linkedTask ? h('button', { type: 'button', class: 'btn link', onclick: () => openTaskById(linkedTask.id) }, '할 일 열기') : null),
     formatApprovalOriginal(a.original),
-    draftEl ? h('label', { class: 'field' }, h('span', { class: 'small muted' }, '보낼 초안 · 수정 승인 시 자동 학습'), draftEl) : null,
+    draftEl ? h('label', { class: 'field' }, h('span', { class: 'small muted' }, '초안'), draftEl) : null,
     rejecting ? h('div', { class: 'rl-rej-bar' },
       h('div', { class: 'picker' }, ['톤 조정 필요', '내용 부정확', '민감 · 보류'].map((tag) => h('button', {
         type: 'button', class: 'chip sm',
@@ -4449,9 +4425,8 @@ function pageHome() {
       h('button', { type: 'button', class: 'btn link', onclick: () => { location.hash = '#dashboard'; } }, '컨디션 →')) : null,
     joseonSwarmPanel(),
     addBar(),
-    h('p', { class: 'rule' }, '결제 · 삭제는 대표 승인 후 실행'),
     !d.employees.length ? h('div', { class: 'callout' },
-      h('div', null, h('b', null, '먼저 AI 직원을 추가하세요'), h('div', { class: 'small muted' }, 'Claude, Codex, Gemini 등을 연결하면 일을 자동으로 나눠 드려요.')),
+      h('b', null, 'AI 직원을 추가하세요'),
       h('button', { class: 'btn dark', onclick: openAddEmployee }, '+ AI 직원 추가')) : null,
     pendingApprs.length ? h('section', { class: 'sec' }, secHead('대표 확인 대기', `${pendingApprs.length}건`),
       pendingApprs.map(approvalInlineCard)) : null,
@@ -7097,8 +7072,7 @@ function pageDaily() {
     }
     listWrap.replaceChildren(
       h('div', { class: 'auto-meta-strip' },
-        h('span', null, `활성 ${activeCount} · 주기 ${ivCount} · 오늘 완료 ${doneToday}`),
-        h('span', { class: 'muted' }, '결제 · 삭제 승인 보호')),
+        h('span', null, `활성 ${activeCount} · 주기 ${ivCount} · 오늘 완료 ${doneToday}`)),
       h('ul', { class: 'routines auto-list' }, filtered.map(row)));
   };
 
@@ -7158,8 +7132,7 @@ function pageDaily() {
         h('div', { class: 'auto-tpl-top' },
           h('span', { class: 'auto-tpl-kicker' }, tpl.kicker),
           h('span', { class: 'auto-tpl-sched' }, already ? `${schedBadge} · 등록됨` : `${schedBadge} →`)),
-        h('div', { class: 'auto-tpl-title' }, tpl.title),
-        h('div', { class: 'auto-tpl-desc' }, tpl.desc));
+        h('div', { class: 'auto-tpl-title' }, tpl.title));
       })),
   ];
   const templateSection = visible.length
@@ -7177,7 +7150,6 @@ function pageDaily() {
       const doneAll = p.titles.every((tt) => haveTitles.has(tt));
       return h('div', { class: 'pack-card' },
         h('div', { class: 'top' }, h('span', { class: 'tag' }, p.badge), h('b', null, p.title)),
-        h('p', { class: 'small muted auto-pack-desc' }, p.summary),
         h('ul', { class: 'pack-list' }, p.titles.map((tt) => h('li', null, tt))),
         h('div', { class: 'row auto-pack-acts' },
           doneAll ? h('span', { class: 'tag solid' }, '담김')
@@ -7187,7 +7159,6 @@ function pageDaily() {
             }) }, '이 팩 담기')));
     })) : null,
     h('div', { class: 'bp-bar' },
-      h('span', { class: 'small muted' }, '수강생·팀원과 내 AI 오토메이션·스킬을 파일 하나로 공유하세요 (개인 경로·시크릿·매출 자동 제외)'),
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn sm', onclick: () => act('POST', '/api/ui/alarms/test', {}, '시험 알림을 보냈어요') }, '알림 시험'),
         h('button', { type: 'button', class: 'btn sm', onclick: openBlueprintExport }, '청사진 내보내기'),
@@ -7762,16 +7733,13 @@ function quietLine() {
   const save = (from, to) => once('quiet', () => act('PATCH', '/api/ui/settings', { quietHours: from && to ? { from, to } : null }, '자는 시간을 바꿨어요'));
   const from = h('input', { class: 'in', type: 'time', value: q?.from || '', 'aria-label': '자는 시간 시작', onchange: (ev) => save(ev.target.value, to.value) });
   const to = h('input', { class: 'in', type: 'time', value: q?.to || '', 'aria-label': '자는 시간 끝', onchange: (ev) => save(from.value, ev.target.value) });
-  return h('div', { class: 'quiet' }, h('b', null, '자는 시간'), from, h('span', { class: 'muted', 'aria-hidden': 'true' }, '~'), to,
-    h('span', { class: 'small muted' }, '이 시간에는 AI가 대표를 부르지 않아요'));
+  return h('div', { class: 'quiet' }, h('b', null, '자는 시간'), from, h('span', { class: 'muted', 'aria-hidden': 'true' }, '~'), to);
 }
 
 function pageStaff() {
   const d = S.data;
-  const total = d.employees.reduce((s, e) => s + (Number(e.salary) || 0), 0);
   return h('div', null,
-    h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, 'AI 직원')),
-      h('div', { class: 'sub' }, `AI 직원 ${d.employees.length}명${total ? ` · 월 ${won(total)}` : ''} · 한도 시 자동 전환`)),
+    h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, 'AI 직원'))),
     h('div', { class: 'row' },
       h('button', {
         class: 'btn gold sm',
@@ -7919,8 +7887,7 @@ function lanPanel() {
   const left = L.expiresAt ? Math.max(0, Math.round((Date.parse(L.expiresAt) - Date.now()) / 60000)) : 0;
   return h('section', { class: 'sec' }, secHead('폰에서 보기'),
     h('div', { class: 'lan' },
-      h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: info.enabled, onchange: (ev) => toggle(ev.target.checked) }), h('span', { class: 'tr' }), h('b', null, '같은 와이파이의 폰에서 보기')),
-      h('p', { class: 'small muted' }, '켜면 같은 와이파이에 있는 폰에서만 열립니다. 인터넷으로는 열리지 않아요. 처음 한 번은 이 화면에 뜬 6자리 코드를 폰에 넣어야 합니다. 집이나 사무실처럼 믿을 수 있는 와이파이에서만 켜 두세요.'),
+      h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: info.enabled, onchange: (ev) => toggle(ev.target.checked) }), h('span', { class: 'tr' }), h('b', null, '같은 와이파이 폰 연결')),
       info.enabled ? h('div', { class: 'lan-on' },
         h('div', null, h('div', { class: 'small muted' }, '폰에서 열 주소'), (L.urls || info.urls).map((u) => h('div', { class: 'row', style: 'margin-top:4px' },
           h('span', { class: 'mono lan-url' }, u),
@@ -7952,8 +7919,7 @@ function musePanel() {
       h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: Boolean(m.enabled), onchange: (ev) => toggle(ev.target.checked) }), h('span', { class: 'tr' }),
         h('b', null, `Muse 대화 읽어 오기 (${place}, ${m.everyMin || 30}분마다)`)),
       h('div', { class: 'muse-host' }, h('span', { class: 'small muted' }, '읽는 곳'), hostPick),
-      line ? h('p', { class: `small${need ? '' : ' muted'}` }, line) : null,
-      h('p', { class: 'small muted' }, `${how} 앱은 읽기만 하고, 보내거나 누르지 않아요. 가져온 글은 이 컴퓨터에만 남아요.`)));
+      line ? h('p', { class: `small${need ? '' : ' muted'}` }, line) : null));
 }
 
 async function loadTools() {
@@ -8096,23 +8062,23 @@ function designPanel() {
     const on = Boolean(existing && existing.status !== '꺼짐');
     const mainBtn = h('button', {
       type: 'button', class: `tool-card${on ? ' on' : ''}`, 'aria-pressed': on ? 'true' : 'false',
+      title: existing?.rules || p.rules || '',
       onclick: () => once(`des-${p.key}`, () => existing
         ? act('DELETE', `/api/ui/resources/${existing.id}`, undefined, `${p.name}을 뺐어요`)
         : act('POST', '/api/ui/resources', { kind: '디자인', name: p.name, preset: p.key, rules: p.rules, note: p.rules.slice(0, 60) }, `${p.name} 스타일을 켰어요`)),
     },
-    h('div', { class: 'top' }, h('b', null, existing ? existing.name : p.name), on ? h('span', { class: 'tag solid' }, '사용 중') : null),
-    h('span', { class: 'small muted', style: on ? 'padding-bottom:18px' : '' }, [existing?.rules || p.rules, existing?.assetPath].filter(Boolean).join(' · ')));
+    h('div', { class: 'top' }, h('b', null, existing ? existing.name : p.name), on ? h('span', { class: 'tag solid' }, '사용 중') : null));
     if (!on || !existing) return mainBtn;
     return h('div', { class: 'tool-card-wrap' }, mainBtn,
       h('button', { type: 'button', class: 'tool-card-edit', onclick: (ev) => { ev.stopPropagation(); openEditDesign(existing); } }, '편집'));
   });
   const custom = saved.filter((r) => !presets.some((p) => p.key === r.preset || p.name === r.name));
-  return h('section', { class: 'sec' }, secHead('내 디자인 스타일', '프롬프트에 스타일 이름만 적으면 이 규칙과 캐릭터·에셋 폴더가 자동 적용됩니다', h('button', { class: 'btn sm', onclick: openAddDesign }, '+ 직접 추가')),
+  return h('section', { class: 'sec' }, secHead('디자인 스타일', '', h('button', { class: 'btn sm', onclick: openAddDesign }, '+ 추가')),
     h('div', { class: 'tool-cards' }, presetCards,
       custom.map((r) => h('button', {
-        type: 'button', class: 'tool-card on',
+        type: 'button', class: 'tool-card on', title: r.rules || '',
         onclick: () => openEditDesign(r),
-      }, h('div', { class: 'top' }, h('b', null, r.name), h('span', { class: 'tag solid' }, '편집')), h('span', { class: 'small muted' }, [r.rules, r.assetPath].filter(Boolean).join(' · ') || '직접 추가')))));
+      }, h('div', { class: 'top' }, h('b', null, r.name), h('span', { class: 'tag solid' }, '편집'))))));
 }
 
 // 내가 쓰는 브라우저 (Ego Lite, Aside, Chrome, Dia, Comet 등) — 1클릭 선택 및 직접 추가
@@ -8123,9 +8089,8 @@ function openAddBrowser() {
   const cmd = h('input', { class: 'in', placeholder: 'CLI 명령 (선택, 예: aside 또는 ego-browser)', 'aria-label': 'CLI 명령' });
   const guide = h('input', { class: 'in', placeholder: 'AI 사용법 메모 (선택, 예: 프로필 1번 창 사용)', 'aria-label': '사용법' });
   setDlg(dlg,
-    h('h3', null, '브라우저 직접 추가'),
-    h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '등록하고 기본으로 지정하면 모든 웹 작업과 연결 계정이 이 브라우저를 우선 사용합니다.'),
-    h('label', { class: 'field' }, '브라우저 이름', name),
+    h('h3', null, '브라우저 추가'),
+    h('label', { class: 'field' }, '이름', name),
     h('label', { class: 'field', style: 'margin-top:12px' }, '실행 명령 (선택)', cmd),
     h('label', { class: 'field', style: 'margin-top:12px' }, 'AI 안내 메모 (선택)', guide),
     h('div', { class: 'bar' },
@@ -8153,6 +8118,7 @@ function browserPanel() {
       : null;
     return h('button', {
       type: 'button', class: `tool-card${on ? ' on' : ''}`, 'aria-pressed': on ? 'true' : 'false',
+      title: isEgo && egoP?.reason ? egoP.reason : b.hint,
       onclick: () => once(`br-${b.key}`, () => {
         if (!existing) return act('POST', '/api/ui/resources', { kind: '브라우저', name: b.name, preset: b.key, command: b.command, guide: b.guide, note: b.hint, isDefault: true }, `${b.name}을 기본 브라우저로 켰어요`);
         if (!isDef) return act('PATCH', `/api/ui/resources/${existing.id}`, { status: '사용 가능', isDefault: true }, `${b.name}을 기본 브라우저로 바꿨어요`);
@@ -8163,8 +8129,7 @@ function browserPanel() {
     h('div', { class: 'top' }, h('b', null, b.name),
       h('span', { class: 'row' },
         egoTag,
-        isDef ? h('span', { class: 'tag solid' }, '기본') : on ? h('span', { class: 'tag' }, '켜짐') : b.found ? h('span', { class: 'tag' }, '설치됨') : null)),
-    h('span', { class: 'small muted' }, isEgo && egoP?.reason ? egoP.reason : b.hint));
+        isDef ? h('span', { class: 'tag solid' }, '기본') : on ? h('span', { class: 'tag' }, '켜짐') : b.found ? h('span', { class: 'tag' }, '설치됨') : null)));
   });
   const custom = saved.filter((r) => !detected.some((b) => b.key === r.preset || b.name.toLowerCase() === r.name.toLowerCase()));
   const probeBtn = h('button', {
@@ -8177,8 +8142,8 @@ function browserPanel() {
         render();
       }
     }),
-  }, 'Ego Lite 접속 확인');
-  return h('section', { class: 'sec' }, secHead('내가 쓰는 브라우저', 'Ego Lite, Aside, Chrome, Dia, Comet 등 내가 쓰는 브라우저를 1클릭으로 기본 지정하세요', probeBtn, h('button', { class: 'btn sm', onclick: openAddBrowser }, '+ 브라우저 추가')),
+  }, '접속 확인');
+  return h('section', { class: 'sec' }, secHead('브라우저', '', probeBtn, h('button', { class: 'btn sm', onclick: openAddBrowser }, '+ 추가')),
     h('div', { class: 'tool-cards' }, cards,
       custom.map((r) => h('button', {
         type: 'button', class: `tool-card${r.status !== '꺼짐' ? ' on' : ''}`,
@@ -8189,7 +8154,7 @@ function browserPanel() {
             act('PATCH', `/api/ui/resources/${r.id}`, { isDefault: true, status: '사용 가능' }, `${r.name}을 기본 브라우저로 바꿨어요`);
           }
         },
-      }, h('div', { class: 'top' }, h('b', null, r.name), r.isDefault ? h('span', { class: 'tag solid' }, '기본') : null), h('span', { class: 'small muted' }, r.note || '직접 추가')))));
+      }, h('div', { class: 'top' }, h('b', null, r.name), r.isDefault ? h('span', { class: 'tag solid' }, '기본') : null)))));
 }
 
 // 스마트폰 · 아이폰 미러링 (Computer Use) · 안드로이드 (adb/scrcpy) · 모바일 AI
@@ -8230,14 +8195,12 @@ function openAddPhone(defaultMode = 'iphone-mirror') {
   syncVisibility();
 
   setDlg(dlg,
-    h('h3', null, '스마트폰 연결 추가'),
-    h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '스마트폰에 직접 못 들어가는 iOS도 맥의 iPhone Mirroring 창을 Computer Use로 조작할 수 있어요.'),
+    h('h3', null, '스마트폰 연결'),
     modePicker,
     h('label', { class: 'field', style: 'margin-top:12px' }, '기기 이름', name),
     hostWrap,
-    h('label', { class: 'field', style: 'margin-top:12px' }, '전담 AI 직원 (선택)', empSel),
-    h('label', { class: 'field', style: 'margin-top:12px' }, '메모 (선택)', note),
-    h('p', { class: 'small muted', style: 'margin:12px 0 0' }, '고정 안전선: 잠금 해제·Touch ID·결제·송금·카톡/문자 실제 전송은 대표님 승인 없이 절대 실행하지 않아요.'),
+    h('label', { class: 'field', style: 'margin-top:12px' }, '전담 AI 직원', empSel),
+    h('label', { class: 'field', style: 'margin-top:12px' }, '메모', note),
     h('div', { class: 'bar' },
       h('button', { class: 'btn', onclick: () => dlg.close() }, '취소'),
       h('button', { class: 'btn dark', onclick: () => once('add-phone', async () => {
@@ -8265,12 +8228,11 @@ function phonePanel() {
   const quickCards = modes.map((m) => {
     const existing = phones.find((p) => p.phoneMode === m.key && p.status !== '꺼짐');
     return h('button', {
-      type: 'button', class: `tool-card${existing ? ' on' : ''}`,
+      type: 'button', class: `tool-card${existing ? ' on' : ''}`, title: m.hint || '',
       onclick: () => openAddPhone(m.key),
     },
     h('div', { class: 'top' }, h('b', null, m.name),
-      existing ? h('span', { class: 'tag solid' }, '연결됨') : h('span', { class: 'tag' }, modeHintTag(m.key))),
-    h('span', { class: 'small muted' }, m.hint));
+      existing ? h('span', { class: 'tag solid' }, '연결됨') : h('span', { class: 'tag' }, modeHintTag(m.key))));
   });
 
   const listEl = phones.length ? h('ul', { class: 'list', style: 'margin-top:12px' }, phones.map((p) => {
@@ -8292,32 +8254,29 @@ function phonePanel() {
   })) : null;
 
   return h('section', { class: 'sec' },
-    secHead('스마트폰 · 아이폰 미러링 연결', '아이폰 미러링(Computer Use), 안드로이드(adb/scrcpy), 모바일 AI를 연결하면 스마트폰 작업 지시서에 자동 반영됩니다', h('button', { class: 'btn sm', onclick: () => openAddPhone('iphone-mirror') }, '+ 스마트폰 추가')),
+    secHead('스마트폰', '', h('button', { class: 'btn sm', onclick: () => openAddPhone('iphone-mirror') }, '+ 추가')),
     h('div', { class: 'tool-cards' }, quickCards),
-    listEl,
-    h('p', { class: 'small muted', style: 'margin-top:10px' }, '안전선: 스마트폰 미러링·조작에서도 잠금 해제·결제·송금·카톡/문자 실제 전송은 대표님 승인 없이 차단됩니다.'));
+    listEl);
 }
 
 function healthPanel() {
   const H = S.health || {};
   const td = H.today || {};
   const stats = [
-    H.score != null ? `컨디션 ${H.score}점 (${H.levelLabel})` : '아직 기록 없음',
+    H.score != null ? `컨디션 ${H.score}점 (${H.levelLabel})` : '기록 없음',
     typeof td.steps === 'number' ? `걸음 ${td.steps.toLocaleString('ko-KR')}보` : '',
     typeof td.sleepHours === 'number' ? `수면 ${td.sleepHours}시간` : '',
     (td.restingHr ?? td.heartRate) != null ? `심박 ${td.restingHr ?? td.heartRate}bpm` : '',
     typeof td.exerciseMin === 'number' ? `운동 ${td.exerciseMin}분` : '',
   ].filter(Boolean).join(' · ');
   return h('section', { class: 'sec' },
-    secHead('대표 헬스 · 컨디션 연동 (Apple Health · Health Connect)', '아이폰 단축어나 안드로이드 Health Connect로 심박·걸음·수면을 받아 대시보드와 AI 위임을 최적화합니다'),
+    secHead('대표 헬스'),
     h('div', { class: 'lan' },
       h('div', { class: 'row', style: 'justify-content:space-between;flex-wrap:wrap;gap:10px' },
-        h('div', null,
-          h('div', { style: 'font-weight:600;font-size:14px' }, stats),
-          h('div', { class: 'small muted', style: 'margin-top:3px' }, H.advice || '건강 기록은 이 컴퓨터에만 저장되며 외부 공유·청사진·AI 프롬프트로 나가지 않아요.')),
+        h('div', { style: 'font-weight:600;font-size:14px' }, stats),
         h('div', { class: 'row' },
           h('button', { type: 'button', class: 'btn sm', onclick: openHealthLogModal }, '5초 기록'),
-          h('button', { type: 'button', class: 'btn sm dark', onclick: openHealthConnectModal }, '아이폰 · 안드로이드 연동 가이드')))));
+          h('button', { type: 'button', class: 'btn sm dark', onclick: openHealthConnectModal }, '연동 설정')))));
 }
 
 // 내가 쓰는 오픈소스 도구 — 이 컴퓨터에서 찾은 것부터 원클릭 켜기/끄기
@@ -8330,24 +8289,24 @@ function ossPanel() {
     const on = Boolean(existing && existing.status !== '꺼짐');
     const mainBtn = h('button', {
       type: 'button', class: `tool-card${on ? ' on' : ''}`, 'aria-pressed': on ? 'true' : 'false',
+      title: o.hint || '',
       onclick: () => once(`oss-${o.key}`, () => existing
         ? act('DELETE', `/api/ui/resources/${existing.id}`, undefined, `${o.name}을 뺐어요`)
         : act('POST', '/api/ui/resources', { kind: '오픈소스', name: o.name, preset: o.key, when: o.when, command: o.command, repo: o.repo || '', skillPath: o.skillPath, note: o.hint }, `${o.name}을 도구함에 넣었어요`)),
     },
     h('div', { class: 'top' }, h('b', null, existing ? existing.name : o.name),
-      on ? h('span', { class: 'tag solid' }, '사용 중') : o.found ? h('span', { class: 'tag' }, '이 컴퓨터에 있음') : o.command && /^npx\b/i.test(o.command) ? h('span', { class: 'tag' }, 'npx') : null),
-    h('span', { class: 'small muted', style: on ? 'padding-bottom:18px' : '' }, existing?.command && existing.command !== o.command ? `${existing.command} · ${existing.when || o.hint}` : o.hint));
+      on ? h('span', { class: 'tag solid' }, '사용 중') : o.found ? h('span', { class: 'tag' }, '설치됨') : o.command && /^npx\b/i.test(o.command) ? h('span', { class: 'tag' }, 'npx') : null));
     if (!on || !existing) return mainBtn;
     return h('div', { class: 'tool-card-wrap' }, mainBtn,
       h('button', { type: 'button', class: 'tool-card-edit', onclick: (ev) => { ev.stopPropagation(); openEditOss(existing); } }, '편집'));
   });
   const custom = saved.filter((r) => !detected.some((o) => o.key === r.preset || o.name.toLowerCase() === r.name.toLowerCase()));
-  return h('section', { class: 'sec' }, secHead('내가 쓰는 오픈소스 도구', '켜 두거나 GitHub·npx로 추가하면, 프롬프트에 이름만 써도 AI가 정확히 꺼내 씁니다', h('button', { class: 'btn sm', onclick: openAddOss }, '+ GitHub / npx 추가')),
+  return h('section', { class: 'sec' }, secHead('오픈소스 도구', '', h('button', { class: 'btn sm', onclick: openAddOss }, '+ 추가')),
     h('div', { class: 'tool-cards' }, cards,
       custom.map((r) => h('button', {
-        type: 'button', class: 'tool-card on',
+        type: 'button', class: 'tool-card on', title: r.command || r.note || '',
         onclick: () => openEditOss(r),
-      }, h('div', { class: 'top' }, h('b', null, r.name), h('span', { class: 'tag solid' }, r.command && /^npx\b/i.test(r.command) ? 'npx · 편집' : '편집')), h('span', { class: 'small muted' }, [r.command, r.when || r.note].filter(Boolean).join(' · ') || '직접 추가')))));
+      }, h('div', { class: 'top' }, h('b', null, r.name), h('span', { class: 'tag solid' }, '편집'))))));
 }
 
 // ───────── 연결 계정 · 컴퓨터 유즈 권한 ─────────
@@ -8538,10 +8497,10 @@ function accountCard(r) {
 function accountsPanel() {
   const list = S.data.resources.filter((r) => r.kind === '계정');
   return h('section', { class: 'sec' },
-    secHead('연결 계정 · 자동화 권한', 'Ego Lite 같은 브라우저로 들어갈 계정마다 AI에게 어디까지 허용할지 정합니다', h('button', { class: 'btn sm', onclick: openAddAccount }, '+ 계정 추가')),
+    secHead('연결 계정', '', h('button', { class: 'btn sm', onclick: openAddAccount }, '+ 추가')),
     list.length
       ? h('ul', { class: 'acc-list' }, list.map(accountCard))
-      : h('div', { class: 'empty' }, '아직 연결된 계정이 없어요. YouTube, Instagram 같은 계정을 추가하고 권한을 정해 보세요.'));
+      : h('div', { class: 'empty' }, '연결된 계정 없음'));
 }
 
 // ───────── 통합 내 RAG 허브 (로컬 폴더 · HTTP API · MCP · 웹 지식) ─────────
@@ -8632,36 +8591,33 @@ function openRagModal(existing = null, defaultType = 'folder', prefill = null) {
 
     if (curType === 'folder') {
       dynamicWrap.replaceChildren(
-        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '로컬 폴더 경로 (~ 지원)'), folderIn),
+        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '폴더 경로'), folderIn),
         h('div', { class: 'auto-m-grid2' },
-          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '인덱싱 확장자'), extIn),
+          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '확장자'), extIn),
           h('div', { class: 'auto-m-field', style: 'justify-content:flex-end' },
-            h('label', { class: 'chk-l small' }, ollamaChk, 'Ollama 임베딩 모델 있으면 하이브리드 벡터 검색'))),
-        h('p', { class: 'small muted', style: 'margin:0' }, '시스템 폴더·.env·비밀키는 자동 제외되며, 인덱스는 내 맥 안에만 저장됩니다.'));
+            h('label', { class: 'chk-l small' }, ollamaChk, 'Ollama 벡터 검색'))));
     } else if (curType === 'http') {
       dynamicWrap.replaceChildren(
         h('div', { class: 'auto-m-grid2' },
-          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'RAG API 엔드포인트 URL'), endpointIn),
+          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'API URL'), endpointIn),
           h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '메서드'), methodSel)),
         h('div', { class: 'auto-m-grid2' },
-          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '인증 헤더 (선택)'), authHeaderIn),
-          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '인증 토큰 (로컬 암호 보관 · 비공개)'), authTokenIn)),
-        existing?.hasAuth ? h('label', { class: 'chk-l small' }, clearAuthChk, '저장된 인증 토큰 삭제') : null,
+          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '인증 헤더'), authHeaderIn),
+          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '인증 토큰'), authTokenIn)),
+        existing?.hasAuth ? h('label', { class: 'chk-l small' }, clearAuthChk, '토큰 삭제') : null,
         h('div', { class: 'auto-m-grid2' },
-          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '질문 파라미터 키'), queryFieldIn),
-          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '결과 JSON 경로 (선택)'), resultPathIn)));
+          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '질문 키'), queryFieldIn),
+          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '응답 경로'), resultPathIn)));
     } else if (curType === 'mcp') {
       dynamicWrap.replaceChildren(
         h('div', { class: 'auto-m-grid2' },
-          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'MCP 서버 이름'), mcpServerIn),
-          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '검색 도구 이름 (선택)'), mcpToolIn)),
-        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '실행 명령 · 연결 메모 (선택)'), mcpCmdIn),
-        h('p', { class: 'small muted', style: 'margin:0' }, 'Claude Code · Codex · Antigravity 등에 연결된 MCP RAG 도구를 작업 전 우선 조회하도록 프롬프트에 자동 지시합니다.'));
+          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'MCP 서버'), mcpServerIn),
+          h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '도구 이름'), mcpToolIn)),
+        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '실행 명령'), mcpCmdIn));
     } else {
       dynamicWrap.replaceChildren(
-        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'NotebookLM · Notion · Google Drive 주소 (https://)'), webUrlIn),
-        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'Ego Lite 스페이스 이름 (선택)'), spaceIn),
-        h('p', { class: 'small muted', style: 'margin:0' }, 'Ego Lite에 이미 로그인된 NotebookLM이나 Notion을 브라우저 가능 AI 직원이 직접 열어 근거를 조회합니다.'));
+        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '웹 주소 (https://)'), webUrlIn),
+        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'Ego Lite 스페이스'), spaceIn));
     }
   };
   renderDynamic();
@@ -8712,20 +8668,18 @@ function openRagModal(existing = null, defaultType = 'folder', prefill = null) {
   setDlg(dlg,
     h('div', { class: 'auto-m-top' },
       h('div', { class: 'auto-m-head' },
-        h('span', { class: 'auto-tpl-kicker' }, 'CONNECT AI · UNIFIED RAG HUB'),
-        h('h3', { class: 'auto-m-title-h' }, existing ? `${existing.name} 편집` : '내 RAG 연결하기')),
+        h('h3', { class: 'auto-m-title-h' }, existing ? `${existing.name} 편집` : 'RAG 연결')),
       h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: closeDlg }, '×')),
     h('div', { class: 'auto-m-body' },
-      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'RAG 연결 방식'), typeTabs),
-      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, 'RAG 이름'), nameIn),
-      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '지식 계층 · 공유 범위'), layerPickWrap),
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '연결 방식'), typeTabs),
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '이름'), nameIn),
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '계층'), layerPickWrap),
       dynamicWrap,
-      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '메모 (선택)'), noteIn)),
-    h('div', { class: 'auto-m-foot' },
-      h('span', { class: 'small muted' }, '작업 시작 시 자동 주입 + MCP search_rag 도구 동시 지원 · 청사진 공유 시 비공개 제외'),
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '메모'), noteIn)),
+    h('div', { class: 'auto-m-foot', style: 'justify-content:flex-end' },
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn', onclick: closeDlg }, '취소'),
-        h('button', { type: 'button', class: 'btn dark', onclick: submit }, existing ? '저장' : '연결하기'))));
+        h('button', { type: 'button', class: 'btn dark', onclick: submit }, existing ? '저장' : '연결'))));
   dlg.showModal();
   setTimeout(() => nameIn.focus(), 20);
 }
@@ -8837,26 +8791,18 @@ function ragPanel() {
           testIn,
           h('button', { type: 'button', class: 'btn sm dark', onclick: runTest }, 'RAG 검색 테스트')),
         testResWrap))
-    : h('div', { class: 'rag-starter-grid' }, types.map((t) => {
-      const shortHint = {
-        folder: '옵시디언 · 마크다운 폴더 인덱싱',
-        http: 'FastAPI · Dify · Open WebUI API',
-        mcp: 'QMD · Obsidian · NotebookLM MCP',
-        web: 'Ego Lite 로그인 NotebookLM · Notion',
-      }[t.key] || t.hint;
-      return h('button', {
-        type: 'button', class: 'rag-starter-card',
-        onclick: () => openRagModal(null, t.key),
-      },
-      h('div', { class: 'rag-starter-top' },
-        h('span', { class: `rag-type-pill is-${t.key}` }, ragTypeLabel(t.key)),
-        h('span', { class: 'rag-starter-go' }, '+ 연결')),
-      h('b', { class: 'rag-starter-title' }, t.label),
-      h('span', { class: 'small muted' }, shortHint));
-    }));
+    : h('div', { class: 'rag-starter-grid' }, types.map((t) => h('button', {
+      type: 'button', class: 'rag-starter-card',
+      title: t.hint || '',
+      onclick: () => openRagModal(null, t.key),
+    },
+    h('div', { class: 'rag-starter-top' },
+      h('span', { class: `rag-type-pill is-${t.key}` }, ragTypeLabel(t.key)),
+      h('span', { class: 'rag-starter-go' }, '+ 연결')),
+    h('b', { class: 'rag-starter-title' }, t.label))));
 
   return h('section', { class: 'sec rag-sec' },
-    secHead('내 RAG', '자동 검색 주입 + MCP search_rag',
+    secHead('내 RAG', '',
       h('button', { type: 'button', class: 'btn sm dark', onclick: () => openRagModal() }, '+ RAG 연결')),
     bodyEl);
 }
@@ -8879,13 +8825,7 @@ function openKnowledgeModal(existing = null, prefill = null) {
     emps.map((e) => h('option', { value: e.id, selected: curEmpScope === e.id }, `${shortName(e.id)} 전용`)));
   empScopeSel.addEventListener('change', () => { curEmpScope = empScopeSel.value; });
 
-  const layerHintEl = h('span', { class: 'small muted' });
   const layerPickWrap = h('div', { class: 'kb-layer-pick' });
-  const LAYER_HINTS = {
-    owner: '대표님 원천 노하우 · 브랜드 기준 (AI 수정 불가 · 모든 실행 최우선 참고)',
-    shared: '전체 AI 직원이 서로 소통 · 협업 · 릴레이할 때 함께 참고하고 쌓는 팀 지식',
-    agent: '선택한 AI 직원만 단독으로 참고하는 전문 지식 (타 직원 토큰에 섞이지 않음)',
-  };
   const renderLayerPick = () => {
     const opts = [
       ['owner', '나의 지식 (대표)'],
@@ -8898,14 +8838,13 @@ function openKnowledgeModal(existing = null, prefill = null) {
         onclick: () => { curLayer = k; renderLayerPick(); },
       }, lbl))),
       curLayer === 'agent' && emps.length ? empScopeSel : null);
-    layerHintEl.textContent = LAYER_HINTS[curLayer] || '';
   };
   renderLayerPick();
 
-  const tagsIn = h('input', { class: 'in', value: (existing?.tags || []).join(', '), placeholder: '쉼표로 구분 · 예: 유튜브, 강의, 톤앤매너, 협업', 'aria-label': '태그' });
+  const tagsIn = h('input', { class: 'in', value: (existing?.tags || []).join(', '), placeholder: '태그 (쉼표)', 'aria-label': '태그' });
   const contentIn = h('textarea', {
     class: 'in kb-content-in', rows: 7, 'aria-label': '지식 내용',
-    placeholder: '브랜드 철학, 협업 규칙, AI 직원 전용 작업 공식 등을 자유롭게 적어 주세요.',
+    placeholder: '내용',
   }, existing?.content || prefill?.content || '');
 
   const submit = async () => {
@@ -8932,21 +8871,19 @@ function openKnowledgeModal(existing = null, prefill = null) {
   setDlg(dlg,
     h('div', { class: 'auto-m-top' },
       h('div', { class: 'auto-m-head' },
-        h('span', { class: 'auto-tpl-kicker' }, 'CONNECT AI · KNOWLEDGE BASE'),
-        h('h3', { class: 'auto-m-title-h' }, existing ? '지식 편집' : '새 지식 추가')),
+        h('h3', { class: 'auto-m-title-h' }, existing ? '지식 편집' : '새 지식')),
       h('button', { type: 'button', class: 'auto-m-x', 'aria-label': '닫기', onclick: closeDlg }, '×')),
     h('div', { class: 'auto-m-body' },
-      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '지식 계층'), layerPickWrap, layerHintEl),
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '계층'), layerPickWrap),
       h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '제목'), titleIn),
       h('div', { class: 'auto-m-grid2' },
-        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '카테고리'), catSel),
-        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '자동 매칭 태그 (쉼표 구분)'), tagsIn)),
-      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '내용 (마크다운 · 텍스트)'), contentIn)),
-    h('div', { class: 'auto-m-foot' },
-      h('span', { class: 'small muted' }, '로컬에만 저장 · 청사진 공유 시 비공개 제외'),
+        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '분류'), catSel),
+        h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '태그'), tagsIn)),
+      h('div', { class: 'auto-m-field' }, h('label', { class: 'auto-m-lbl' }, '내용'), contentIn)),
+    h('div', { class: 'auto-m-foot', style: 'justify-content:flex-end' },
       h('div', { class: 'row' },
         h('button', { type: 'button', class: 'btn', onclick: closeDlg }, '취소'),
-        h('button', { type: 'button', class: 'btn dark', onclick: submit }, existing ? '저장 ⌘↵' : '추가 ⌘↵'))));
+        h('button', { type: 'button', class: 'btn dark', onclick: submit }, existing ? '저장' : '추가'))));
   dlg.showModal();
   setTimeout(() => titleIn.focus(), 20);
 }
@@ -9067,7 +9004,7 @@ function knowledgePanel() {
   renderList();
 
   return h('section', { class: 'sec' },
-    secHead('지식 베이스', '나의 지식(대표) · 공용(AI 협업) · AI 직원별',
+    secHead('지식 베이스', '',
       fileIn,
       h('button', { type: 'button', class: 'btn sm', onclick: () => fileIn.click() }, '.md 불러오기'),
       h('button', { type: 'button', class: 'btn sm dark', onclick: () => openKnowledgeModal(null, defaultPrefill()) }, '+ 지식 추가')),
@@ -9121,11 +9058,9 @@ function machinesRoutingPanel() {
 
   return h('section', { class: 'res-route-card', 'aria-label': '작업별 컴퓨터 자원 배분 규칙' },
     h('div', { class: 'res-route-top' },
-      h('div', null,
-        h('h2', { class: 'res-route-h', style: 'margin:0' }, studio
-          ? `${thisMac?.name || '이 맥'} × ${studio.name} 배분`
-          : '작업별 컴퓨터 배분'),
-        h('div', { class: 'small muted', style: 'margin-top:3px' }, studio ? '담당 작업 칩으로 변경 · 과부하 시 자동 우회' : '맥 스튜디오를 추가하면 영상·3D를 자동 분리합니다')),
+      h('h2', { class: 'res-route-h', style: 'margin:0' }, studio
+        ? `${thisMac?.name || '이 맥'} × ${studio.name} 배분`
+        : '작업별 컴퓨터 배분'),
       h('div', { class: 'row', style: 'flex-wrap:wrap' },
         !studio ? h('button', { type: 'button', class: 'btn sm gold', onclick: quickAddStudio }, '+ 맥 스튜디오 추가') : null,
         h('button', { type: 'button', class: 'btn sm dark', onclick: runOptimize }, '⚡ 자동 최적화'))),
@@ -9158,7 +9093,7 @@ function rlDecisionPanel() {
     toast(`DPO 강화학습 데이터 ${res.rows?.length || rl.total}건을 저장했어요`);
   });
   return h('section', { class: 'sec rl-sec' },
-    secHead('대표 의사결정 학습 (RL · DPO)', '승인 · 수정 · 반려를 기억해 자동 반영하고 로컬 파인튜닝 데이터로 축적',
+    secHead('의사결정 학습 (RL · DPO)', '',
       h('button', { type: 'button', class: 'btn sm', disabled: !rl.total, onclick: downloadDpo }, 'DPO JSONL 내보내기')),
     h('div', { class: 'rl-bar-card' },
       h('div', { class: 'rl-kpis' },
@@ -9202,9 +9137,8 @@ function pageResources() {
   const add = () => submitInput(name, 'add-res', (v) => act('POST', '/api/ui/resources', { name: v, kind: kind.value }, '자원을 추가했어요'));
   name.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) add(); });
   return h('div', null,
-    h('div', { class: 'head' }, h('div', null, h('h1', null, h('b', null, '내 자원')),
-      h('div', { class: 'sub' }, '컴퓨터 · 브라우저 · 지식 · RAG')),
-    h('button', { class: 'btn sm', onclick: () => { loadOffice(); loadTools(); toast('새로고침했어요'); } }, '새로고침')),
+    h('div', { class: 'head' }, h('h1', null, h('b', null, '내 자원')),
+      h('button', { class: 'btn sm', onclick: () => { loadOffice(); loadTools(); toast('새로고침했어요'); } }, '새로고침')),
     h('div', { class: 'picker res-main-tabs', role: 'tablist', 'aria-label': '내 자원 탭' }, tabs.map(([k, label]) => h('button', {
       type: 'button', role: 'tab', 'aria-selected': tab === k ? 'true' : 'false',
       class: `chip${tab === k ? ' on' : ''}`, onclick: () => { ui.resTab = k; render(); },
