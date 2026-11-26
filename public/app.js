@@ -1713,6 +1713,8 @@ function openSettingsModal() {
             h('label', { class: 'chk-l small' }, fMsg, '메신저'),
             h('label', { class: 'chk-l small' }, fRev, '매출'))),
         h('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;padding-top:8px' },
+          h('button', { type: 'button', class: 'btn sm', onclick: () => { dlg.className = ''; dlg.close(); location.hash = '#pocket'; } }, '폰 뷰'),
+          h('button', { type: 'button', class: 'btn sm', onclick: () => { dlg.className = ''; dlg.close(); location.hash = '#dashboard'; } }, '대시보드'),
           h('button', { type: 'button', class: 'btn sm', onclick: () => { dlg.className = ''; dlg.close(); openConnectModal(); } }, '도구 연결'),
           h('button', { type: 'button', class: 'btn sm', onclick: async () => { if (confirm('처음 설정을 다시 열까요?')) { dlg.className = ''; dlg.close(); ui.ob = null; await act('PATCH', '/api/ui/settings', { onboarded: false }); } } }, '처음 설정'),
           memCount ? h('button', { type: 'button', class: 'btn sm', onclick: async () => { await act('PATCH', '/api/ui/settings', { resetAssignMemory: true }, '초기화했어요'); openSettingsModal(); } }, `학습 초기화 (${memCount})`) : null))),
@@ -1738,7 +1740,7 @@ function render() {
   ui.lastThread = ui.open;
 }
 
-const NAV = [['home', '오늘 할 일'], ['dashboard', '대시보드'], ['daily', '오토메이션'], ['staff', 'AI 직원'], ['resources', '내 자원']];
+const NAV = [['home', '오늘'], ['daily', '오토메이션'], ['staff', 'AI 직원'], ['resources', '내 자원']];
 function hiddenOn() { return (window.HIDDEN || []).filter((x) => features()[x.flag]); }
 
 function pageFor(route) {
@@ -1855,51 +1857,32 @@ function renderNav() {
     });
     if (quotaChips.length >= 3) break;
   }
-  const quotaRow = quotaChips.length
-    ? h('button', {
-      type: 'button', class: 'side-quota', title: '실시간 멤버십 잔여량 (눌러서 라이브 대시보드 열기)',
-      onclick: () => { location.hash = '#dashboard'; },
-    },
-    h('span', { class: 'sq-lbl' }, '멤버십 남음'),
-    ...quotaChips.map((q) => h('span', { class: `sq-chip${q.hot ? ' is-hot' : q.warn ? ' is-warn' : q.unlimited ? ' is-gold' : ''}`, title: q.title },
-      h('i', { class: 'sq-dot' }),
-      `${q.label} ${q.remainText}${q.resetShort ? ` · ${q.resetShort}` : ''}`)))
-    : null;
-  const ramAvailPct = typeof localH?.ramAvailPct === 'number'
-    ? localH.ramAvailPct
-    : (typeof localH?.ramPct === 'number' ? Math.max(0, 100 - localH.ramPct) : null);
-  const availGB = localH?.availGB ?? S.localTelemetry?.availGB ?? null;
+  const quotaSummaryText = quotaChips.length
+    ? quotaChips.map((q) => `${q.label} ${q.unlimited ? '∞' : q.remainText.replace(' 남음', '')}`).join(' · ')
+    : (workingCnt ? `${workingCnt}명 일하는 중` : `AI 직원 ${d.employees.length}명`);
+  const quotaRow = h('button', {
+    type: 'button',
+    class: `side-quota-mini${workingCnt ? ' is-live' : ''}`,
+    title: '멤버십 잔여 · 대시보드 열기',
+    onclick: () => { location.hash = '#dashboard'; },
+  },
+  h('i', { class: `side-pulse${workingCnt ? ' moving' : ''}` }),
+  h('span', { class: 'sq-mini-txt' }, quotaSummaryText));
   const footNodes = [
-    h('div', { class: 'side-live-line' },
-      h('i', { class: `side-pulse${workingCnt ? ' moving' : ''}` }),
-      workingCnt ? h('b', null, `지금 ${workingCnt}명 일하는 중`) : `AI 직원 ${d.employees.length}명 · 즉시 가동 ${d.employees.filter(isEmpLinkedQuick).length}명`),
-    ramAvailPct !== null
-      ? h('div', { class: 'side-health' },
-        `RAM ${ramAvailPct}% 여유${availGB != null ? ` (${availGB}GB)` : ''} · `,
-        h('b', { class: localH?.level === 'overload' ? 'is-hot-txt' : '' }, localH?.moving ? '가동 중' : healthLabel(localH.level)))
-      : null,
     quotaRow,
-    coolCnt || queueCnt
-      ? h('div', { class: 'side-health' }, [coolCnt ? `토큰 휴식 ${coolCnt}명` : '', queueCnt ? `대기열 ${queueCnt}건` : ''].filter(Boolean).join(' · '))
-      : h('div', null, `알람 ${d.settings.alarmsEnabled ? '켜짐' : '꺼짐'} · 최적화 ${d.settings.autoOptimize !== false ? '켜짐' : '꺼짐'}`),
     h('div', { class: 'row side-foot-acts' },
-      h('button', { type: 'button', class: `btn sm${ui.route === 'pocket' ? ' dark' : ''}`, onclick: () => { location.hash = '#pocket'; } }, '폰 뷰'),
       h('button', { type: 'button', class: 'btn sm', onclick: openSettingsModal }, '설정'),
       h('button', {
         type: 'button', class: `btn sm sound-btn${soundOn ? ' on' : ''}`,
-        title: soundOn ? 'CONNECT AI 효과음 켜짐 (눌러서 끄기)' : '효과음 꺼짐 (눌러서 켜기)',
+        title: soundOn ? '효과음 켜짐 (눌러서 끄기)' : '효과음 꺼짐 (눌러서 켜기)',
         'aria-label': soundOn ? '효과음 끄기' : '효과음 켜기',
         onclick: () => {
           const nextOn = !soundOn;
           SND()?.setEnabled(nextOn);
-          if (nextOn) {
-            SND()?.play('connect', { force: true });
-            pushLiveCard({ kind: 'connect', title: 'CONNECT AI 효과음 켜짐', body: '연결 · 완료 · 자동 인계 · 결재 시 사운드가 울려요', sound: false, duration: 2800 });
-          }
+          if (nextOn) SND()?.play('connect', { force: true });
           renderNav();
         },
       }, soundOn ? '♪ ON' : '♪ OFF')),
-    h('div', { class: 'brand-sign' }, 'CONNECT AI LAB · LIFE × AI OS'),
   ].filter(Boolean);
   document.getElementById('side-foot').replaceChildren(...footNodes);
 }
@@ -1991,32 +1974,25 @@ function taskRow(t, { draggable = true, overdue = false } = {}) {
     overdue && !done ? h('button', { class: 'btn sm', title: '오늘 할 일로 옮기기', onclick: (ev) => { ev.stopPropagation(); act('PATCH', `/api/ui/tasks/${t.id}`, { date: S.today }, '오늘로 옮겼어요'); } }, '오늘로') : null,
     pendAppr ? h('span', { class: 'tag solid', title: '대표 결재 대기 중' }, '결재 대기') : null,
     gated ? h('button', { class: 'btn sm stamp-trig-btn', onclick: (ev) => { ev.stopPropagation(); openStampApprovalModal(t); } }, `${t.gate} 결재 印`) : null,
-    t.gate && t.gateApprovedAt ? h('span', { class: 'seal-mini', title: `대표 낙관 승인 완료 (${stamp(t.gateApprovedAt)})` }, '결재 印') : null,
-    stLen ? h('span', { class: 'tag', title: '팀 협업 워크플로우' }, `${t.stepMode === 'parallel' ? '동시' : '협업'} ${stDone}/${stLen}`) : null,
-    trail.length ? h('span', { class: 'tag', title: trail.map((x) => `${x.fromName} → ${x.toName} (${x.reason})`).join(' / ') }, `인계 ${trail.length}`) : null,
     t.queued && !done ? h('span', { class: 'tag dash', title: t.queueReason || '여유 생기면 자동 시작' }, '대기열') : null,
     workJob || t.status === '진행' || t.status === '막힘'
-      ? h('span', { class: `stat-pill ${workJob ? '진행' : t.status}` }, officeOf(t) && t.status === '진행' ? `${officeOf(t).name}에서 실행 중` : workJob ? '● 일하는 중' : t.status === '막힘' ? '실패 · 막힘' : t.status)
+      ? h('span', { class: `stat-pill ${workJob ? '진행' : t.status}` }, officeOf(t) && t.status === '진행' ? `${officeOf(t).name} 실행 중` : workJob ? '● 일하는 중' : t.status === '막힘' ? '막힘' : t.status)
       : null,
     workJob
       ? h('button', { type: 'button', class: 'btn sm stop-run-btn', title: '실행 중인 AI를 즉시 멈춥니다', onclick: (ev) => { ev.stopPropagation(); stopRunningTask(t.id, workJob.emp); } }, '■ 중단')
       : null,
     quickRun,
-    msgs ? h('span', { class: 'small muted', title: '스레드 메시지' }, `대화 ${msgs}`) : null,
     who);
   const meta = [];
-  if (workJob?.statusLine) meta.push(`진행: ${workJob.statusLine}`);
-  if (t.queued && t.queueReason && !done) meta.push(`대기열: ${t.queueReason}`);
-  if (t.reason) meta.push(thinking ? `${t.reason} · 다시 보는 중` : t.reason);
-  if (t.resource && res(t.resource) && !(t.reason || '').includes(res(t.resource).name)) meta.push(res(t.resource).name);
-  if (t.browser && res(t.browser) && !(t.reason || '').includes(res(t.browser).name)) meta.push(res(t.browser).name);
-  if (t.design && res(t.design) && !(t.reason || '').includes(res(t.design).name)) meta.push(res(t.design).name);
-  for (const tid of t.tools || []) if (res(tid) && !(t.reason || '').includes(res(tid).name)) meta.push(res(tid).name);
-  if (t.routineId) meta.push('매일');
-  if (t.date !== S.today) meta.push(dateK(t.date));
+  if (workJob?.statusLine) meta.push(workJob.statusLine);
+  else if (t.queued && t.queueReason && !done) meta.push(t.queueReason);
+  else if (stLen) meta.push(`${stDone}/${stLen}단계`);
+  else if (t.date !== S.today) meta.push(dateK(t.date));
 
   const toggleOpen = () => { ui.open = open ? null : t.id; ui.picking = null; render(); };
-  const timeText = t.intervalMin ? (t.intervalMin === 60 ? '매1h' : `매${t.intervalMin}분`) : (t.time || '·');
+  const timeText = t.intervalMin
+    ? (t.intervalMin >= 60 && t.intervalMin % 60 === 0 ? `${t.intervalMin / 60}시간` : `${t.intervalMin}분`)
+    : (t.time || '·');
   li.appendChild(h('div', {
     class: 'line', tabindex: '0', role: 'button', 'aria-expanded': open ? 'true' : 'false',
     onclick: (ev) => { if (ev.target.closest('button,input,a')) return; toggleOpen(); },
@@ -2025,7 +2001,7 @@ function taskRow(t, { draggable = true, overdue = false } = {}) {
   draggable ? h('button', { class: 'handle', 'aria-label': '끌어서 순서 바꾸기', title: '끌어서 순서 바꾸기' }, GRIP()) : h('span'),
   chk,
   h('span', { class: `time${t.time || t.intervalMin ? '' : ' none'}` }, timeText),
-  h('div', { class: 'ttl' }, h('span', { class: 't' }, t.title, h('span', { class: 'ttl-chev', 'aria-hidden': 'true' }, open ? '▴' : '▾')), meta.length ? h('span', { class: 'note' }, meta.join(' · ')) : null),
+  h('div', { class: 'ttl' }, h('span', { class: 't' }, t.title), meta.length ? h('span', { class: 'note' }, meta.join(' · ')) : null),
   right));
   if (ui.picking === t.id) {
     li.appendChild(h('div', { class: 'pick-row' }, assigneePicker(t.assignee, (id) => { ui.picking = null; act('PATCH', `/api/ui/tasks/${t.id}`, { assignee: id }, `${shortName(id)}에게 맡겼어요`); })));
@@ -3153,14 +3129,33 @@ function addBar() {
       document.querySelector('[data-k="add-title"]')?.focus();
     }
   };
+  const pickedId = ui.taskPick || 'auto';
+  const pickedLabel = pickedId === 'auto' ? '자동' : pickedId === 'jay' ? '나' : `@${shortName(pickedId)}`;
+  const pickSel = h('select', {
+    class: 'in calm-pick-sel',
+    'aria-label': '담당 선택',
+    title: '담당 직원 선택 (위 사무실에서 캐릭터 클릭 가능)',
+    onchange: (ev) => {
+      ui.taskPick = ev.target.value || 'auto';
+      ui.swarmSelected = ui.taskPick === 'auto' || ui.taskPick === 'jay' ? 'all' : ui.taskPick;
+      render();
+      setTimeout(() => document.querySelector('[data-k="add-title"]')?.focus(), 20);
+    },
+  },
+  h('option', { value: 'auto', selected: pickedId === 'auto' }, '✦ 자동'),
+  h('option', { value: 'jay', selected: pickedId === 'jay' }, '나'),
+  ...S.data.employees.filter((e) => e.id !== 'jay' && shortName(e.id) !== '나').map((e) => h('option', { value: e.id, selected: pickedId === e.id }, shortName(e.id))));
+  title.placeholder = pickedId === 'auto'
+    ? '할 일을 적어 주세요 (위 사무실에서 직원 클릭 가능)'
+    : `${pickedLabel}에게 시킬 일을 적어 주세요`;
   title.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229 && !ui.composing) add(); });
-  return h('div', null,
-    h('div', { class: 'addbar with-delegate' },
-      title, timeWrap,
+  return h('div', { class: 'calm-add-wrap' },
+    h('div', { class: 'addbar calm-add' },
+      title,
+      pickSel,
+      timeWrap,
       h('button', { class: `mic-sm${ui.listening ? ' on' : ''}`, 'aria-label': ui.listening ? '듣기 멈추기' : '말로 적기', 'aria-pressed': ui.listening ? 'true' : 'false', title: '말로 적기', onclick: () => toggleMic(title) }, MIC_SVG()),
-      h('button', { type: 'button', class: 'btn gold big', title: '메인 AI가 알맞은 팀·직원과 메인 컴퓨터에 자동 분할·배분합니다', onclick: runDelegate }, '✦ 자동 배분'),
-      h('button', { class: 'btn dark big', onclick: add }, '추가')),
-    whoBar);
+      h('button', { class: 'btn dark big', onclick: add }, '추가')));
 }
 
 function workBlocks(empId) {
@@ -4548,6 +4543,67 @@ function joseonSwarmPanel() {
     cliMonitorNode || (workingCount ? liveConsoleNode : tickerNode));
 }
 
+function healthPillBtn() {
+  const H = S.health || {};
+  const td = H.today || null;
+  const bpm = td?.heartRate ?? td?.restingHr ?? null;
+  const score = H.score;
+  const connected = Boolean(H.connected && (bpm != null || score != null));
+  const tone = !connected ? 'idle' : H.level === 'best' ? 'best' : H.level === 'good' ? 'good' : H.level === 'caution' ? 'warn' : 'rest';
+  const label = !connected
+    ? '워치 연결'
+    : [bpm != null ? `${bpm} bpm` : '', score != null ? `컨디션 ${score}` : ''].filter(Boolean).join(' · ');
+  return h('button', {
+    type: 'button',
+    class: `hanji-health-pill is-${tone}`,
+    title: connected ? `${H.levelLabel} — 클릭해 애플워치 심박·건강 최적화 보기` : '애플워치 심박·건강 최적화 연결하기',
+    onclick: () => openHealthOverviewModal(),
+  },
+  h('span', { class: 'hh-heart', 'aria-hidden': 'true' }, '♥'),
+  h('span', null, label));
+}
+
+function hanjiMiniOffice() {
+  const d = S.data;
+  if (!d.employees.length) return null;
+  const selEmp = ui.taskPick && ui.taskPick !== 'auto' && ui.taskPick !== 'jay'
+    ? d.employees.find((e) => e.id === ui.taskPick) || null
+    : null;
+  const workingCnt = (S.working || []).length;
+  const pendingGates = (d.tasks || []).filter((t) => t.gate && !t.gateApprovedAt && t.status !== '완료' && t.assignee !== 'jay');
+  const firstGate = pendingGates[0] || null;
+  const stageEl = buildHanokOfficeStage(d.employees, selEmp);
+  stageEl.classList.add('is-hanji');
+  // 밝은 한지 무대 상단에는 이미 외곽 1줄 바가 있으므로 중복 내부 오버레이 바를 숨김
+  const innerTop = stageEl.querySelector('.hanok-stage-top');
+  if (innerTop) innerTop.remove();
+
+  const statusText = workingCnt
+    ? `${workingCnt}명 일하는 중`
+    : `${d.employees.length}명 대기`;
+
+  return h('section', { class: 'hanji-office', 'aria-label': '살아있는 미니 사무실' },
+    h('div', { class: 'hanji-bar' },
+      h('div', { class: 'hanji-bar-l' },
+        h('i', { class: `hanji-live-dot${workingCnt ? ' is-live' : ''}` }),
+        h('span', { class: 'hanji-status' }, statusText),
+        selEmp ? h('button', {
+          type: 'button', class: 'hanji-sel-pill', title: '클릭해 자동 배분으로 되돌리기',
+          onclick: () => { ui.taskPick = 'auto'; ui.swarmSelected = 'all'; render(); },
+        }, `@${shortName(selEmp.id)} ×`) : null),
+      h('div', { class: 'hanji-bar-r' },
+        healthPillBtn(),
+        firstGate ? h('button', {
+          type: 'button', class: 'hanji-gate-pill',
+          onclick: () => openStampApprovalModal(firstGate),
+        }, `결재 ${pendingGates.length}`) : null,
+        h('button', {
+          type: 'button', class: 'hanji-add-emp', title: 'AI 직원 추가', 'aria-label': 'AI 직원 추가',
+          onclick: () => openAddEmployee(),
+        }, '+'))),
+    stageEl);
+}
+
 function pageHome() {
   const d = S.data;
   const day = new Date(`${S.today}T12:00:00`);
@@ -4556,33 +4612,31 @@ function pageHome() {
   const overdue = d.tasks.filter((t) => t.date < S.today && t.status !== '완료').sort((a, b) => a.date.localeCompare(b.date) || sorter(a, b));
   const later = d.tasks.filter((t) => t.date > S.today).sort((a, b) => a.date.localeCompare(b.date) || sorter(a, b)).slice(0, 20);
   const pendingApprs = d.approvals.filter((a) => a.status === '대기');
-  const mine = today.filter((t) => t.assignee === 'jay');
-  const ai = today.filter((t) => t.assignee !== 'jay');
+  const openCount = today.filter((t) => t.status !== '완료').length;
   const ownerLabel = d.owner.name ? `${d.owner.name} 대표님` : '대표님';
-  return h('div', null,
-    h('div', { class: 'head' }, h('div', null,
+  return h('div', { class: 'home-calm' },
+    h('div', { class: 'head home-head-calm' },
       h('h1', null, `${greeting()}, `, h('b', null, ownerLabel)),
-      h('div', { class: 'sub' }, `${day.getMonth() + 1}월 ${day.getDate()}일 (${WD[day.getDay()]}) · 내 일 ${mine.filter((t) => t.status !== '완료').length} · AI 직원 ${ai.filter((t) => t.status !== '완료').length}`)),
-    h('button', { class: 'btn sm', onclick: openDailyReport }, '오늘 리포트')),
-    morningBriefing(today),
-    S.health?.delegateRecommended ? h('div', { class: 'health-banner' },
-      h('div', null, h('span', { class: 'tag solid', style: 'margin-right:8px' }, `${S.health.levelLabel}${S.health.score != null ? ` · ${S.health.score}점` : ''}`), h('span', { class: 'small' }, S.health.advice)),
-      h('button', { type: 'button', class: 'btn link', onclick: () => { location.hash = '#dashboard'; } }, '컨디션 →')) : null,
-    joseonSwarmPanel(),
+      h('span', { class: 'sub' }, `${day.getMonth() + 1}월 ${day.getDate()}일 (${WD[day.getDay()]})`)),
+    S.health?.delegateRecommended ? h('div', { class: 'health-banner calm-hb' },
+      h('span', { class: 'small' }, `♥ ${S.health.levelLabel}${S.health.score != null ? ` (${S.health.score})` : ''} · ${S.health.advice}`),
+      h('button', { type: 'button', class: 'btn link', onclick: openHealthOverviewModal }, '보기')) : null,
+    hanjiMiniOffice(),
     addBar(),
     !d.employees.length ? h('div', { class: 'callout' },
       h('b', null, 'AI 직원을 추가하세요'),
       h('button', { class: 'btn dark', onclick: openAddEmployee }, '+ AI 직원 추가')) : null,
-    pendingApprs.length ? h('section', { class: 'sec' }, secHead('대표 확인 대기', `${pendingApprs.length}건`),
+    pendingApprs.length ? h('section', { class: 'sec' }, secHead('대표 확인', `${pendingApprs.length}건`),
       pendingApprs.map(approvalInlineCard)) : null,
-    overdue.length ? h('section', { class: 'sec' }, secHead('밀린 일', `${overdue.length}건`), taskList(overdue, { draggable: false, overdue: true })) : null,
-    h('section', { class: 'sec' }, secHead('오늘 할 일', `${today.filter((t) => t.status !== '완료').length}건 남음`),
-      today.length ? todayOpenSection(today) : h('div', { class: 'empty' }, '오늘 할 일이 없습니다. 위에 적어 보세요.')),
+    h('section', { class: 'sec' }, secHead('오늘 할 일', openCount ? `${openCount}건` : ''),
+      today.length ? todayOpenSection(today) : h('div', { class: 'empty' }, '오늘 할 일이 없습니다. 위에 한 줄 적어 보세요.')),
+    overdue.length ? h('details', { class: 'clean-fold', 'data-k': 'home-overdue-fold' },
+      h('summary', null, `밀린 일 (${overdue.length}건)`),
+      taskList(overdue, { draggable: false, overdue: true })) : null,
     todayDoneSection(today),
-    later.length ? h('section', { class: 'sec' }, secHead('예정', `${later.length}건`), taskList(later, { draggable: false })) : null,
-    h('details', { class: 'clean-fold', 'data-k': 'home-foot-fold' },
-      h('summary', null, '활동 타임라인 · 최근 대화'),
-      h('div', { class: 'cols home-foot' }, timeline(), recentTalk())));
+    later.length ? h('details', { class: 'clean-fold', 'data-k': 'home-later-fold' },
+      h('summary', null, `예정 (${later.length}건)`),
+      taskList(later, { draggable: false })) : null);
 }
 
 // ───────── 회사 대시보드 (White & Black SVG 라이브 구조도 · 텔레메트리) ─────────
@@ -4846,6 +4900,42 @@ function openHealthLogModal() {
   steps.focus();
 }
 
+function openHealthOverviewModal() {
+  const dlg = document.getElementById('dlg');
+  dlg.className = '';
+  const H = S.health || {};
+  const td = H.today || {};
+  const bpm = td.heartRate ?? td.restingHr ?? null;
+  const trend = Array.isArray(H.trend7) ? H.trend7 : [];
+  const metric = (lbl, val, unit = '') => h('div', { class: 'hov-card' },
+    h('span', { class: 'hov-lbl' }, lbl),
+    h('b', { class: 'hov-val' }, val != null ? `${val}${unit}` : '—'));
+
+  setDlg(dlg,
+    h('div', { class: 'hov-top' },
+      h('div', null,
+        h('h3', { style: 'margin:0' }, '내 건강 · 최적화'),
+        h('div', { class: 'small muted', style: 'margin-top:2px' }, H.lastSyncAt ? `최근 동기화 · ${stamp(H.lastSyncAt)}` : '애플워치 · 아이폰 로컬 전용 (외부 전송 없음)')),
+      H.score != null ? h('span', { class: `hov-score is-${H.level || 'good'}` }, `${H.score}점 · ${H.levelLabel}`) : null),
+    h('div', { class: 'hov-advice' }, H.advice || '애플워치를 연결하면 심박수·HRV·수면 기준으로 AI 업무 배분을 자동 최적화합니다.'),
+    h('div', { class: 'hov-grid' },
+      metric('심박수', bpm, ' bpm'),
+      metric('HRV', td.hrv, ' ms'),
+      metric('수면', td.sleepHours, ' h'),
+      metric('걸음', td.steps != null ? td.steps.toLocaleString('ko-KR') : null, '')),
+    trend.some((x) => x.score != null) ? h('div', { class: 'hov-trend' },
+      trend.map((x) => h('div', { class: 'hov-bar-col', title: `${x.date}${x.score != null ? ` · ${x.score}점` : ''}` },
+        h('div', { class: 'hov-bar-track' },
+          h('div', { class: `hov-bar-fill${x.score != null && x.score >= 80 ? ' is-hi' : ''}`, style: `height:${x.score != null ? Math.max(10, x.score) : 4}%` })),
+        h('span', { class: 'hov-bar-lbl' }, x.label)))) : null,
+    h('div', { class: 'bar', style: 'justify-content:space-between;margin-top:16px' },
+      h('div', { class: 'row', style: 'gap:6px' },
+        h('button', { type: 'button', class: 'btn sm dark', onclick: () => openHealthConnectModal() }, '애플워치 연결'),
+        h('button', { type: 'button', class: 'btn sm', onclick: () => openHealthLogModal() }, '5초 기록')),
+      h('button', { type: 'button', class: 'btn sm', onclick: () => dlg.close() }, '닫기')));
+  dlg.showModal();
+}
+
 function openHealthConnectModal() {
   const dlg = document.getElementById('dlg');
   dlg.className = 'wide';
@@ -4853,13 +4943,13 @@ function openHealthConnectModal() {
   const lanOn = Boolean(S.lanInfo?.enabled);
   const url = H.ingestUrls?.[0] || H.localIngestUrl || 'http://127.0.0.1:8790/api/health/ingest';
   const tok = H.token || '(이 맥 화면에서만 표시)';
-  const sampleJson = JSON.stringify({ steps: 7200, sleepHours: 7.3, restingHr: 62, exerciseMin: 35, source: 'iphone-shortcut' }, null, 2);
+  const sampleJson = JSON.stringify({ heartRate: 68, restingHr: 61, hrv: 54, sleepHours: 7.3, steps: 7200, source: 'apple-watch' }, null, 2);
 
   setDlg(dlg,
-    h('h3', null, '아이폰 · 안드로이드 헬스 자동 연동 (로컬 전용)'),
-    h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '외부 클라우드 서버 없이 집·사무실 와이파이 안에서 내 맥의 CONNECT AI HQ로만 전송됩니다.'),
+    h('h3', null, '애플워치 · 아이폰 헬스 자동 연동 (로컬 전용)'),
+    h('p', { class: 'small muted', style: 'margin:-8px 0 12px' }, '외부 서버 없이 집·사무실 와이파이 안에서 대표님 맥의 HQ로만 전송됩니다.'),
     !lanOn ? h('div', { class: 'callout', style: 'margin:0 0 12px' },
-      h('div', null, h('b', null, '폰에서 전송받으려면 같은 와이파이 수신을 켜 주세요'), h('div', { class: 'small muted' }, '켜면 집·사무실 와이파이의 내 폰에서만 아래 주소로 전송할 수 있어요.')),
+      h('div', null, h('b', null, '1단계: 같은 와이파이 수신 켜기'), h('div', { class: 'small muted' }, '켜면 아이폰/애플워치가 집 와이파이에서 바로 이 맥으로 심박수를 보낼 수 있어요.')),
       h('button', { type: 'button', class: 'btn sm dark', onclick: () => once('lan-health', async () => { await act('POST', '/api/ui/lan', { on: true }, '와이파이 수신을 켰어요'); openHealthConnectModal(); }) }, '와이파이 수신 켜기')) : null,
     h('div', { class: 'health-cred' },
       h('div', { class: 'small muted' }, '로컬 수신 주소 (POST)'),
@@ -4874,30 +4964,28 @@ function openHealthConnectModal() {
           H.token ? h('button', { type: 'button', class: 'btn sm', onclick: () => once('rot-tok', async () => { await act('POST', '/api/ui/health/token', {}, '새 보안 토큰을 발급했어요'); openHealthConnectModal(); }) }, '재발급') : null))),
     h('div', { class: 'grid2', style: 'margin-top:14px' },
       h('div', { class: 'pane-box' },
-        h('b', null, '1. 아이폰 · 애플워치 (Apple Health)'),
+        h('b', null, '방법 A · 아이폰 기본 단축어 (무료 · 워치 원탭)'),
         h('ol', { class: 'guide-ol' },
-          h('li', null, '단축어(Shortcuts) 앱 → 자동화 → 매일 07:30 · 14:00 · 21:00 선택'),
-          h('li', null, '"건강 샘플 찾기"로 오늘 걸음 수 · 수면 · 심박수 · 운동 시간 읽기'),
-          h('li', null, '"URL의 콘텐츠 가져오기" (POST · JSON)로 위 주소와 토큰 헤더 전송'),
-          h('li', null, '또는 Health Auto Export 앱의 REST API Webhook에 위 주소 그대로 입력'))),
+          h('li', null, '아이폰 단축어 앱 → 새 단축어 → "건강 샘플 찾기" (심박수 · 수면 · 걸음)'),
+          h('li', null, '"URL의 콘텐츠 가져오기" (POST · JSON)에 위 주소와 X-AIHQ-Health-Token 입력'),
+          h('li', null, '자동화(아침/점심/저녁) 등록 + "Apple Watch에서 보기" 켜면 워치에서 1탭 즉시 전송'))),
       h('div', { class: 'pane-box' },
-        h('b', null, '2. 안드로이드 · 갤럭시워치 (Health Connect)'),
+        h('b', null, '방법 B · Health Auto Export (백그라운드 자동)'),
         h('ol', { class: 'guide-ol' },
-          h('li', null, '삼성 헬스 설정 → Health Connect 동기화 켜기'),
-          h('li', null, 'MacroDroid 또는 Tasker에서 일일 트리거(아침/저녁) 생성'),
-          h('li', null, 'HTTP POST 요청으로 위 로컬 주소 + X-AIHQ-Health-Token 헤더 전송'),
-          h('li', null, '걸음·수면·심박·운동 중 원하는 숫자만 JSON으로 보내면 자동 합산')))),
+          h('li', null, 'iOS Health Auto Export 앱 → Automations → REST API 추가'),
+          h('li', null, 'URL에 위 로컬 주소, Header에 X-AIHQ-Health-Token 붙여넣기'),
+          h('li', null, '심박수 · 안정시 심박 · HRV · 수면 · 걸음 켜 두면 백그라운드 자동 동기화')))),
     h('div', { style: 'margin-top:12px' },
-      h('div', { class: 'small muted', style: 'margin-bottom:4px' }, '전송 JSON 예시 (원하는 항목만 보내도 됩니다)'),
+      h('div', { class: 'small muted', style: 'margin-bottom:4px' }, '전송 JSON 예시 (심박수 하나만 보내도 바로 반영)'),
       h('pre', { class: 'full', style: 'margin:0' }, sampleJson)),
     h('div', { class: 'bar', style: 'justify-content:space-between' },
       h('button', {
         type: 'button', class: 'btn sm',
         onclick: () => once('test-health', async () => {
-          const r = await act('POST', '/api/ui/health', { steps: 6420, sleepHours: 7.4, restingHr: 63, exerciseMin: 35, energy: 4, source: 'test-sync' }, '테스트 헬스 데이터를 반영했어요');
+          const r = await act('POST', '/api/ui/health', { heartRate: 68, restingHr: 62, hrv: 56, steps: 6420, sleepHours: 7.4, exerciseMin: 35, energy: 4, source: 'apple-watch-test' }, '애플워치 테스트 데이터를 반영했어요');
           if (r) dlg.close();
         }),
-      }, '샘플 데이터로 테스트'),
+      }, '샘플 심박 테스트'),
       h('button', { class: 'btn dark', onclick: () => dlg.close() }, '닫기')));
   dlg.showModal();
 }
@@ -7864,7 +7952,20 @@ function resRow(r) {
       }, wt.label);
     }))) : null;
   const optBar = r.kind === '기계' ? h('details', { class: 'clean-fold sm res-opt-fold', 'data-k': `res-opt-${r.id}` },
-    h('summary', null, `최적화 설정 · RAM 상한 ${r.maxRamPct || 85}%${r.fallbackTo && res(r.fallbackTo) ? ` · 우회 → ${res(r.fallbackTo).name}` : ''}`),
+    h('summary', null, `상세 · 담당 작업${curTags.length ? ` (${curTags.length})` : ''} · RAM ${r.maxRamPct || 85}%`),
+    workTagBar,
+    !r.isThisMac ? h('div', { class: 'row', style: 'margin-top:6px;flex-wrap:wrap' },
+      (() => {
+        const host = h('input', { class: 'in sm', value: r.hostname || '', placeholder: '호스트 또는 IP', 'data-k': `host-${r.id}`, style: 'max-width:170px', 'aria-label': `${r.name} 호스트` });
+        const alias = h('input', { class: 'in sm', value: r.sshAlias || '', placeholder: 'ssh 별칭 (예: mac-studio)', 'data-k': `alias-${r.id}`, style: 'max-width:165px', 'aria-label': `${r.name} ssh 별칭` });
+        const lc = r.lastCheck;
+        return [
+          host, alias,
+          h('button', { class: 'btn sm dark', onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { hostname: host.value.trim(), sshAlias: alias.value.trim() }, '연결 정보를 저장했어요') }, '저장'),
+          h('button', { class: 'btn sm', disabled: !r.hostname && !r.sshAlias, onclick: () => act('POST', `/api/ui/resources/${r.id}/check`, {}, '연결을 확인했어요') }, '확인'),
+          lc ? h('span', { class: 'small muted' }, lc.ok ? '연결됨 ✓' : lc.reason) : null,
+        ];
+      })()) : null,
     h('div', { class: 'opt-row' },
       h('label', { class: 'switch', title: '화면 조작(Computer Use) 허용' },
         h('input', { type: 'checkbox', checked: Boolean(r.computerUse), onchange: (ev) => act('PATCH', `/api/ui/resources/${r.id}`, { computerUse: ev.target.checked }, ev.target.checked ? '화면 조작을 켰어요' : '화면 조작을 껐어요') }),
@@ -7885,20 +7986,11 @@ function resRow(r) {
     h('span', { class: `tag${mh.level === 'overload' ? ' solid' : mh.level === 'busy' ? ' dash' : ''}` }, healthLabel(mh.level))) : null;
 
   if (r.kind === '기계' && r.isThisMac) {
-    extra = h('div', null, ramLine, workTagBar, optBar);
+    extra = h('div', null, ramLine, optBar);
   } else if (r.kind === '기계') {
-    const host = h('input', { class: 'in sm', value: r.hostname || '', placeholder: '호스트 또는 IP', 'data-k': `host-${r.id}`, style: 'max-width:170px', 'aria-label': `${r.name} 호스트` });
-    const lc = r.lastCheck;
-    const alias = h('input', { class: 'in sm', value: r.sshAlias || '', placeholder: 'ssh 별칭 (예: mac-studio)', 'data-k': `alias-${r.id}`, style: 'max-width:165px', 'aria-label': `${r.name} ssh 별칭` });
     const o = (S.offices || []).find((x) => x.id === r.id);
     const oLine = o ? (o.state === 'busy' ? `실행 중 · ${o.title || ''}` : o.state === 'down' ? `미연결 · ${o.reason}` : '연결됨') : null;
-    extra = h('div', null, ramLine, oLine ? h('div', { class: 'small office-line' }, oLine) : null,
-      workTagBar,
-      h('div', { class: 'row', style: 'margin-top:6px;flex-wrap:wrap' }, host, alias,
-        h('button', { class: 'btn sm dark', onclick: () => act('PATCH', `/api/ui/resources/${r.id}`, { hostname: host.value.trim(), sshAlias: alias.value.trim() }, '연결 정보를 저장했어요') }, '저장'),
-        h('button', { class: 'btn sm', disabled: !r.hostname && !r.sshAlias, onclick: () => act('POST', `/api/ui/resources/${r.id}/check`, {}, '연결을 확인했어요') }, '확인'),
-        lc ? h('span', { class: 'small muted' }, lc.ok ? '연결됨 ✓' : lc.reason) : null),
-      optBar);
+    extra = h('div', null, ramLine, oLine ? h('div', { class: 'small office-line' }, oLine) : null, optBar);
   } else if (r.kind === '폴더') {
     extra = h('div', { class: 'small muted mono' }, r.path || '');
   }
@@ -9264,12 +9356,14 @@ function pageResources() {
       class: `chip${tab === k ? ' on' : ''}`, onclick: () => { ui.resTab = k; render(); },
     }, label))),
     tab === 'machines' ? [
-      machinesRoutingPanel(),
       ...genericKinds.map((k) => {
         const list = d.resources.filter((r) => r.kind === k);
-        return list.length ? h('section', { class: 'sec' }, secHead(k === '기계' ? '연결된 컴퓨터 (맥북 · 맥 스튜디오)' : k, `${list.length}개`), h('ul', { class: 'list' }, list.map(resRow))) : null;
+        return list.length ? h('section', { class: 'sec' }, secHead(k === '기계' ? '컴퓨터' : k, `${list.length}개`), h('ul', { class: 'list' }, list.map(resRow))) : null;
       }),
-      h('section', { class: 'sec' }, secHead('컴퓨터 · 멤버십 · 폴더 직접 추가'),
+      h('details', { class: 'clean-fold', 'data-k': 'res-route-fold', style: 'margin-top:12px' },
+        h('summary', null, '컴퓨터 작업 자동 배분 규칙'),
+        machinesRoutingPanel()),
+      h('section', { class: 'sec' }, secHead('직접 추가'),
         h('div', { class: 'addbar slim' }, kind, name, h('button', { class: 'btn dark', onclick: add }, '추가'))),
     ] : null,
     tab === 'web' ? [browserPanel(), accountsPanel()] : null,
