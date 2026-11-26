@@ -173,3 +173,57 @@ test('자동화 직원은 AI 직원의 대체(인계) 후보가 되지 않는다
   assert.ok(!d.employees[0].fallbackTo);
   assert.ok(!d.employees[1].fallbackTo);
 });
+
+test('자동화 직원은 메인 AI 로 지정할 수 없다', async () => {
+  const before = (await request('GET', '/api/state')).json.data.settings.mainAi;
+  assert.notEqual(before, empId);
+  const refused = await ui('PATCH', '/api/ui/settings', { mainAi: empId });
+  assert.equal(refused.status, 400);
+  assert.equal((await request('GET', '/api/state')).json.data.settings.mainAi, before);
+});
+
+test('메인 AI 가 비었거나 자동화 직원으로 잡혀 있으면 시작할 때 AI 직원으로 다시 고른다', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aihq-main-'));
+  const p2 = await freePort();
+  const call = (method, pth, body, headers = {}) => new Promise((resolve, reject) => {
+    const data = body === undefined ? null : JSON.stringify(body);
+    const req = http.request({ host: '127.0.0.1', port: p2, path: pth, method, headers: { ...(data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}), ...headers } }, (res) => {
+      let buf = '';
+      res.on('data', (c) => { buf += c; });
+      res.on('end', () => { let json = null; try { json = JSON.parse(buf); } catch { /* html */ } resolve({ status: res.statusCode, json, headers: res.headers }); });
+    });
+    req.on('error', reject);
+    if (data) req.write(data);
+    req.end();
+  });
+  const boot = async () => {
+    const child = spawn(process.execPath, [path.join(ROOT, 'server.mjs')], {
+      env: { ...process.env, AIHQ_PORT: String(p2), AIHQ_DATA_DIR: path.join(dir, 'data'), AIHQ_WORKSPACES: path.join(dir, 'ws'), AIHQ_AUTOMATIONS: autoFile, AIHQ_DISPATCH: '0', AIHQ_SEED: '' },
+      stdio: 'ignore',
+    });
+    for (let i = 0; i < 100; i++) {
+      try { await call('GET', '/api/state'); break; } catch { await new Promise((r) => setTimeout(r, 100)); }
+    }
+    return child;
+  };
+  const stop = (child) => new Promise((resolve) => { child.once('exit', resolve); child.kill('SIGTERM'); });
+  let child = await boot();
+  try {
+    const page = await call('GET', '/', undefined, { 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' });
+    const ck = String(page.headers['set-cookie'] || '').split(';')[0];
+    const asOwner = (method, pth, body) => call(method, pth, body, { Origin: `http://127.0.0.1:${p2}`, 'X-HQ-UI': '1', Cookie: ck });
+    // 자동 실행인 직원은 자동화 직원 하나뿐이다 (예전에는 이 직원이 메인 AI 로 잡혔다)
+    const bot = (await asOwner('POST', '/api/ui/employees', { name: '리스닝 봇', engine: 'script' })).json.id;
+    await asOwner('PATCH', `/api/ui/employees/${bot}`, { automation: 'listen', runMode: 'auto' });
+    const ai = (await asOwner('POST', '/api/ui/employees', { name: '글쓰기 AI', engine: 'web' })).json.id;
+    await asOwner('PATCH', '/api/ui/settings', { mainAi: null });
+    await stop(child);
+    child = await boot();
+    const s = (await call('GET', '/api/state')).json;
+    assert.equal(s.data.settings.mainAi, ai);
+  } finally {
+    await stop(child);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
