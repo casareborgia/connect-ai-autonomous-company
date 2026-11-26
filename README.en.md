@@ -1,158 +1,186 @@
-# CONNECT AI HQ
+<div align="center">
 
-**AI Autonomous Company · 나의 AI 자율 회사 본사**
+<a href="https://github.com/wonseokjung/connect-ai-autonomous-company">
+  <img src="docs/hero-banner.svg" alt="CONNECT AI HQ v2 — CONNECT AI LAB" width="100%" />
+</a>
 
-CONNECT AI HQ is a routine tool for building an AI autonomous company. Put your AI staff, your offices (computers), your tasks and your daily routines in one place, and it decides who does what on which machine, then runs it every day. People decide and approve; AI works and hands off. The goal is an AI native company run by AI. Free for individuals and teams under 5 people, with the source available.
+<br />
+<br />
 
-Free · Source available · Zero dependencies · Your data stays on your computer · [한국어](README.md)
+<p>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/VERSION-v2.0.0-D4A359?style=flat-square&labelColor=0A0A0C" alt="Version v2.0.0" /></a>
+  <img src="https://img.shields.io/badge/NODE-%3E%3D20-18181B?style=flat-square&labelColor=0A0A0C" alt="Node >=20" />
+  <img src="https://img.shields.io/badge/NPM_DEPS-0-18181B?style=flat-square&labelColor=0A0A0C" alt="Zero npm dependencies" />
+  <img src="https://img.shields.io/badge/TESTS-57%2F57_PASS-10B981?style=flat-square&labelColor=0A0A0C" alt="57/57 Tests Passing" />
+  <a href="https://www.youtube.com/@CONNECT-AI-LAB"><img src="https://img.shields.io/badge/YOUTUBE-%40CONNECT--AI--LAB_127K%2B-D4A359?style=flat-square&labelColor=0A0A0C" alt="YouTube @CONNECT-AI-LAB" /></a>
+  <a href="https://www.instagram.com/aimentorjay"><img src="https://img.shields.io/badge/INSTAGRAM-%40aimentorjay_268K%2B-D4A359?style=flat-square&labelColor=0A0A0C" alt="Instagram @aimentorjay" /></a>
+</p>
 
-![My tasks: every task gets an AI employee and a one-line reason](docs/home.png)
+<p>
+  <a href="README.md">한국어</a> &nbsp;·&nbsp;
+  <strong><a href="README.en.md">English</a></strong> &nbsp;·&nbsp;
+  <a href="#-quick-start">Quick Start</a> &nbsp;·&nbsp;
+  <a href="#-product-tour">Product Tour</a> &nbsp;·&nbsp;
+  <a href="#-key-capabilities">Capabilities</a> &nbsp;·&nbsp;
+  <a href="#-safety--security">Safety</a> &nbsp;·&nbsp;
+  <a href="#-connect-ai-lab--ai-mentor-jay">Brand</a> &nbsp;·&nbsp;
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
-The app's interface is in Korean today.
+<p>
+  <strong>CONNECT AI HQ v2</strong> is a zero-dependency, local-first personal AI company OS by <b>CONNECT AI LAB</b>.<br />
+  Unify <b>your founder condition (life &amp; health)</b>, <b>your AI staff &amp; GitHub skills</b>, <b>scheduled automations &amp; runs</b>, and <b>AI offices (Macs, browsers, smartphones)</b> inside one gallery-grade OS.
+</p>
 
-## Get started
+<sub>Note: The web UI is currently in Korean, with English documentation, CLI, and safety gate support.</sub>
 
-```
+</div>
+
+---
+
+## ⚡ Quick Start
+
+Zero npm dependencies. Zero mandatory API keys. Requires Node 20+.
+
+```bash
+# 1. Launch CONNECT AI HQ locally (opens http://127.0.0.1:8790)
 npx github:wonseokjung/connect-ai-autonomous-company
+
+# 2. Preview or connect all installed vibe-coding tools in one command (.bak backups)
+npx github:wonseokjung/connect-ai-autonomous-company connect --dry-run
+npx github:wonseokjung/connect-ai-autonomous-company connect --yes
+
+# 3. Cleanly disconnect aihq only (preserves 100% of your other MCP servers)
+npx github:wonseokjung/connect-ai-autonomous-company disconnect --yes
 ```
 
-All you need is Node 20 or later. No packages to install, no keys to paste. The HQ starts and `http://127.0.0.1:8790` opens in your browser. Press Ctrl+C in the terminal to stop it.
+> **Auto-detected tools (9)**: `Claude Code` · `Codex` · `Antigravity (agy)` · `Gemini CLI` · `OpenCode` · `Cursor` · `Windsurf` · `Claude Desktop` · `LM Studio` + shared agent skills (`~/.agents/skills/aihq-employee`).
 
-The first time, a one-minute setup asks only five things.
+Try with isolated sample data:
 
-1. **Your name and your company's name**
-2. **AI staff**: AI found on this computer (Claude Code, Codex, Gemini CLI, Ollama, LM Studio) is already checked. Tap any web AI you use (ChatGPT, Claude, Gemini, Perplexity, Grok, Canva AI).
-3. **Offices**: this computer joins as the HQ automatically. Computers listed in `~/.ssh/config` are shown by name only; tap to confirm one as an office (nothing connects yet).
-4. **Quiet hours**: during these hours AI never calls you. Work goes on, and messages and approval requests wait for the morning.
-5. **Connect AI tools**: it asks whether to add the HQ pass (MCP server) and the employee handbook (skill) to each tool it found. Tapping a tool only shows the command; the app never edits your settings.
-
-Then one safety rule: money and publishing stay in your hands.
-
-![One-minute setup: AI found on this computer is pre-checked](docs/start.png)
-
-Your data is a single file, `~/.connect-ai-hq/data/hq.json`, written atomically, with a daily copy kept in `backups/` (last 14). To look around with an example company, use a separate data folder:
-
-```
+```bash
 AIHQ_SEED=example AIHQ_DATA_DIR=./example-data npx github:wonseokjung/connect-ai-autonomous-company
 ```
 
-From a clone of this repository, run `node bin/connect-ai-hq.mjs`.
+---
 
-## Four screens
+## 🖼 Product Tour
 
-| Screen | What it does |
-| --- | --- |
-| **My tasks** | Type a task (or say it) and it picks the assignee and resource with a one-line reason. Tap the chip to reassign, check it off when done, open it for its thread. |
-| **Daily** | Routines become today's tasks every morning, already assigned. Your own routines can ring a Mac notification; AI routines start on time for employees set to auto run. |
-| **My staff** | Role, tools, work manual, salary (subscription cost) and how each employee connects. Quiet hours are at the bottom. |
-| **My resources** | Machines (offices), memberships, accounts and folders. This computer's memory and disk are read live; other machines are checked only when you press the check button. |
+### Today Tasks × Matte Black `LIVE CREW` Hero (`#home`)
+Press Enter to auto-delegate (`✦ 자동 배분`) to connected runnable AI employees with automatic GitHub skill injection (`Remotion`, `Playwright`, `Reverse Business`, etc.) and optimal machine routing.
 
-![My staff](docs/staff.png)
+<img src="docs/home.png" alt="CONNECT AI HQ v2 Home and LIVE CREW Hero" width="100%" />
 
-## How AI employees come in
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/automations.png" alt="2-Tab Automations and Runs" width="100%" />
+      <br />
+      <sub><b>Automations &amp; Runs (<code>#automations</code>)</b> — Clean 2-tab layout, live search &amp; filters, 1-click <code>Run Now</code>, 5 founder/creator templates, <code>+ New Automation</code> modal, and live sidebar 5h quota bar</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/dashboard.png" alt="Live Company Dashboard" width="100%" />
+      <br />
+      <sub><b>Live Dashboard (<code>#dashboard</code>)</b> — Interactive 3-column SVG AI Company Topology, Founder Condition health rings, and live 85% RAM safety cap telemetry</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/staff.png" alt="AI Staff and GitHub Skills" width="100%" />
+      <br />
+      <sub><b>AI Staff &amp; GitHub Skills (<code>#staff</code>)</b> — Manage local CLI, cloud, and on-device AI staff, attach GitHub repos as skills, monitor 5h quotas, and configure automatic fallback chains</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/new-bot.png" alt="New AI Teammate Creator" width="100%" />
+      <br />
+      <sub><b>New AI Teammate Creator</b> — Pick from 21 K-Heritage pixel/3D crew avatars, team, computer, Provider/Model/Thinking effort (<code>Default·Low·Med·High</code>), and 1-click open-source skills</sub>
+    </td>
+  </tr>
+</table>
 
-- **Copy and hand over** (web memberships like ChatGPT, Claude, Gemini): each task has a copy-instructions button and a link to the service. Paste the answer back and it is saved as that employee's result. Nothing to install.
-- **Local AI on this computer** (Ollama, LM Studio): answers right inside the app. Sensitive work goes to local AI.
-- **Claude Code and Codex on this computer**: run once per task in the employee's own folder (`~/.connect-ai-hq/workspaces/<employee>/`), never with permission-skipping flags.
-- **MCP server (the HQ pass)**: see tasks, claim, post, hand off, complete, request approval. There is no tool to approve or to change the staff list.
-- **Skill (the employee handbook)**: `skills/aihq-employee/SKILL.md`, how to work and what never to do.
+---
 
-Connect your tools from the terminal. It asks before each tool, and the default answer is no (it only prints the command).
+## ✨ Key Capabilities
 
-```
-npx github:wonseokjung/connect-ai-autonomous-company connect
-```
+- **Default Agent, Main Computer & Auto-Delegation**: Pick your primary AI and main computer via card UI; press Enter to route work exclusively to connected runnable agents while triggering native macOS alarms for personal reminders.
+- **2-Tab Automations (`Automations | Runs`)**: Schedule daily or interval jobs (`5m–1h`), trigger immediate runs (`Run Now`), start from 5 built-in founder/creator templates, inspect global execution logs, and share privacy-scrubbed **Blueprints**.
+- **Per-Employee GitHub Skills**: Attach any GitHub repo or catalog tool (`Remotion`, `Hyperframes`, `Blender`, `Playwright`, `Firecrawl`, `Reverse Business`) to specific AI employees for automatic task routing, prompt injection, and MCP discovery.
+- **Live 5-Hour Quota Bar & Auto-Failover**: Bounded-tail local JSONL usage scans for Claude & Codex, live sidebar quota pills, automatic 429 cooldowns, backup AI handoff, 180s `hang-watchdog`, macOS `caffeinate`, and 85% RAM backpressure protection.
+- **Founder Condition (Local-Only Health)**: Private ingestion (`POST /api/health/ingest` + token auth) from Apple Health / Android Health Connect with zero external transmission and strict exclusion from prompts, reports, and blueprints.
+- **16-bit K-Heritage Pixel Crew (21 Characters)**: Ships by default with 20 Korean historical pixel teammates + Jay's Samoyed mascot **Somi** (`20×20` animated pixel SVGs with live working/idle states), plus custom nicknames and `Cmd+V` image/GIF uploads.
 
-Or add it yourself (employee IDs are on the My staff screen):
+<div align="center">
+<table>
+  <tr>
+    <td align="center" width="12.5%"><img src="docs/pixel/som.svg" width="76" alt="Somi" /><br /><sub><b>Somi</b><br />Mascot</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/sejong.svg" width="76" alt="King Sejong" /><br /><sub><b>Sejong</b><br />Executive</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/jangyeongsil.svg" width="76" alt="Jang Yeong-sil" /><br /><sub><b>Yeong-sil</b><br />Engineering</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/seonbi.svg" width="76" alt="Seonbi" /><br /><sub><b>Seonbi</b><br />Planning</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/saimdang.svg" width="76" alt="Shin Saimdang" /><br /><sub><b>Saimdang</b><br />Design</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/bobusang.svg" width="76" alt="Bobusang" /><br /><sub><b>Bobusang</b><br />Marketing</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/damo.svg" width="76" alt="Damo" /><br /><sub><b>Damo</b><br />Research · QA</sub></td>
+    <td align="center" width="12.5%"><img src="docs/pixel/heojun.svg" width="76" alt="Heo Jun" /><br /><sub><b>Heo Jun</b><br />Health</sub></td>
+  </tr>
+</table>
+</div>
 
-```
-claude mcp add -s user aihq -e HQ_EMPLOYEE=claudecode -- npx -y github:wonseokjung/connect-ai-autonomous-company mcp
-codex mcp add aihq --env HQ_EMPLOYEE=codex -- npx -y github:wonseokjung/connect-ai-autonomous-company mcp
-```
+---
 
-For Gemini CLI (`~/.gemini/settings.json`) and LM Studio (`~/.lmstudio/mcp.json`), merge this into `mcpServers`:
+## 🔒 Safety & Security
 
-```json
-{
-  "mcpServers": {
-    "aihq": { "command": "npx", "args": ["-y", "github:wonseokjung/connect-ai-autonomous-company", "mcp"], "env": { "HQ_EMPLOYEE": "gemini" } }
-  }
-}
-```
+- **Localhost-only by default (`127.0.0.1`)**: Optional Wi-Fi Pocket View (`#pocket`) requires an explicit toggle and a single-use 6-digit pairing code.
+- **Hard Server-Side Approval Gates**: Payments, uploads, publishing, deletions, and outgoing messages always pause until human approval in the UI. AI agents (CLI & MCP) have zero approval or roster-mutation tools.
+- **Zero Permission-Bypass Flags**: Native headless runners (`claude`, `codex`, `agy`, `gemini`, `opencode`) never use permission-skipping flags and scope allowed tools strictly.
+- **Automated Verification (`npm test`)**: **57 / 57 automated tests** covering 9-tool E2E connect/disconnect, 47 safety gates, routing, RAM 85% & token failover, hang-watchdog & caffeinate, 5h token scanning, health privacy isolation, avatar XSS defense, and blueprint scrubbing.
 
-Scripts and other agents can do the same from the command line:
+---
 
-```
-npx github:wonseokjung/connect-ai-autonomous-company task list --mine codex
-npx github:wonseokjung/connect-ai-autonomous-company task claim t5 --from codex
-npx github:wonseokjung/connect-ai-autonomous-company handoff t5 --from codex --done "compared 3 options" --stuck "checkout page" --why "needs a card payment" --to jay
-npx github:wonseokjung/connect-ai-autonomous-company ask-approval "pay for flights" --from codex --kind 결제 --task t5
-npx github:wonseokjung/connect-ai-autonomous-company hq help
-```
+## ⚙️ Automation staff (run the scripts you already have)
 
-## Automation staff (run the scripts you already have)
+> Added in this fork (casareborgia). Not in upstream.
 
-Scripts you already run on this computer (collect, tidy, report) can be staff too. Then a routine's on/off switch and time, a task's Run button and the safety stop apply to them as well. HQ starts the command at its time; stdout becomes the result in the thread, and the exit code becomes done (0) or stuck (anything else).
+Scripts you already run on this computer (collect, tidy, report) can be staff too. Then an automation's on/off switch and time, a task's Run and Stop buttons and the safety stop apply to them as well. HQ starts the command at its time; stdout becomes the result in the thread, and the exit code becomes done (0) or stuck (anything else).
 
 1. List the commands in `~/.connect-ai-hq/automations.json` next to the data folder (`AIHQ_AUTOMATIONS` overrides the path): `{"automations": [{"id": "listen", "title": "Listening", "command": ["/usr/bin/python3", "/Users/me/tools/listen.py", "daily"], "timeoutMinutes": 20}]}`
 2. `chmod 600` the file (a file other users can write is ignored).
-3. My staff → Edit → set "how to give work" to **Automation**, pick one, save. With **auto run** it starts on its own at the routine's time.
+3. AI staff → Edit → set "how to give work" to **Automation**, pick one, save. With **auto run** it starts on its own at the automation's time.
 
-Rules: only commands in that file run, and neither the UI nor the agent API (CLI, MCP) can change them or attach one to an employee; commands run as an argument array with no shell and an absolute executable path; task titles, notes and threads never reach the command or its environment (the script gets `AIHQ_TASK_ID`, `AIHQ_EMPLOYEE`, `AIHQ_TRIGGERED_BY_HQ=1`); gated tasks (pay, upload, post, delete, send) wait for the owner as usual; one automation per employee, one run at a time, `timeoutMinutes` (default 15, max 180) stops the whole process group.
+Rules: only commands in that file run, and neither the UI nor the agent API (CLI, MCP) can change them or attach one to an employee; commands run as an argument array with no shell and an absolute executable path; task titles, notes and threads never reach the command or its environment (the script gets `AIHQ_TASK_ID`, `AIHQ_EMPLOYEE`, `AIHQ_TRIGGERED_BY_HQ=1`); gated tasks (pay, upload, post, delete, send) wait for the owner like any other; automation staff only run tasks given to them, are never a fallback for an AI employee, and a failed script is not handed to another AI; one automation per employee, one run at a time, and the whole process group is stopped on timeout (`timeoutMinutes`, default 15, max 180) or when the owner presses Stop.
 
-## A thread for every task
+Tests: `node --test qa/automations.test.mjs qa/automation-server.test.mjs`
 
-Each task keeps one thread with every employee's messages, results, work logs (folded to a two-line summary), imported conversations and handoffs (what was done, where it stopped, why). When the assignee changes, the whole thread goes to the next one as quoted data, never as instructions.
+---
 
-## One safety rule
+## 🏆 CONNECT AI LAB × AI Mentor Jay
 
-Any task that involves paying, uploading, publishing, deleting or sending a message stops until you press the button on screen. English phrasing is caught too; nouns and edits such as "card news", "payment module" or "remove the background" are not. AI employees can only request approval. They cannot start a stopped task or mark it done (the server refuses both through the CLI and MCP).
+<div align="center">
 
-## Run in an office
+<a href="https://www.youtube.com/@CONNECT-AI-LAB">
+  <img src="docs/brand-card.svg" alt="CONNECT AI LAB — AI Mentor Jay (Wonseok Jung)" width="100%" />
+</a>
 
-Pick another computer (an office) as a task's resource and a "run in that office" switch appears. The HQ sends only fixed job types over ssh (a text job for the office's local AI, an ffmpeg test clip, a Remotion render, a single Blender frame) and brings the result back. No new ports, task titles never reach the command line, and no sudo. Office jobs live in `~/render-node/`. If an office cannot be reached, it retries after 1, 2, 4 … up to 15 minutes.
+<br />
+<br />
 
-## Muse reader (read only, off by default)
+<p>
+  <a href="https://www.youtube.com/@CONNECT-AI-LAB"><img src="https://img.shields.io/badge/YouTube-CONNECT_AI_LAB_(127K%2B)-0A0A0C?style=for-the-badge&logo=youtube&logoColor=D4A359" alt="YouTube @CONNECT-AI-LAB" /></a>
+  &nbsp;
+  <a href="https://www.instagram.com/aimentorjay"><img src="https://img.shields.io/badge/Instagram-%40aimentorjay_(268K%2B)-0A0A0C?style=for-the-badge&logo=instagram&logoColor=D4A359" alt="Instagram @aimentorjay" /></a>
+  &nbsp;
+  <a href="https://github.com/wonseokjung"><img src="https://img.shields.io/badge/GitHub-%40wonseokjung-0A0A0C?style=for-the-badge&logo=github&logoColor=D4A359" alt="GitHub @wonseokjung" /></a>
+</p>
 
-Turn on the Muse switch under My resources and every 30 minutes the HQ reads new Muse messages in the ego lite browser and files them under a "Muse 대화" task, marked as imported. Choose where to read: this computer or one office. It never clicks, types or sends anything to Muse. Once, you sign in to Muse yourself in ego lite on that computer.
+</div>
 
-## On your phone
+Founded by **Wonseok Jung (AI Mentor Jay)**, **CONNECT AI LAB** builds open-source AI company infrastructure and hands-on education for a community of **400K+ creators, founders, and builders** across YouTube and Instagram.
 
-Turn on "view on a phone on the same Wi-Fi" under My resources (off by default, never on the internet). The first time, type the 6-digit code shown on the computer (10 minutes, single use) into the phone.
+---
 
-<img src="docs/phone.png" alt="Phone view" width="320">
+## 📄 License
 
-## Environment variables (all optional)
+Free · Source Available (Fair-Code). Individuals and organizations with fewer than 5 people may use and modify it internally at no cost. Organizations with 5 or more people, resale, hosted services, and paid courses built with it require permission from **CONNECT AI LAB**. See [LICENSE.md](LICENSE.md) (Korean: [LICENSE.ko.md](LICENSE.ko.md)).
 
-| Name | Use |
-| --- | --- |
-| AIHQ_PORT | Default 8790 (same as `--port`) |
-| AIHQ_DATA_DIR, AIHQ_WORKSPACES | Data folder and AI work folders (default `~/.connect-ai-hq/`) |
-| AIHQ_SEED | `example` starts with an example company when there is no data file |
-| AIHQ_URL | HQ address used by the CLI and MCP server |
-| AIHQ_LLM_MODEL | Ollama model used for assignment (picked automatically, rules when no model) |
-| AIHQ_OLLAMA_URL, AIHQ_LMSTUDIO_URL | Local model addresses |
-| AIHQ_CLAUDE_BIN, AIHQ_CODEX_BIN, AIHQ_GEMINI_BIN | Executable paths (found on PATH otherwise) |
-| AIHQ_NO_OPEN | `1` does not open the browser (same as `--no-open`) |
-| AIHQ_DISPATCH | `0` turns off office dispatch, the Muse reader and model checks (for tests) |
-
-## Security
-
-- Bound to `127.0.0.1`. Only the phone switch opens a Wi-Fi address, and without the cookie from the pairing code it shows the pairing screen only. Cross-site requests and unknown host names are refused.
-- Human requests must pass a same-origin check, a UI-only header and an HttpOnly session cookie. AI requests (CLI, MCP) cannot approve or change the staff list.
-- Text written by AI is shown as data and never executed. Passwords and keys are never stored on screen or in files.
-- This protects browser sessions. It is not a defence against malware already running on your computer.
-
-## Tests
-
-```
-npm test
-```
-
-Covers the safety stop, assignment, the office job whitelist, model stamps, the Muse reader (fake pages and where to read), AI tool connect commands and quiet hours. Built and tested on macOS.
-
-## License
-
-Free · Source available (fair-code). Individuals and organizations with fewer than 5 people may use and modify it for their own internal use at no cost. Organizations with 5 or more people, resale, hosted services and paid courses built with it need permission from CONNECT AI LAB. The names and logos belong to CONNECT AI LAB. See [LICENSE.md](LICENSE.md) (Korean: [LICENSE.ko.md](LICENSE.ko.md)).
-
-CONNECT AI LAB · AI education for everyone
+<div align="center">
+  <br />
+  <sub><strong>CONNECT AI LAB</strong> · Designed &amp; Engineered by <b>Wonseok Jung (AI Mentor Jay)</b> · Life × AI Operating System</sub>
+</div>

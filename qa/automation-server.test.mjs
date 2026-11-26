@@ -18,6 +18,7 @@ const autoFile = path.join(tmp, 'automations.json');
 fs.writeFileSync(autoFile, JSON.stringify({ automations: [
   { id: 'listen', title: '리스닝', command: [script('ok.sh', 'echo "수집 3건 (할 일 $AIHQ_TASK_ID)"')] },
   { id: 'broken', title: '고장', command: [script('fail.sh', 'echo "로그인 풀림" >&2; exit 4')] },
+  { id: 'slow', title: '느림', command: [script('slow.sh', 'sleep 30')] },
 ] }), { mode: 0o600 });
 
 let port; let server; let cookie = '';
@@ -71,7 +72,7 @@ let empId;
 
 test('화면에 등록된 자동화 목록이 나온다 (명령은 내보내지 않는다)', async () => {
   const s = (await request('GET', '/api/state')).json;
-  assert.deepEqual(s.automations.list, [{ id: 'listen', title: '리스닝' }, { id: 'broken', title: '고장' }]);
+  assert.deepEqual(s.automations.list, [{ id: 'listen', title: '리스닝' }, { id: 'broken', title: '고장' }, { id: 'slow', title: '느림' }]);
   assert.ok(s.options.engines.includes('script'));
   assert.ok(!JSON.stringify(s.automations).includes('ok.sh'));
 });
@@ -138,4 +139,37 @@ test('실행이 꺼진 직원은 돌지 않는다', async () => {
   await ui('PATCH', `/api/ui/employees/${empId}`, { automation: 'listen', runMode: 'off' });
   const t = (await ui('POST', '/api/ui/tasks', { title: '꺼 둔 일', assignee: empId })).json;
   assert.equal((await ui('POST', `/api/ui/tasks/${t.id}/run`, {})).status, 403);
+});
+
+test('실행 중인 자동화를 대표가 중단하면 멈추고 할 일은 대기로 돌아간다', async () => {
+  await ui('PATCH', `/api/ui/employees/${empId}`, { automation: 'slow', runMode: 'manual' });
+  const t = (await ui('POST', '/api/ui/tasks', { title: '오래 걸리는 수집', assignee: empId })).json;
+  assert.equal((await ui('POST', `/api/ui/tasks/${t.id}/run`, {})).status, 200);
+  await waitStatus(t.id, ['진행']);
+  const stop = await ui('POST', `/api/ui/tasks/${t.id}/stop`, {});
+  assert.equal(stop.status, 200);
+  assert.equal(stop.json.emp, empId);
+  const after = await waitStatus(t.id, ['대기']);
+  assert.equal(after.thread.some((m) => m.kind === 'result'), false);
+  // 멈춘 뒤에는 직원이 비어서 다시 시킬 수 있다
+  for (let i = 0; i < 50; i++) {
+    const s = (await request('GET', '/api/state')).json;
+    if (!(s.working || []).some((w) => w.emp === empId)) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  await ui('PATCH', `/api/ui/employees/${empId}`, { automation: 'listen' });
+  assert.equal((await ui('POST', `/api/ui/tasks/${t.id}/run`, {})).status, 200);
+  assert.equal((await waitStatus(t.id, ['완료', '막힘'])).status, '완료');
+});
+
+test('자동화 직원은 AI 직원의 대체(인계) 후보가 되지 않는다', async () => {
+  const { pickFallbackEmployee, autoWireEmployeeFallbacks } = await import('../lib/optimizer.mjs');
+  const d = { employees: [
+    { id: 'ai', name: 'AI', engine: 'claude', runMode: 'auto' },
+    { id: 'bot', name: '봇', engine: 'script', runMode: 'auto', automation: 'listen' },
+  ] };
+  assert.equal(pickFallbackEmployee(d, 'ai', { task: { title: '글쓰기' }, requireRunnable: false }), null);
+  autoWireEmployeeFallbacks(d);
+  assert.ok(!d.employees[0].fallbackTo);
+  assert.ok(!d.employees[1].fallbackTo);
 });

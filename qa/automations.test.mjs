@@ -144,6 +144,20 @@ test('시간이 넘으면 하위 프로세스까지 멈추고 바로 알린다',
   assert.ok(Date.now() - t0 < 5000, '스크립트가 띄운 sleep 이 끝나기를 기다리지 않는다');
 });
 
+test('대표가 중단하면(signal) 하위 프로세스까지 멈추고 aborted 로 알린다', async () => {
+  const slow = script('slow-abort.sh', 'sleep 30');
+  const ctrl = new AbortController();
+  const t0 = Date.now();
+  setTimeout(() => ctrl.abort(), 200);
+  const r = await runAutomation({ id: 's', command: [slow], timeoutMinutes: 1 }, { env: process.env, signal: ctrl.signal });
+  assert.equal(r.aborted, true);
+  assert.equal(r.timedOut, false);
+  assert.ok(Date.now() - t0 < 5000);
+  // 이미 끊긴 신호로는 아예 시작하지 않는다
+  const r2 = await runAutomation({ id: 's', command: [slow], timeoutMinutes: 1 }, { env: process.env, signal: ctrl.signal });
+  assert.equal(r2.aborted, true);
+});
+
 test('실행 파일이 사라졌으면 예외 대신 실패 결과', async () => {
   const r = await runAutomation({ id: 'g', command: [path.join(tmp, 'gone.sh')], timeoutMinutes: 1 }, { env: process.env });
   assert.notEqual(r.code, 0);

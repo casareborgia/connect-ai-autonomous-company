@@ -1,7 +1,7 @@
 {
   "name": "connect-ai-hq",
-  "version": "0.1.0",
-  "description": "AI Autonomous Company · 나의 AI 자율 회사 본사. A routine tool for building an AI autonomous company: AI staff, offices, tasks and daily routines in one local HQ.",
+  "version": "2.0.0",
+  "description": "CONNECT AI HQ v2 · 인공지능 시대, 당신의 삶과 AI 일을 함께 최적화하는 나만의 AI 자율 회사 본사. Optimize your life, health, AI staff, and AI offices in one local OS.",
   "type": "module",
   "bin": {
     "connect-ai-hq": "bin/connect-ai-hq.mjs"
@@ -16,6 +16,7 @@
     "skills/",
     "README.md",
     "README.en.md",
+    "CHANGELOG.md",
     "LICENSE.md",
     "LICENSE.ko.md"
   ],
@@ -29,10 +30,14 @@
   "keywords": [
     "ai-agents",
     "autonomous-company",
+    "ai-life-os",
     "mcp",
     "routines",
     "claude-code",
     "codex",
+    "antigravity",
+    "opencode",
+    "cursor",
     "ollama"
   ],
   "license": "SEE LICENSE IN LICENSE.md",
