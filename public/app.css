@@ -3753,44 +3753,22 @@ dialog.stamp-dlg::backdrop { background: rgba(10, 10, 12, 0.56); backdrop-filter
 
 .hanok-stage.is-hanji {
   margin: 0;
-  min-height: 185px;
-  max-height: 215px;
-  aspect-ratio: 1280 / 340;
+  min-height: 215px;
+  max-height: 255px;
+  aspect-ratio: 1280 / 430;
   border-radius: 12px;
-  border: 1px solid #e6dfd0;
-  box-shadow: none;
-  background:
-    linear-gradient(180deg, rgba(250, 247, 240, 0.25) 0%, rgba(246, 241, 230, 0.08) 62%, rgba(226, 214, 194, 0.42) 62%, rgba(215, 200, 176, 0.52) 100%),
-    repeating-linear-gradient(90deg, transparent 0, transparent 74px, rgba(164, 144, 114, 0.16) 74px, rgba(164, 144, 114, 0.16) 76px),
-    repeating-linear-gradient(180deg, transparent 0, transparent 42px, rgba(164, 144, 114, 0.14) 42px, rgba(164, 144, 114, 0.14) 44px),
-    linear-gradient(180deg, #fcfaf5 0%, #f5efe3 62%, #e9decb 62%, #dfd1b8 100%);
+  border: 1px solid #dfd7c6;
+  box-shadow: inset 0 0 24px rgba(5, 7, 12, 0.32);
+  background: #0c101b url('/assets/jiphyeonjeon-office.jpg') center 92% / cover no-repeat;
 }
 .hanok-stage.is-hanji::after {
-  background: linear-gradient(180deg, rgba(139, 114, 80, 0.14) 0, rgba(139, 114, 80, 0.14) 6px, transparent 6px, transparent 61%, rgba(139, 114, 80, 0.22) 61%, rgba(139, 114, 80, 0.22) 63%, transparent 63%);
-}
-.hanok-stage.is-hanji .hanok-lantern-glow,
-.hanok-stage.is-hanji .hanok-desk-glow { display: none; }
-.hanok-stage.is-hanji .hanok-shadow { background: rgba(68, 53, 34, 0.18); }
-.hanok-stage.is-hanji .hanok-name {
-  background: rgba(255, 255, 255, 0.92);
-  color: #1c1917;
-  border: 1px solid #dfd7c8;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  text-shadow: none;
+  background: linear-gradient(180deg, rgba(8, 10, 18, 0.16) 0%, transparent 22%, transparent 78%, rgba(8, 10, 18, 0.42) 100%);
 }
 .hanok-stage.is-hanji .hanok-actor.is-sel .hanok-name {
-  background: #0a0a0c;
-  color: #f9ebc8;
-  border-color: #d4a359;
+  background: #d4a359;
+  color: #0a0a0c;
+  border-color: #f9ebc8;
 }
-.hanok-stage.is-hanji .hanok-bubble {
-  background: #ffffff;
-  color: #1c1917;
-  border: 1px solid #dfd7c8;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
-}
-.hanok-stage.is-hanji .hanok-bubble.is-live { border-color: #d4a359; background: #fffbf0; color: #7c5412; }
-.hanok-stage.is-hanji .hanok-bubble.is-seal { background: #b42318; color: #fff; border-color: #b42318; }
 
 .calm-add-wrap { margin-bottom: 14px; }
 .addbar.calm-add { grid-template-columns: 1fr 116px 124px 44px auto; gap: 7px; }
