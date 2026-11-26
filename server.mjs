@@ -214,9 +214,11 @@ function migrate(d) {
     if (!d.groups.some((g) => g.id === e.group)) e.group = d.groups[0].id;
   }
   // 메인 두뇌 AI (Coordinator) · 메인 본사 컴퓨터 기본값 보정
-  if (d.settings.mainAi && !d.employees.some((e) => e.id === d.settings.mainAi)) d.settings.mainAi = null;
+  // 자동화 직원(engine "script")은 등록된 명령만 돌리므로 메인 AI 가 될 수 없다. 잘못 잡혀 있으면 다시 고른다.
+  if (d.settings.mainAi && !d.employees.some((e) => e.id === d.settings.mainAi && e.engine !== 'script')) d.settings.mainAi = null;
   if (!d.settings.mainAi && d.employees.length) {
-    const best = d.employees.find((e) => e.runMode === 'auto') || d.employees.find((e) => CLI_ENGINES.includes(e.engine)) || d.employees[0];
+    const ais = d.employees.filter((e) => e.engine !== 'script');
+    const best = ais.find((e) => e.runMode === 'auto') || ais.find((e) => CLI_ENGINES.includes(e.engine)) || ais[0];
     d.settings.mainAi = best?.id || null;
   }
   const activeMachines = d.resources.filter((r) => r.kind === '기계' && r.status !== '꺼짐');
@@ -4340,7 +4342,8 @@ route('POST', '/api/ui/coordinator/delegate', async ({ body }) => {
   const t = await store.mutate((d) => {
     if (!d.employees.length) throw new HttpError(400, '먼저 배분할 AI 직원을 1명 이상 추가해 주세요.');
     const mainEmp = (d.settings?.mainAi && d.employees.find((e) => e.id === d.settings.mainAi))
-      || d.employees.find((e) => e.runMode === 'auto')
+      || d.employees.find((e) => e.runMode === 'auto' && e.engine !== 'script')
+      || d.employees.find((e) => e.engine !== 'script')
       || d.employees[0];
     const mainRes = (d.settings?.mainMachine && d.resources.find((r) => r.id === d.settings.mainMachine && r.kind === '기계'))
       || d.resources.find((r) => r.kind === '기계' && r.isThisMac)
@@ -4926,6 +4929,7 @@ route('PATCH', '/api/ui/settings', async ({ body }) => store.mutate((d) => {
   }
   if (body.mainAi !== undefined) {
     if (!body.mainAi) d.settings.mainAi = null;
+    else if (d.employees.some((e) => e.id === body.mainAi && e.engine === 'script')) throw new HttpError(400, '자동화 직원은 메인 AI 로 지정할 수 없습니다 (등록된 명령만 실행합니다).');
     else if (d.employees.some((e) => e.id === body.mainAi)) d.settings.mainAi = body.mainAi;
     else throw new HttpError(400, '선택한 메인 AI 직원을 찾을 수 없어요.');
   }
